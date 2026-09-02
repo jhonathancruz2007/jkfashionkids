@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENTE
+  ADMIN
+}
+
+enum StatusPedido {
+  PENDENTE
+  PAGO
+  ENVIADO
+  ENTREGUE
+  CANCELADO
+}
+
+model Cliente {
+  id          String     @id @default(uuid())
+  nome        String
+  email       String     @unique
+  senha       String
+  telefone    String?    // Telefone / WhatsApp
+  cep         String?    // CEP
+  rua         String?    // Logradouro / Rua
+  numero      String?    // Número da residência
+  complemento String?    // Complemento
+  bairro      String?    // Bairro
+  cidade      String?    // Cidade
+  estado      String?    // Estado (UF)
+  role        Role       @default(CLIENTE)
+  pedidos     Pedido[]
+  carrinho    Carrinho?
+  favoritos   Favorito[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Categoria {
+  nome      String    @id // O nome passa a ser a chave primária
+  produtos  Produto[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Tamanho {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Produto {
+  id                String         @id @default(uuid())
+  nome              String
+  descricao         String
+  preco             Float
+  precoPromocional  Float?
+  imagemUrl         String
+  imagens           String[]
+  estoque           Int            @default(0)
+  tamanhos          String[]       @default([])
+  estoquePorTamanho Json?          // Armazena o estoque detalhado por cada tamanho em formato JSON
+  genero            String?        @default("masculino") // Gênero do produto (masculino/feminino)
+  faixaEtaria       String?        @default("INFANTIL")  // 🟢 Adicionado para corresponder ao painel
+  ativo             Boolean        @default(true)
+  localCard         String?        @default("HOME_DESTAQUE") // Define a localização do card na loja
+  categoriaNome     String?
+  categoria         Categoria?     @relation(fields: [categoriaNome], references: [nome], onDelete: SetNull, onUpdate: Cascade)
+  itensPedido       ItemPedido[]
+  itensCarrinho     ItemCarrinho[]
+  favoritos         Favorito[]
+  avisosEstoque     AvisoEstoque[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model AvisoEstoque {
+  id        String   @id @default(uuid())
+  produtoId String
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  tamanho   String
+  email     String
+  telefone  String?
+  notificado Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([produtoId, tamanho, email])
+}
+
+model Pedido {
+  id              String       @id @default(uuid())
+  total           Float
+  status          StatusPedido @default(PENDENTE)
+  metodoPagamento String?
+  clienteId       String
+  cliente         Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  itens           ItemPedido[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model ItemPedido {
+  id            String   @id @default(uuid())
+  quantidade    Int
+  precoUnitario Float
+  tamanho       String?
+  pedidoId      String
+  pedido        Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId     String
+  produto       Produto  @relation(fields: [produtoId], references: [id], onDelete: Restrict)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Carrinho {
+  id        String         @id @default(uuid())
+  clienteId String         @unique
+  cliente   Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  itens     ItemCarrinho[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model ItemCarrinho {
+  id         String   @id @default(uuid())
+  carrinhoId String
+  carrinho   Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  tamanho    String
+  quantidade Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Favorito {
+  id        String   @id @default(uuid())
+  clienteId String
+  produtoId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([clienteId, produtoId])
+}

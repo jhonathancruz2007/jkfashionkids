@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-display: "Fredoka", sans-serif;
+  --font-body: "Nunito", sans-serif;
+
+  /* Paleta Midnight Neon - JK Fashion Kids */
+  --color-bg-dark: #020617;       /* slate-950 (Fundo Principal) */
+  --color-surface-dark: #0f172a;  /* slate-900 (Cards & Containers) */
+  --color-surface-border: #1e293b;/* slate-800 (Bordas) */
+
+  /* Cores de Acento Néon */
+  --color-neon-pink: #ec4899;     /* pink-500 */
+  --color-neon-cyan: #06b6d4;     /* cyan-500 */
+  --color-neon-indigo: #6366f1;   /* indigo-500 */
+  --color-neon-sun: #f59e0b;      /* amber-500 */
+
+  /* Mapeamento retrocompatível (mantendo as chaves originais) */
+  --color-cream: #020617;
+  --color-ink: #f8fafc;
+  --color-berry: #f43f5e;
+  --color-sky: #38bdf8;
+  --color-sun: #fbbf24;
+}
+
+/* Configurações Globais de Estilo Base */
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-bg-dark);
+    color: #f8fafc;
+    font-family: var(--font-body);
+  }
+
+  body {
+    background-color: var(--color-bg-dark);
+    color: #f8fafc;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Destaque ao selecionar texto */
+  ::selection {
+    background-color: #2563eb;
+    color: #ffff;
+  }
+
+  /* Barra de Rolagem Personalizada Escura */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #020617;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+    border: 2px solid #020617;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #ec4899;
+  }
+}
+
+/* Respeita preferência do usuário por menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
