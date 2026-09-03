@@ -14,14 +14,12 @@ async function getClienteLogado() {
 
     const tokenLimpio = token.trim();
 
-    // Se o cookie tiver um e-mail armazenado
     if (tokenLimpio.includes("@")) {
       return await prisma.cliente.findUnique({
         where: { email: tokenLimpio },
       });
     }
 
-    // Se o cookie tiver o ID (UUID)
     return await prisma.cliente.findUnique({
       where: { id: tokenLimpio },
     });
@@ -31,14 +29,13 @@ async function getClienteLogado() {
   }
 }
 
-// Extrai e valida a String do ID do produto
 function parseProdutoId(id: any): string | null {
   if (!id) return null;
   const strId = String(id).trim();
   return strId.length > 0 ? strId : null;
 }
 
-// 🟢 GET: Retorna a lista de favoritos do cliente logado
+// 🟢 GET: Retorna os favoritos do cliente
 export async function GET() {
   try {
     const cliente = await getClienteLogado();
@@ -66,7 +63,7 @@ export async function GET() {
   }
 }
 
-// 🟢 POST: Alterna (Toggle) favoritar / desfavoritar produto
+// 🟢 POST: Alterna (Toggle) ou adiciona favorito
 export async function POST(req: Request) {
   try {
     const cliente = await getClienteLogado();
@@ -88,7 +85,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // Consulta usando a chave composta única @@unique([clienteId, produtoId])
+    // Garante que o produto existe na tabela Produto
+    const produtoExiste = await prisma.produto.findUnique({
+      where: { id: produtoId },
+    });
+
+    if (!produtoExiste) {
+      return NextResponse.json(
+        { error: "Produto não encontrado no catálogo." },
+        { status: 404 }
+      );
+    }
+
     const favoritoExistente = await prisma.favorito.findUnique({
       where: {
         clienteId_produtoId: {
@@ -99,13 +107,11 @@ export async function POST(req: Request) {
     });
 
     if (favoritoExistente) {
-      // Desfavorita removendo pelo ID único
       await prisma.favorito.delete({
         where: { id: favoritoExistente.id },
       });
       return NextResponse.json({ favoritado: false, produtoId });
     } else {
-      // Favorita criando o registro
       const novoFavorito = await prisma.favorito.create({
         data: {
           clienteId: cliente.id,
@@ -130,7 +136,7 @@ export async function POST(req: Request) {
   }
 }
 
-// 🔴 DELETE: Remove o produto dos favoritos
+// 🔴 DELETE: Aceita produtoId tanto pelo Body quanto por Query String
 export async function DELETE(req: Request) {
   try {
     const cliente = await getClienteLogado();
@@ -138,8 +144,17 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const rawProdutoId = searchParams.get("produtoId") || searchParams.get("id");
+    // Tenta ler primeiro do Body da requisição (usado pelo contexto)
+    let rawProdutoId: any = null;
+    try {
+      const body = await req.json();
+      rawProdutoId = body?.produtoId ?? body?.id;
+    } catch {
+      // Se não houver body JSON, tenta ler das query params
+      const { searchParams } = new URL(req.url);
+      rawProdutoId = searchParams.get("produtoId") || searchParams.get("id");
+    }
+
     const produtoId = parseProdutoId(rawProdutoId);
 
     if (!produtoId) {
