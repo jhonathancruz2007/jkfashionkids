@@ -33,8 +33,9 @@ export default function CompletarPerfil() {
         if (res.ok) {
           const data = await res.json()
           if (data.cliente) {
+            // Se o perfil já estiver completo, redireciona direto para o catálogo
             if (data.cliente.telefone && data.cliente.cep) {
-              router.push("/perfil")
+              router.push("/catalogo")
               return
             }
 
@@ -128,7 +129,8 @@ export default function CompletarPerfil() {
         throw new Error(data.error || "Erro ao salvar dados.")
       }
 
-      router.push("/perfil")
+      // Encaminha para o catálogo após concluir o cadastro do perfil
+      router.push("/catalogo")
     } catch (err: any) {
       setErro(err.message)
     } finally {
