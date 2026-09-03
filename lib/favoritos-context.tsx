@@ -12,6 +12,7 @@ interface FavoritosContextType {
   isFavorito: (id: string | number) => boolean;
   toggleFavorito: (produto: any) => Promise<void>;
   recarregarFavoritos: () => Promise<void>;
+  limparFavoritos: () => void;
 }
 
 const FavoritosContext = createContext<FavoritosContextType | undefined>(undefined);
@@ -19,23 +20,37 @@ const FavoritosContext = createContext<FavoritosContextType | undefined>(undefin
 export function FavoritosProvider({ children }: { children: ReactNode }) {
   const [favoritos, setFavoritos] = useState<FavoritoItem[]>([]);
 
+  // Limpa o estado local e a memória do navegador
+  const limparFavoritos = () => {
+    setFavoritos([]);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("jk_favoritos");
+    }
+  };
+
   const recarregarFavoritos = async () => {
     try {
-      // 1. Carrega salvamento local imediato
-      const local = localStorage.getItem("jk_favoritos");
-      if (local) {
-        setFavoritos(JSON.parse(local));
+      // 1. Tenta buscar da API do servidor
+      const res = await fetch("/api/cliente/favoritos");
+
+      // Se a sessão expirou ou o usuário deslogou
+      if (res.status === 401) {
+        limparFavoritos();
+        return;
       }
 
-      // 2. Tenta buscar da API do servidor
-      const res = await fetch("/api/cliente/favoritos");
       if (res.ok) {
         const data = await res.json();
         const lista = Array.isArray(data) ? data : data.favoritos || [];
-        if (lista.length > 0) {
-          setFavoritos(lista);
-          localStorage.setItem("jk_favoritos", JSON.stringify(lista));
-        }
+        setFavoritos(lista);
+        localStorage.setItem("jk_favoritos", JSON.stringify(lista));
+        return;
+      }
+
+      // Fallback para storage local apenas se a API não respondeu
+      const local = localStorage.getItem("jk_favoritos");
+      if (local) {
+        setFavoritos(JSON.parse(local));
       }
     } catch (err) {
       console.log("Servidor off ou sem auth, usando storage local.");
@@ -62,7 +77,7 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
 
     const jaFavorito = isFavorito(prodId);
 
-    // Atualização instantânea na tela e no LocalStorage
+    // 1. Atualização otimista na tela
     let novosFavoritos: FavoritoItem[];
     if (jaFavorito) {
       novosFavoritos = favoritos.filter((f) => {
@@ -76,20 +91,29 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
     setFavoritos(novosFavoritos);
     localStorage.setItem("jk_favoritos", JSON.stringify(novosFavoritos));
 
-    // Persistência em background na API sem redirecionar a tela
+    // 2. Persistência na API e validação de login
     try {
-      await fetch("/api/cliente/favoritos", {
+      const res = await fetch("/api/cliente/favoritos", {
         method: jaFavorito ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ produtoId: prodId, produto }),
       });
+
+      // Se tentar favoritar/desfavoritar estando deslogado
+      if (res.status === 401) {
+        limparFavoritos();
+        const pathAtual = window.location.pathname;
+        window.location.href = `/login?redirectTo=${encodeURIComponent(pathAtual)}`;
+      }
     } catch (e) {
       console.log("Sincronizado apenas no LocalStorage do navegador.");
     }
   };
 
   return (
-    <FavoritosContext.Provider value={{ favoritos, isFavorito, toggleFavorito, recarregarFavoritos }}>
+    <FavoritosContext.Provider
+      value={{ favoritos, isFavorito, toggleFavorito, recarregarFavoritos, limparFavoritos }}
+    >
       {children}
     </FavoritosContext.Provider>
   );
