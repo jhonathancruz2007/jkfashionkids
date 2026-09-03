@@ -272,32 +272,34 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
     setFavoritoLocal(proximoEstado)
 
-    const produtoFormatado = {
-      ...produto,
-      id: idProduto,
-      _id: idProduto,
-      produtoId: idProduto,
-    }
-
     try {
+      const res = await fetch("/api/cliente/favoritos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ produtoId: idProduto, id: idProduto }),
+      })
+
+      // 🔴 Não logado: envia direto para a tela de login
+      if (res.status === 401) {
+        window.location.href = "/login"
+        return
+      }
+
+      if (!res.ok) {
+        setFavoritoLocal(!proximoEstado)
+        exibirNotificacao("Não foi possível favoritar o produto.", "erro")
+        return
+      }
+
+      const produtoFormatado = {
+        ...produto,
+        id: idProduto,
+        _id: idProduto,
+        produtoId: idProduto,
+      }
+
       if (typeof toggleFavorito === "function") {
         await toggleFavorito(produtoFormatado)
-      } else {
-        const res = await fetch("/api/cliente/favoritos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ produtoId: idProduto, id: idProduto }),
-        })
-
-        if (res.status === 401) {
-          window.location.href = "/login"
-          return
-        }
-
-        if (!res.ok) {
-          setFavoritoLocal(!proximoEstado)
-          exibirNotificacao("Não foi possível favoritar o produto.", "erro")
-        }
       }
     } catch (err) {
       console.error("Erro ao alternar favorito:", err)
