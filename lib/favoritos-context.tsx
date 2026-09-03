@@ -41,13 +41,34 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
 
       if (res.ok) {
         const data = await res.json();
-        const lista = Array.isArray(data) ? data : data.favoritos || [];
-        setFavoritos(lista);
-        localStorage.setItem("jk_favoritos", JSON.stringify(lista));
+        const listaBruta = Array.isArray(data) ? data : data.favoritos || [];
+
+        // Extrai e garante que o 'id' do item no estado seja sempre o ID do PRODUTO
+        const listaNormalizada = listaBruta.map((item: any) => {
+          const prodId = String(
+            item.produto?.id || item.produto?._id || item.produtoId || item.id || ""
+          );
+
+          if (item.produto) {
+            return {
+              ...item.produto,
+              favoritoRelacaoId: item.id, // Guarda o ID da tabela Favorito caso precise
+              id: prodId,
+            };
+          }
+
+          return {
+            ...item,
+            id: prodId,
+          };
+        });
+
+        setFavoritos(listaNormalizada);
+        localStorage.setItem("jk_favoritos", JSON.stringify(listaNormalizada));
         return;
       }
 
-      // Fallback para storage local apenas se a API não respondeu
+      // Fallback para storage local apenas se a API não responder com sucesso
       const local = localStorage.getItem("jk_favoritos");
       if (local) {
         setFavoritos(JSON.parse(local));
@@ -65,14 +86,18 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
     if (!id) return false;
     const targetId = String(id);
     return favoritos.some((f) => {
-      const favId = String(f?.id || f?._id || f?.produtoId || f?.produto?.id || f?.produto?._id || f);
+      const favId = String(
+        f?.id || f?._id || f?.produtoId || f?.produto?.id || f?.produto?._id || f
+      );
       return favId === targetId;
     });
   };
 
   const toggleFavorito = async (produto: any) => {
     if (!produto) return;
-    const prodId = String(produto.id || produto._id || produto.produtoId || "");
+    const prodId = String(
+      produto.id || produto._id || produto.produtoId || produto.produto?.id || ""
+    );
     if (!prodId) return;
 
     const jaFavorito = isFavorito(prodId);
@@ -81,7 +106,9 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
     let novosFavoritos: FavoritoItem[];
     if (jaFavorito) {
       novosFavoritos = favoritos.filter((f) => {
-        const favId = String(f?.id || f?._id || f?.produtoId || f?.produto?.id || f);
+        const favId = String(
+          f?.id || f?._id || f?.produtoId || f?.produto?.id || f
+        );
         return favId !== prodId;
       });
     } else {
