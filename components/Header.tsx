@@ -99,7 +99,6 @@ export default function Header() {
       >
         {/* Lado Esquerdo: Menu Mobile + Logo */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Botão Hambúrguer para Mobile/Tablet */}
           <button
             type="button"
             onClick={() => setMenuAberto(!menuAberto)}
@@ -109,7 +108,6 @@ export default function Header() {
             {menuAberto ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
 
-          {/* Logo */}
           <Link href="/" className="group inline-flex items-center gap-1.5 sm:gap-2.5 transition-all">
             <span 
               className="text-lg sm:text-2xl font-black tracking-tight transition-all group-hover:brightness-110 flex items-center select-none"
@@ -174,7 +172,7 @@ export default function Header() {
               <span className="hidden md:inline font-extrabold">
                 {nomeExibicao ? `Olá, ${nomeExibicao}` : "Entrar"}
               </span>
-            </span>
+            </Link>
           ) : (
             <div className="h-9 w-20 sm:h-10 sm:w-28 rounded-full bg-stone-100 animate-pulse" />
           )}
