@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { PrismaClient } from "@prisma/client";
+import { jwtVerify } from "jose";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
@@ -12,19 +13,22 @@ async function getClienteLogado() {
     const token = cookieStore.get("cliente_token")?.value;
     if (!token) return null;
 
-    const tokenLimpio = token.trim();
+    // 1. Chave secreta alinhada com a rota de Login
+    const jwtSecretKey = process.env.JWT_SECRET || "chave-secreta-fallback";
+    const secret = new TextEncoder().encode(jwtSecretKey);
 
-    if (tokenLimpio.includes("@")) {
-      return await prisma.cliente.findUnique({
-        where: { email: tokenLimpio },
-      });
-    }
+    // 2. Decodifica e valida o JWT vindo do cookie
+    const { payload } = await jwtVerify(token, secret);
+    const clienteId = payload.id as string;
 
+    if (!clienteId) return null;
+
+    // 3. Busca o cliente real pelo ID decodificado
     return await prisma.cliente.findUnique({
-      where: { id: tokenLimpio },
+      where: { id: clienteId },
     });
   } catch (error) {
-    console.error("Erro ao identificar cliente logado:", error);
+    console.error("Erro ao identificar cliente logado (JWT):", error);
     return null;
   }
 }
