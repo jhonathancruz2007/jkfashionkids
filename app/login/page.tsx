@@ -9,7 +9,9 @@ function FormularioLogin() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const redirectUrl = searchParams.get("redirect") || "/catalogo";
+  // Suporta tanto ?redirect= quanto ?redirectTo=, caindo em /catalogo por padrão
+  const redirectParam = searchParams.get("redirect") || searchParams.get("redirectTo");
+  const redirectUrl = redirectParam && redirectParam.startsWith("/") ? redirectParam : "/catalogo";
 
   const [isCadastro, setIsCadastro] = useState(false);
   const [nome, setNome] = useState("");
@@ -66,11 +68,8 @@ function FormularioLogin() {
         throw new Error(data.error || "Ocorreu um erro ao processar a requisição.");
       }
 
-      if (isCadastro || data.primeiroAcesso || data.cadastroIncompleto) {
-        window.location.href = "/perfil/completar";
-      } else {
-        window.location.href = redirectUrl;
-      }
+      // Redireciona sempre para o catálogo (ou URL especificada via parâmetro)
+      window.location.href = redirectUrl;
     } catch (err: any) {
       setErro(err.message || "Ocorreu um erro ao processar sua solicitação.");
       setCarregando(false);
@@ -88,12 +87,12 @@ function FormularioLogin() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-stone-50/70 px-4 py-12 font-sans text-stone-800 relative overflow-hidden">
-      {/* Elementos decorativos de fundo com toque avermelhado/neutro */}
+      {/* Elementos decorativos de fundo */}
       <div className="absolute top-10 left-[-8%] w-[600px] h-[600px] bg-red-500/10 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute top-1/3 right-[-8%] w-[600px] h-[600px] bg-rose-500/10 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute bottom-1/4 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[140px] pointer-events-none" />
 
-      {/* Faixa Superior Vermelha Viva */}
+      {/* Faixa Superior */}
       <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-red-500 via-red-600 to-rose-600" />
 
       <div className="w-full max-w-md space-y-6 relative z-10">
