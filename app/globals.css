@@ -42,7 +42,7 @@
   /* Destaque ao selecionar texto */
   ::selection {
     background-color: #2563eb;
-    color: #ffff;
+    color: #ffffff;
   }
 
   /* Barra de Rolagem Personalizada Escura */
@@ -63,6 +63,37 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: #ec4899;
+  }
+}
+
+/* Utilitários Globais de Layut para Monitores Grandes e Ultrawide */
+@utility layout-container {
+  width: 100%;
+  max-width: 1536px; /* Limite máximo confortável para evitar esticar em 2K/4K */
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+
+  @media (min-width: 768px) {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+
+  @media (min-width: 1536px) {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+}
+
+/* Grid responsiva para alinhar cards e produtos na Home */
+@utility home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+
+  @media (min-width: 1280px) {
+    gap: 2rem;
   }
 }
 
