@@ -27,7 +27,8 @@ import {
   Baby,
   FolderPlus,
   FileSpreadsheet,
-  CheckCircle
+  CheckCircle,
+  Menu
 } from "lucide-react"
 
 interface CategoriaItem {
@@ -118,6 +119,7 @@ const OPCOES_LOCAIS = [
 export default function PaginaDashboardAdmin() {
   const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config" | "tiny">("geral")
   const [saindo, setSaindo] = useState(false)
+  const [sidebarAberta, setSidebarAberta] = useState(false)
 
   // ESTADO DINÂMICO DE CATEGORIAS
   const [categorias, setCategorias] = useState<CategoriaItem[]>(CATEGORIAS_INICIAIS)
@@ -510,6 +512,11 @@ export default function PaginaDashboardAdmin() {
     if (abaAtiva === "pedidos" || abaAtiva === "geral") carregarPedidos()
   }, [abaAtiva])
 
+  const handleMudarAba = (aba: typeof abaAtiva) => {
+    setAbaAtiva(aba)
+    setSidebarAberta(false)
+  }
+
   const handleAbrirNovoProduto = () => {
     setProdutoEditando(null)
     setFormNome("")
@@ -755,11 +762,45 @@ export default function PaginaDashboardAdmin() {
   }
 
   return (
-    <div className="fixed inset-0 z-[999] flex bg-slate-950 text-slate-100 font-sans w-screen h-screen overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-64 border-r border-slate-800 bg-slate-900 p-6 flex flex-col justify-between shrink-0 h-full overflow-y-auto">
+    <div className="fixed inset-0 z-[999] flex flex-col md:flex-row bg-slate-950 text-slate-100 font-sans w-screen h-screen overflow-hidden">
+      
+      {/* HEADER MOBILE */}
+      <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 shrink-0 z-30">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div>
+            <span className="font-bold text-sm text-white block leading-none">Admin Hub</span>
+            <span className="text-[9px] text-slate-400 font-medium">Gestão Interna</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSidebarAberta(!sidebarAberta)}
+          className="p-2 text-slate-400 hover:text-white rounded-lg bg-slate-950 border border-slate-800"
+        >
+          {sidebarAberta ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </header>
+
+      {/* BACKDROP MOBILE DA SIDEBAR */}
+      {sidebarAberta && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setSidebarAberta(false)}
+        />
+      )}
+
+      {/* SIDEBAR RESPONSIVA */}
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50 md:z-auto
+        w-64 border-r border-slate-800 bg-slate-900 p-6 flex flex-col justify-between shrink-0 h-full overflow-y-auto
+        transition-transform duration-300 ease-in-out
+        ${sidebarAberta ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+      `}>
         <div className="space-y-8">
-          <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
               <ShieldCheck className="h-5 w-5" />
             </div>
@@ -772,7 +813,7 @@ export default function PaginaDashboardAdmin() {
           <nav className="space-y-1.5">
             <button
               type="button"
-              onClick={() => setAbaAtiva("geral")}
+              onClick={() => handleMudarAba("geral")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "geral" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -782,7 +823,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("produtos")}
+              onClick={() => handleMudarAba("produtos")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "produtos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -792,7 +833,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("pedidos")}
+              onClick={() => handleMudarAba("pedidos")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "pedidos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -802,7 +843,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("clientes")}
+              onClick={() => handleMudarAba("clientes")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "clientes" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -812,7 +853,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("tiny")}
+              onClick={() => handleMudarAba("tiny")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "tiny" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -822,7 +863,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("conta")}
+              onClick={() => handleMudarAba("conta")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "conta" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -832,7 +873,7 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => setAbaAtiva("config")}
+              onClick={() => handleMudarAba("config")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "config" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
               }`}
@@ -854,34 +895,34 @@ export default function PaginaDashboardAdmin() {
       </aside>
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 p-8 overflow-y-auto h-full">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-full">
 
         {/* ABA: VISÃO GERAL */}
         {abaAtiva === "geral" && (
-          <div className="space-y-8 max-w-6xl">
+          <div className="space-y-6 md:space-y-8 max-w-6xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Visão Geral</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
               <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
                 <span className="text-xs font-semibold text-slate-400 uppercase">Vendas Totais</span>
-                <p className="text-2xl font-bold text-white mt-2">
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">
                   R$ {Number(totalVendas || 0).toFixed(2).replace(".", ",")}
                 </p>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
                 <span className="text-xs font-semibold text-slate-400 uppercase">Total de Pedidos</span>
-                <p className="text-2xl font-bold text-white mt-2">{pedidos.length}</p>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{pedidos.length}</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
                 <span className="text-xs font-semibold text-slate-400 uppercase">Produtos Cadastrados</span>
-                <p className="text-2xl font-bold text-white mt-2">{produtos.length}</p>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{produtos.length}</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
                 <span className="text-xs font-semibold text-slate-400 uppercase">Clientes</span>
-                <p className="text-2xl font-bold text-white mt-2">{clientes.length}</p>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{clientes.length}</p>
               </div>
             </div>
           </div>
@@ -890,15 +931,15 @@ export default function PaginaDashboardAdmin() {
         {/* ABA: PRODUTOS */}
         {abaAtiva === "produtos" && (
           <div className="space-y-6 max-w-6xl">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-white">Gestão de Produtos</h1>
+                <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
                 <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, imagens ou quantidades aos seus produtos.</p>
               </div>
               <button
                 type="button"
                 onClick={handleAbrirNovoProduto}
-                className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20"
+                className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
               >
                 <Plus className="h-4 w-4" /> Cadastrar Produto
               </button>
@@ -925,8 +966,8 @@ export default function PaginaDashboardAdmin() {
                   Nenhum produto encontrado.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-300">
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[700px]">
                     <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
                       <tr>
                         <th className="p-3">Imagens</th>
@@ -1073,7 +1114,7 @@ export default function PaginaDashboardAdmin() {
         {abaAtiva === "pedidos" && (
           <div className="space-y-6 max-w-6xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Gestão de Pedidos</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Pedidos</h1>
               <p className="text-xs text-slate-400 mt-1">Acompanhe as vendas e altere os status dos pedidos.</p>
             </div>
 
@@ -1098,8 +1139,8 @@ export default function PaginaDashboardAdmin() {
                   Nenhum pedido encontrado.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-300">
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[600px]">
                     <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
                       <tr>
                         <th className="p-3">ID do Pedido</th>
@@ -1190,7 +1231,7 @@ export default function PaginaDashboardAdmin() {
         {abaAtiva === "clientes" && (
           <div className="space-y-6 max-w-6xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Clientes Cadastrados</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Clientes Cadastrados</h1>
               <p className="text-xs text-slate-400 mt-1">Listagem em tempo real de usuários no banco de dados.</p>
             </div>
 
@@ -1215,8 +1256,8 @@ export default function PaginaDashboardAdmin() {
                   Nenhum cliente cadastrado no momento.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-300">
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[500px]">
                     <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
                       <tr>
                         <th className="p-3">Nome</th>
@@ -1272,12 +1313,12 @@ export default function PaginaDashboardAdmin() {
         {abaAtiva === "tiny" && (
           <div className="space-y-6 max-w-2xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Integração Tiny ERP</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Integração Tiny ERP</h1>
               <p className="text-xs text-slate-400 mt-1">Importe os arquivos CSV baixados do Tiny ERP para atualizar a base de dados.</p>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-5">
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl p-8 text-center bg-slate-950 hover:border-rose-500/50 transition-colors">
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-8 rounded-2xl space-y-5">
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl p-4 md:p-8 text-center bg-slate-950 hover:border-rose-500/50 transition-colors">
                 <FileSpreadsheet size={48} className="text-rose-500 mb-3" />
                 <h3 className="text-sm font-bold text-white mb-1">Selecionar Arquivo do Tiny</h3>
                 <p className="text-xs text-slate-400 mb-5 max-w-sm">
@@ -1315,10 +1356,10 @@ export default function PaginaDashboardAdmin() {
         {abaAtiva === "conta" && (
           <div className="space-y-6 max-w-2xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Minha Conta (Administrador)</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Minha Conta (Administrador)</h1>
               <p className="text-xs text-slate-400 mt-1">Gerencie suas credenciais de acesso ao painel.</p>
             </div>
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Administrador</label>
                 <input
@@ -1350,11 +1391,11 @@ export default function PaginaDashboardAdmin() {
         {abaAtiva === "config" && (
           <div className="space-y-6 max-w-2xl">
             <div>
-              <h1 className="text-2xl font-bold text-white">Configurações Gerais</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Configurações Gerais</h1>
               <p className="text-xs text-slate-400 mt-1">Ajustes operacionais do e-commerce e gestão de dados.</p>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome da Loja</label>
                 <input
@@ -1366,7 +1407,7 @@ export default function PaginaDashboardAdmin() {
             </div>
 
             {/* SEÇÃO: GERENCIAMENTO DE CATEGORIAS */}
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Tag className="h-4 w-4 text-rose-500" />
@@ -1420,7 +1461,7 @@ export default function PaginaDashboardAdmin() {
             </div>
 
             {/* SEÇÃO: GERENCIAMENTO DE TAMANHOS */}
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Package className="h-4 w-4 text-rose-500" />
@@ -1475,7 +1516,7 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL ITENS DO PEDIDO */}
       {pedidoDetalhes && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 space-y-6 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <h2 className="text-base font-bold text-white">Detalhes do Pedido</h2>
@@ -1495,7 +1536,7 @@ export default function PaginaDashboardAdmin() {
                       <img
                         src={item.produto?.imagemUrl || ""}
                         alt={item.produto?.nome || "Produto"}
-                        className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700"
+                        className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shrink-0"
                       />
                       <div>
                         <span className="text-xs font-bold text-white block">{item.produto?.nome || "Produto Não Encontrado"}</span>
@@ -1505,7 +1546,7 @@ export default function PaginaDashboardAdmin() {
                         </span>
                       </div>
                     </div>
-                    <span className="text-xs font-bold text-rose-400">
+                    <span className="text-xs font-bold text-rose-400 shrink-0">
                       R$ {Number((item.quantidade || 0) * (item.precoUnitario || 0)).toFixed(2).replace(".", ",")}
                     </span>
                   </div>
@@ -1526,7 +1567,7 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL CADASTRAR OU EDITAR PRODUTO */}
       {modalProduto && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
                 {produtoEditando ? "Editar Produto e Estoque" : "Novo Produto"}
@@ -1560,7 +1601,7 @@ export default function PaginaDashboardAdmin() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">Preço Normal (R$)</label>
                   <input
@@ -1719,7 +1760,7 @@ export default function PaginaDashboardAdmin() {
                 />
 
                 {formImagens.length > 0 && (
-                  <div className="grid grid-cols-4 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
                     {formImagens.map((img, index) => (
                       <div key={index} className="relative group h-20 rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
                         <img src={img} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" />
@@ -1871,7 +1912,7 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL DE GERENCIAMENTO DE CATEGORIAS */}
       {modalGerenciarCategorias && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-5 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Tag className="h-4 w-4 text-rose-500" />
@@ -1941,7 +1982,7 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL DE GERENCIAMENTO DE TAMANHOS */}
       {modalGerenciarTamanhos && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-5 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Package className="h-4 w-4 text-rose-500" />
