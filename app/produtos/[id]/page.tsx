@@ -137,7 +137,6 @@ export default function ProdutoDetalhePage() {
     return {};
   }, [produto]);
 
-  // Quantidade total do estoque
   const getEstoqueDisponivel = (tam: string) => {
     if (!tam) return 0;
     const tamClean = String(tam).trim().toUpperCase();
@@ -153,7 +152,6 @@ export default function ProdutoDetalhePage() {
     return Number(produto?.estoque ?? produto?.quantidade ?? produto?.qtd ?? 0);
   };
 
-  // Quantidade já adicionada no carrinho
   const qtdNoCarrinho = useMemo(() => {
     if (!Array.isArray(carrinho) || !idProd || !tamanhoSelecionado) return 0;
     
@@ -167,8 +165,6 @@ export default function ProdutoDetalhePage() {
   }, [carrinho, idProd, tamanhoSelecionado]);
 
   const estoqueMaxAtual = getEstoqueDisponivel(tamanhoSelecionado);
-  
-  // Condição para saber se atingiu o limite total de estoque
   const tamanhoAtualEsgotado = estoqueMaxAtual <= 0 || qtdNoCarrinho >= estoqueMaxAtual;
 
   const isTamanhoEsgotado = (tam: string) => {
@@ -252,30 +248,46 @@ export default function ProdutoDetalhePage() {
     setZoomPos({ x, y });
   };
 
+  // FAVORITAR AJUSTADO IGUAL AOS CARDS
   const handleToggleFavorito = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (!produto || !idProd) return;
 
-    try {
-      const resAuth = await fetch("/api/cliente/me").catch(() => null);
+    const eraFavorito = favoritado;
 
-      if (!resAuth || !resAuth.ok || resAuth.status === 401) {
-        mostrarToast("Faça login para adicionar este item aos seus favoritos.");
+    // 1. Atualização instantânea na interface
+    await toggleFavorito({
+      ...produto,
+      id: idProd,
+      produtoId: idProd,
+    });
+
+    mostrarToast(
+      eraFavorito
+        ? "Removido dos favoritos!"
+        : "Adicionado aos favoritos!"
+    );
+
+    // 2. Validação de autorização em segundo plano
+    try {
+      const resAuth = await fetch("/api/cliente/me");
+      if (resAuth.status === 401) {
+        // Reverte a alteração visual se não estiver autenticado
+        await toggleFavorito({
+          ...produto,
+          id: idProd,
+          produtoId: idProd,
+        });
+
+        mostrarToast("Faça login para salvar seus favoritos.");
         setTimeout(() => {
           window.location.href = `/login?redirectTo=/produtos/${idProd}`;
         }, 1200);
-        return;
       }
-
-      toggleFavorito({
-        ...produto,
-        id: idProd,
-        produtoId: idProd,
-      });
-    } catch (error) {
-      mostrarToast("Erro ao processar. Tente novamente.");
+    } catch (err) {
+      console.warn("Sincronizado via localStorage.");
     }
   };
 
@@ -383,8 +395,8 @@ export default function ProdutoDetalhePage() {
       {/* NOTIFICAÇÃO TOAST FLUTUANTE */}
       {toast.visivel && (
         <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 transform animate-bounce">
-          <div className="flex items-center gap-2.5 rounded-2xl bg-amber-500 px-5 py-3 text-xs font-bold text-white shadow-2xl backdrop-blur-md">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-2xl bg-slate-900 px-5 py-3 text-xs font-bold text-white shadow-2xl backdrop-blur-md">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-400" />
             <span>{toast.mensagem}</span>
           </div>
         </div>
@@ -516,7 +528,7 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
-            {/* AÇÃO E VERIFICAÇÃO DE ESTOQUE */}
+            {/* AÇÃO E ESTOQUE */}
             <div className="space-y-3 pt-2">
               {tamanhoAtualEsgotado ? (
                 <div className="space-y-2 animate-fadeIn">
@@ -572,7 +584,7 @@ export default function ProdutoDetalhePage() {
               </div>
             )}
 
-            {/* SELOS E BENEFÍCIOS */}
+            {/* SELOS */}
             <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-5">
               <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100">
                 <Truck className="h-5 w-5 text-slate-700 flex-shrink-0" />
@@ -590,7 +602,7 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
-            {/* SANFONADOS (CUIDADOS E TROCAS) */}
+            {/* CUIDADOS E TROCAS */}
             <div className="border-t border-slate-100 pt-4 space-y-2">
               <div className="border border-slate-200 rounded-2xl overflow-hidden">
                 <button
