@@ -174,10 +174,20 @@ export default function ProdutoDetalhePage() {
   const isTamanhoEsgotado = (tam: string) => {
     const max = getEstoqueDisponivel(tam);
     if (max <= 0) return true;
-    if (String(tam).trim().toUpperCase() === String(tamanhoSelecionado).trim().toUpperCase()) {
-      return qtdNoCarrinho >= max;
-    }
-    return false;
+    
+    const tamClean = String(tam).trim().toUpperCase();
+    const qtdTamNoCarrinho = Array.isArray(carrinho)
+      ? carrinho.reduce((acc: number, item: any) => {
+          const itemProdId = String(item.produtoId || item.produto?.id || item.produto?._id || item.id || "");
+          const itemTam = String(item.tamanho || "").trim().toUpperCase();
+          if (itemProdId === idProd && itemTam === tamClean) {
+            return acc + Number(item.quantidade || item.qtd || 0);
+          }
+          return acc;
+        }, 0)
+      : 0;
+
+    return qtdTamNoCarrinho >= max;
   };
 
   const fotosGaleria = useMemo(() => {
@@ -242,23 +252,36 @@ export default function ProdutoDetalhePage() {
     setZoomPos({ x, y });
   };
 
-  const handleToggleFavorito = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleToggleFavorito = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (!produto || !idProd) return;
 
-    toggleFavorito({
-      ...produto,
-      id: idProd,
-      produtoId: idProd,
-    });
+    try {
+      const resAuth = await fetch("/api/cliente/me").catch(() => null);
+
+      if (!resAuth || !resAuth.ok || resAuth.status === 401) {
+        mostrarToast("Faça login para adicionar este item aos seus favoritos.");
+        setTimeout(() => {
+          window.location.href = `/login?redirectTo=/produtos/${idProd}`;
+        }, 1200);
+        return;
+      }
+
+      toggleFavorito({
+        ...produto,
+        id: idProd,
+        produtoId: idProd,
+      });
+    } catch (error) {
+      mostrarToast("Erro ao processar. Tente novamente.");
+    }
   };
 
   const handleAdicionarCarrinho = async () => {
     if (!produto) return;
 
-    // Validação preventiva do limite de estoque
     if (qtdNoCarrinho >= estoqueMaxAtual) {
       mostrarToast(`Limite de estoque atingido! Restam apenas ${estoqueMaxAtual} unidade(s) no estoque.`);
       return;
@@ -283,17 +306,14 @@ export default function ProdutoDetalhePage() {
 
       const responseData = await res.json().catch(() => ({}));
 
-      // Caso o backend rejeite por falta de estoque
       if (!res.ok) {
         mostrarToast(responseData.message || "Não há mais unidades disponíveis em estoque.");
         if (typeof recarregarCarrinho === "function") await recarregarCarrinho();
         return;
       }
 
-      // Sucesso na adição
       setSucessoAdicao(true);
 
-      // Recarrega o estado global do carrinho imediatamente para atualizar o estoque na tela
       if (typeof recarregarCarrinho === "function") {
         await recarregarCarrinho();
       }
@@ -479,12 +499,17 @@ export default function ProdutoDetalhePage() {
                     <button
                       key={tam}
                       type="button"
+                      disabled={esgotado}
                       onClick={() => setTamanhoSelecionado(tam)}
                       className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
-                        selecionado ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                        esgotado
+                          ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-50 line-through"
+                          : selecionado
+                          ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
                       }`}
                     >
-                      <span className={esgotado && !selecionado ? "line-through opacity-50" : ""}>{tam}</span>
+                      <span>{tam}</span>
                     </button>
                   );
                 })}
