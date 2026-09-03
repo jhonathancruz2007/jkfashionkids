@@ -9,7 +9,7 @@ function FormularioLogin() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const redirectUrl = searchParams.get("redirect") || "/perfil";
+  const redirectUrl = searchParams.get("redirect") || "/catalogo";
 
   const [isCadastro, setIsCadastro] = useState(false);
   const [nome, setNome] = useState("");
