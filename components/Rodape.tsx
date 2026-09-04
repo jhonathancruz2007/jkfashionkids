@@ -60,7 +60,7 @@ export default function Rodape() {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-40px" }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="relative bg-stone-100/90 backdrop-blur-md font-sans text-stone-700 border-t border-[#f48fb1]/30 shadow-[0_-12px_30px_-8px_rgba(0,0,0,0.04)] overflow-hidden"
+      className="relative bg-stone-100/90 backdrop-blur-md font-sans text-stone-700 border-t border-[#f48fb1]/30 shadow-[0_-12px_30px_-8px_rgba(0,0,0,0.04)] overflow-hidden w-full"
     >
       {/* Faixa Multicolorida do Topo */}
       <div className="h-2 w-full bg-gradient-to-r from-[#81d4fa] via-[#b39ddb] via-[#f48fb1] via-[#ff8a65] to-[#ffd54f]" />
@@ -69,7 +69,8 @@ export default function Rodape() {
       <div className="absolute top-0 left-1/4 w-72 sm:w-96 h-72 sm:h-96 bg-[#f48fb1]/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 right-1/4 w-72 sm:w-96 h-72 sm:h-96 bg-[#81d4fa]/15 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 pt-10 sm:pt-14 pb-8 sm:pb-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-8 sm:gap-10">
+      {/* Conteúdo Principal do Rodapé com Alinhamento Geral */}
+      <div className="relative z-10 mx-auto w-full max-w-[1700px] px-4 sm:px-6 lg:px-8 xl:px-12 pt-10 sm:pt-14 pb-8 sm:pb-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-8 sm:gap-10">
         
         {/* Marca & Descrição */}
         <div className="sm:col-span-2 md:col-span-5 space-y-4">
