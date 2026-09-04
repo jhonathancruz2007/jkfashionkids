@@ -44,7 +44,7 @@ const faixasIdade = [
     label: "3 a 5 anos",
     href: "/catalogo?idade=3-5",
     bgColor: "bg-[#ffd54f]/20 hover:bg-[#ffd54f]/35",
-    textColor: "text-[#b45309]",
+    textColor: "text-amber-900",
     borderColor: "border-[#ffd54f]/60",
   },
   {
@@ -101,23 +101,27 @@ function TimerFimDoMes() {
   }, [])
 
   return (
-    <div className="flex items-center gap-2 bg-[#ffd54f]/15 border border-[#ffd54f]/40 px-3.5 py-2 rounded-2xl shadow-2xs">
-      <Clock className="h-4 w-4 text-[#b45309] animate-pulse" />
-      <div className="text-xs font-black text-[#b45309] flex items-center gap-1">
+    <div
+      aria-live="polite"
+      aria-label={`Tempo restante da promoção: ${tempoRestante.dias} dias, ${tempoRestante.horas} horas, ${tempoRestante.minutos} minutos e ${tempoRestante.segundos} segundos`}
+      className="flex items-center gap-2 bg-[#ffd54f]/15 border border-[#ffd54f]/40 px-3.5 py-2 rounded-2xl shadow-2xs"
+    >
+      <Clock className="h-4 w-4 text-amber-900 animate-pulse" aria-hidden="true" />
+      <div className="text-xs sm:text-sm font-black text-amber-900 flex items-center gap-1">
         <span>Termina em:</span>
         <div className="flex items-center gap-1 font-mono">
           <span className="bg-white/90 px-1.5 py-0.5 rounded-md border border-[#ffd54f]/30">
             {String(tempoRestante.dias).padStart(2, "0")}d
           </span>
-          <span>:</span>
+          <span aria-hidden="true">:</span>
           <span className="bg-white/90 px-1.5 py-0.5 rounded-md border border-[#ffd54f]/30">
             {String(tempoRestante.horas).padStart(2, "0")}h
           </span>
-          <span>:</span>
+          <span aria-hidden="true">:</span>
           <span className="bg-white/90 px-1.5 py-0.5 rounded-md border border-[#ffd54f]/30">
             {String(tempoRestante.minutos).padStart(2, "0")}m
           </span>
-          <span>:</span>
+          <span aria-hidden="true">:</span>
           <span className="bg-white/90 px-1.5 py-0.5 rounded-md border border-[#ffd54f]/30">
             {String(tempoRestante.segundos).padStart(2, "0")}s
           </span>
@@ -144,15 +148,16 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 pt-12 relative z-10"
+      className="w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 pt-12 relative z-10"
+      aria-label="Presente por idade"
     >
-      <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 md:p-8 border border-[#b39ddb]/20 shadow-xs">
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 md:p-8 2xl:p-10 border border-[#b39ddb]/20 shadow-xs">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 rounded-2xl bg-[#b39ddb]/15 text-[#673ab7] border border-[#b39ddb]/30 shadow-2xs">
-              <Gift className="h-5 w-5" />
+              <Gift className="h-5 w-5 2xl:h-6 2xl:w-6" aria-hidden="true" />
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-stone-800 tracking-tight">
+            <h2 className="text-xl sm:text-2xl 2xl:text-3xl font-black text-stone-800 tracking-tight">
               Presente por idade
             </h2>
           </div>
@@ -162,24 +167,24 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
               <button
                 type="button"
                 onClick={() => rolar("esquerda")}
-                className="p-2.5 rounded-2xl bg-white/90 text-stone-700 border border-[#b39ddb]/30 shadow-md backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95"
-                aria-label="Rolar faixas para esquerda"
+                className="p-2.5 rounded-2xl bg-white/90 text-stone-700 border border-[#b39ddb]/30 shadow-md backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+                aria-label="Rolar faixas etárias para a esquerda"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               </button>
               <button
                 type="button"
                 onClick={() => rolar("direita")}
-                className="p-2.5 rounded-2xl bg-white/90 text-stone-700 border border-[#b39ddb]/30 shadow-md backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95"
-                aria-label="Rolar faixas para direita"
+                className="p-2.5 rounded-2xl bg-white/90 text-stone-700 border border-[#b39ddb]/30 shadow-md backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+                aria-label="Rolar faixas etárias para a direita"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
             <Link
               href="/catalogo"
-              className="text-xs sm:text-sm font-extrabold text-[#673ab7] hover:text-[#7e57c2] transition-colors underline underline-offset-4"
+              className="text-xs sm:text-sm 2xl:text-base font-extrabold text-[#673ab7] hover:text-[#7e57c2] transition-colors underline underline-offset-4 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7] rounded-md"
             >
               ver todas
             </Link>
@@ -189,7 +194,7 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
         <div className="relative">
           <div
             ref={scrollRef}
-            className="flex gap-3 overflow-x-auto pb-2 scroll-smooth scrollbar-none sm:grid sm:grid-cols-3 md:grid-cols-5 sm:overflow-visible w-full"
+            className="flex gap-3 sm:gap-4 2xl:gap-6 overflow-x-auto pb-2 scroll-smooth scrollbar-none sm:grid sm:grid-cols-3 md:grid-cols-5 sm:overflow-visible w-full"
             style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           >
             {faixas.map((item) => (
@@ -198,9 +203,10 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
                 href={item.href}
                 className={`
                   flex-shrink-0 sm:flex-shrink flex items-center justify-center
-                  px-6 py-3.5 rounded-full font-black text-sm sm:text-base
+                  px-6 py-3.5 2xl:py-4 rounded-full font-black text-sm sm:text-base 2xl:text-lg
                   border shadow-2xs hover:shadow-xs transform hover:-translate-y-0.5 transition-all duration-200
-                  text-center whitespace-nowrap min-w-[130px] sm:min-w-0
+                  text-center whitespace-nowrap min-w-[130px] sm:min-w-0 w-full
+                  focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]
                   ${item.bgColor} ${item.textColor} ${item.borderColor}
                 `}
               >
@@ -235,12 +241,13 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
   }, [imagens.length])
 
   return (
-    <section className="relative w-full h-[540px] sm:h-[600px] lg:h-[650px] xl:h-[700px] overflow-hidden bg-stone-100 border-b border-[#b39ddb]/20">
+    <section className="relative w-full h-[540px] sm:h-[600px] lg:h-[650px] xl:h-[700px] 2xl:h-[750px] 3xl:h-[850px] overflow-hidden bg-stone-100 border-b border-[#b39ddb]/20" aria-label="Destaques principais">
       {imagens.map((img, index) => (
         <img
           key={img + index}
           src={img}
-          alt={`Foto da Loja JK Fashion Kids ${index + 1}`}
+          alt={`Foto da Loja JK Fashion Kids ${index + 1} de ${imagens.length}`}
+          aria-hidden={index !== indexAtual}
           className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-out transform ${
             index === indexAtual
               ? "opacity-100 scale-100 z-0"
@@ -249,28 +256,28 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
         />
       ))}
 
-      <div className="absolute inset-0 bg-gradient-to-r from-stone-900/40 via-stone-900/10 to-transparent z-10" />
-      <div className="absolute inset-0 bg-gradient-to-t from-stone-950/40 via-transparent to-white/20 z-10" />
+      <div className="absolute inset-0 bg-gradient-to-r from-stone-900/40 via-stone-900/10 to-transparent z-10" aria-hidden="true" />
+      <div className="absolute inset-0 bg-gradient-to-t from-stone-950/40 via-transparent to-white/20 z-10" aria-hidden="true" />
 
-      <div className="relative z-20 w-full max-w-[1700px] mx-auto h-full px-4 sm:px-6 lg:px-8 xl:px-12 flex items-center">
+      <div className="relative z-20 w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto h-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 flex items-center">
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-xl lg:max-w-2xl xl:max-w-3xl bg-white/85 backdrop-blur-md p-6 sm:p-10 lg:p-12 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
+          className="max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl bg-white/85 backdrop-blur-md p-6 sm:p-10 lg:p-12 2xl:p-16 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
         >
-          <span className="inline-flex items-center gap-2 bg-[#b39ddb]/15 backdrop-blur-md border border-[#b39ddb]/30 text-[#673ab7] text-xs font-black px-4 py-2 rounded-full tracking-wide shadow-2xs">
-            <Sparkles className="h-4 w-4 text-amber-500 fill-amber-500" /> Moda Infantil Divertida & Confortável
+          <span className="inline-flex items-center gap-2 bg-[#b39ddb]/15 backdrop-blur-md border border-[#b39ddb]/30 text-[#673ab7] text-xs sm:text-sm 2xl:text-base font-black px-4 py-2 rounded-full tracking-wide shadow-2xs">
+            <Sparkles className="h-4 w-4 2xl:h-5 2xl:w-5 text-amber-500 fill-amber-500" aria-hidden="true" /> Moda Infantil Divertida & Confortável
           </span>
 
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.12] text-stone-900">
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl 2xl:text-7xl font-black tracking-tight leading-[1.12] text-stone-900">
             Vestindo a infância de{" "}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#673ab7] via-[#0284c7] to-[#c2185b]">
               alegria e estilo!
             </span>
           </h1>
 
-          <p className="text-stone-600 text-sm sm:text-base lg:text-lg leading-relaxed font-medium">
+          <p className="text-stone-600 text-sm sm:text-base lg:text-lg 2xl:text-xl leading-relaxed font-medium">
             Explore nossos lookinhos cheios de vida, maciez e liberdade para os pequenos aproveitarem cada brincadeira com conforto.
           </p>
 
@@ -278,11 +285,11 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Link
                 href="/catalogo"
-                className="w-full sm:w-auto bg-gradient-to-r from-[#673ab7] via-[#7e57c2] to-[#0284c7] hover:opacity-95 text-white font-bold px-7 py-3.5 rounded-2xl transition-all text-sm sm:text-base flex items-center justify-center gap-3 shadow-xl shadow-[#673ab7]/30"
+                className="w-full sm:w-auto bg-gradient-to-r from-[#673ab7] via-[#7e57c2] to-[#0284c7] hover:opacity-95 text-white font-bold px-7 py-3.5 2xl:px-9 2xl:py-4 rounded-2xl transition-all text-sm sm:text-base 2xl:text-lg flex items-center justify-center gap-3 shadow-xl shadow-[#673ab7]/30 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#673ab7]"
               >
-                <ShoppingBag className="h-5 w-5 animate-pulse" />
+                <ShoppingBag className="h-5 w-5 2xl:h-6 2xl:w-6 animate-pulse" aria-hidden="true" />
                 Explorar Catálogo
-                <ArrowRight className="h-5 w-5" />
+                <ArrowRight className="h-5 w-5 2xl:h-6 2xl:w-6" aria-hidden="true" />
               </Link>
             </motion.div>
 
@@ -291,9 +298,9 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
                 href="https://www.google.com/maps/place/Jk+Fashion+Kids/@-22.7107181,-47.6551293,17z/data=!3m1!4b1!4m6!3m5!1s0x94c6319a39c47125:0xca92646393e7dff6!8m2!3d-22.7107181!4d-47.6551293!16s%2Fg%2F11z9j96_v3?entry=ttu"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-white/95 hover:bg-white text-stone-800 text-sm font-bold border border-stone-200 shadow-md backdrop-blur-md transition-all"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 2xl:px-8 2xl:py-4 rounded-2xl bg-white/95 hover:bg-white text-stone-800 text-sm sm:text-base 2xl:text-lg font-bold border border-stone-200 shadow-md backdrop-blur-md transition-all focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#673ab7]"
               >
-                <MapPin className="h-4 w-4 text-[#673ab7]" />
+                <MapPin className="h-4 w-4 2xl:h-5 2xl:w-5 text-[#673ab7]" aria-hidden="true" />
                 Nossa Loja Física
               </a>
             </motion.div>
@@ -306,34 +313,36 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
           <button
             type="button"
             onClick={anterior}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-30 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95"
-            aria-label="Foto anterior"
+            className="absolute left-4 2xl:left-8 top-1/2 -translate-y-1/2 z-30 flex h-12 w-12 2xl:h-14 2xl:w-14 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+            aria-label="Ver imagem anterior do banner"
           >
-            <ChevronLeft className="h-6 w-6" />
+            <ChevronLeft className="h-6 w-6 2xl:h-7 2xl:w-7" aria-hidden="true" />
           </button>
 
           <button
             type="button"
             onClick={proximo}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-30 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95"
-            aria-label="Próxima foto"
+            className="absolute right-4 2xl:right-8 top-1/2 -translate-y-1/2 z-30 flex h-12 w-12 2xl:h-14 2xl:w-14 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+            aria-label="Ver próxima imagem do banner"
           >
-            <ChevronRight className="h-6 w-6" />
+            <ChevronRight className="h-6 w-6 2xl:h-7 2xl:w-7" aria-hidden="true" />
           </button>
         </>
       )}
 
       {imagens.length > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2 bg-white/80 border border-white/40 backdrop-blur-md px-4 py-2 rounded-full shadow-md">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2 bg-white/80 border border-white/40 backdrop-blur-md px-4 py-2 rounded-full shadow-md" role="tablist" aria-label="Navegação por imagens do banner">
           {imagens.map((_, idx) => (
             <button
               key={idx}
               type="button"
+              role="tab"
+              aria-selected={idx === indexAtual}
               onClick={() => setIndexAtual(idx)}
-              className={`h-2.5 rounded-full transition-all ${
+              className={`h-2.5 rounded-full transition-all focus:outline-hidden focus:ring-2 focus:ring-[#673ab7] ${
                 idx === indexAtual ? "w-7 bg-[#673ab7] shadow-2xs" : "w-2.5 bg-stone-300 hover:bg-stone-400"
               }`}
-              aria-label={`Ir para foto ${idx + 1}`}
+              aria-label={`Ir para a imagem ${idx + 1}`}
             />
           ))}
         </div>
@@ -347,16 +356,18 @@ function CarrosselProdutos({
   produtos,
   ehAdmin,
   handleAlterarExibicaoAdmin,
+  tituloSecao,
 }: {
   produtos: Produto[]
   ehAdmin: boolean
   handleAlterarExibicaoAdmin: (id: string | number, local: string | boolean) => void
+  tituloSecao?: string
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const rolar = (direcao: "esquerda" | "direita") => {
     if (scrollRef.current) {
-      const deslocamento = direcao === "esquerda" ? -340 : 340
+      const deslocamento = direcao === "esquerda" ? -360 : 360
       scrollRef.current.scrollBy({ left: deslocamento, behavior: "smooth" })
     }
   }
@@ -366,28 +377,28 @@ function CarrosselProdutos({
       <button
         type="button"
         onClick={() => rolar("esquerda")}
-        className="absolute -left-5 top-1/2 -translate-y-1/2 z-20 hidden md:flex h-12 w-12 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 opacity-90 md:opacity-0 group-hover/carrossel:opacity-100"
-        aria-label="Rolar para esquerda"
+        className="absolute -left-5 2xl:-left-7 top-1/2 -translate-y-1/2 z-20 hidden md:flex h-12 w-12 2xl:h-14 2xl:w-14 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 opacity-90 md:opacity-0 group-hover/carrossel:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+        aria-label={`Rolar produtos de ${tituloSecao || "carrossel"} para a esquerda`}
       >
-        <ChevronLeft className="h-6 w-6" />
+        <ChevronLeft className="h-6 w-6 2xl:h-7 2xl:w-7" aria-hidden="true" />
       </button>
 
       <button
         type="button"
         onClick={() => rolar("direita")}
-        className="absolute -right-5 top-1/2 -translate-y-1/2 z-20 hidden md:flex h-12 w-12 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 opacity-90 md:opacity-0 group-hover/carrossel:opacity-100"
-        aria-label="Rolar para direita"
+        className="absolute -right-5 2xl:-right-7 top-1/2 -translate-y-1/2 z-20 hidden md:flex h-12 w-12 2xl:h-14 2xl:w-14 items-center justify-center rounded-2xl bg-white/90 text-stone-800 border border-white/60 shadow-lg backdrop-blur-md hover:bg-[#673ab7] hover:text-white transition-all active:scale-95 opacity-90 md:opacity-0 group-hover/carrossel:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
+        aria-label={`Rolar produtos de ${tituloSecao || "carrossel"} para a direita`}
       >
-        <ChevronRight className="h-6 w-6" />
+        <ChevronRight className="h-6 w-6 2xl:h-7 2xl:w-7" aria-hidden="true" />
       </button>
 
       <div
         ref={scrollRef}
-        className="flex gap-6 overflow-x-auto scroll-smooth py-3 px-1 snap-x snap-mandatory w-full"
+        className="flex gap-6 2xl:gap-8 overflow-x-auto scroll-smooth py-3 px-1 snap-x snap-mandatory w-full"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {produtos.map((produto) => (
-          <div key={produto.id} className="w-[260px] sm:w-[280px] lg:w-[300px] xl:w-[320px] flex-none snap-start">
+          <div key={produto.id} className="w-[260px] sm:w-[280px] lg:w-[300px] xl:w-[320px] 2xl:w-[340px] 3xl:w-[360px] flex-none snap-start">
             <CardProduto
               produto={produto}
               admin={ehAdmin}
@@ -472,13 +483,13 @@ export default function HomePage() {
     produtosPromocoes.length > 0
 
   return (
-    <div className="min-h-screen bg-stone-50/70 text-stone-800 relative overflow-hidden font-sans w-full">
-      <div className="absolute top-10 left-[-8%] w-[600px] h-[600px] bg-[#81d4fa]/20 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-1/3 right-[-8%] w-[600px] h-[600px] bg-[#b39ddb]/20 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-1/4 left-1/4 w-[500px] h-[500px] bg-[#f48fb1]/15 rounded-full blur-[140px] pointer-events-none" />
+    <main className="min-h-screen bg-stone-50/70 text-stone-800 relative overflow-hidden font-sans w-full">
+      <div className="absolute top-10 left-[-8%] w-[600px] 2xl:w-[800px] h-[600px] 2xl:h-[800px] bg-[#81d4fa]/20 rounded-full blur-[140px] pointer-events-none" aria-hidden="true" />
+      <div className="absolute top-1/3 right-[-8%] w-[600px] 2xl:w-[800px] h-[600px] 2xl:h-[800px] bg-[#b39ddb]/20 rounded-full blur-[140px] pointer-events-none" aria-hidden="true" />
+      <div className="absolute bottom-1/4 left-1/4 w-[500px] 2xl:w-[700px] h-[500px] 2xl:h-[700px] bg-[#f48fb1]/15 rounded-full blur-[140px] pointer-events-none" aria-hidden="true" />
 
       {/* Faixa Multicolorida Decorativa */}
-      <div className="h-1.5 w-full bg-gradient-to-r from-[#81d4fa] via-[#b39ddb] via-[#f48fb1] to-[#ffd54f]" />
+      <div className="h-1.5 w-full bg-gradient-to-r from-[#81d4fa] via-[#b39ddb] via-[#f48fb1] to-[#ffd54f]" aria-hidden="true" />
 
       {/* 1. BANNER PRINCIPAL (HERO FULL-WIDTH) */}
       <HeroFullWidth imagens={fotosLoja} />
@@ -489,31 +500,32 @@ export default function HomePage() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-50px" }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="w-full bg-white/90 border-b border-[#b39ddb]/20 py-10 relative z-10 shadow-2xs backdrop-blur-xs"
+        className="w-full bg-white/90 border-b border-[#b39ddb]/20 py-10 2xl:py-14 relative z-10 shadow-2xs backdrop-blur-xs"
+        aria-label="Vantagens de comprar conosco"
       >
-        <div className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
-          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#81d4fa]/10 to-white rounded-3xl border border-[#81d4fa]/20 shadow-2xs hover:shadow-xs transition-shadow">
-            <div className="p-3.5 rounded-2xl bg-[#81d4fa]/15 text-[#0284c7] shadow-2xs border border-[#81d4fa]/30">
-              <Truck className="h-6 w-6" />
+        <div className="w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 grid grid-cols-1 sm:grid-cols-3 gap-6 2xl:gap-8 text-center">
+          <div className="flex flex-col items-center gap-3 p-6 2xl:p-8 bg-gradient-to-b from-[#81d4fa]/10 to-white rounded-3xl border border-[#81d4fa]/20 shadow-2xs hover:shadow-xs transition-shadow">
+            <div className="p-3.5 2xl:p-4 rounded-2xl bg-[#81d4fa]/15 text-[#0284c7] shadow-2xs border border-[#81d4fa]/30">
+              <Truck className="h-6 w-6 2xl:h-8 2xl:w-8" aria-hidden="true" />
             </div>
-            <h4 className="font-extrabold text-base text-stone-800">Entrega & Atendimento</h4>
-            <p className="text-xs text-stone-500 font-medium leading-relaxed">Compre online e receba suas roupinhas com toda a comodidade</p>
+            <h3 className="font-extrabold text-base 2xl:text-lg text-stone-800">Entrega & Atendimento</h3>
+            <p className="text-xs sm:text-sm text-stone-600 font-medium leading-relaxed">Compre online e receba suas roupinhas com toda a comodidade</p>
           </div>
 
-          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#b39ddb]/10 to-white rounded-3xl border border-[#b39ddb]/20 shadow-2xs hover:shadow-xs transition-shadow">
-            <div className="p-3.5 rounded-2xl bg-[#b39ddb]/15 text-[#673ab7] shadow-2xs border border-[#b39ddb]/30">
-              <HeartHandshake className="h-6 w-6" />
+          <div className="flex flex-col items-center gap-3 p-6 2xl:p-8 bg-gradient-to-b from-[#b39ddb]/10 to-white rounded-3xl border border-[#b39ddb]/20 shadow-2xs hover:shadow-xs transition-shadow">
+            <div className="p-3.5 2xl:p-4 rounded-2xl bg-[#b39ddb]/15 text-[#673ab7] shadow-2xs border border-[#b39ddb]/30">
+              <HeartHandshake className="h-6 w-6 2xl:h-8 2xl:w-8" aria-hidden="true" />
             </div>
-            <h4 className="font-extrabold text-base text-stone-800">Qualidade Garantida</h4>
-            <p className="text-xs text-stone-500 font-medium leading-relaxed">Tecidos macios e resistentes para acompanhar toda energia dos pequenos</p>
+            <h3 className="font-extrabold text-base 2xl:text-lg text-stone-800">Qualidade Garantida</h3>
+            <p className="text-xs sm:text-sm text-stone-600 font-medium leading-relaxed">Tecidos macios e resistentes para acompanhar toda energia dos pequenos</p>
           </div>
 
-          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#f48fb1]/10 to-white rounded-3xl border border-[#f48fb1]/20 shadow-2xs hover:shadow-xs transition-shadow">
-            <div className="p-3.5 rounded-2xl bg-[#f48fb1]/15 text-[#c2185b] shadow-2xs border border-[#f48fb1]/30">
-              <ShieldCheck className="h-6 w-6" />
+          <div className="flex flex-col items-center gap-3 p-6 2xl:p-8 bg-gradient-to-b from-[#f48fb1]/10 to-white rounded-3xl border border-[#f48fb1]/20 shadow-2xs hover:shadow-xs transition-shadow">
+            <div className="p-3.5 2xl:p-4 rounded-2xl bg-[#f48fb1]/15 text-[#c2185b] shadow-2xs border border-[#f48fb1]/30">
+              <ShieldCheck className="h-6 w-6 2xl:h-8 2xl:w-8" aria-hidden="true" />
             </div>
-            <h4 className="font-extrabold text-base text-stone-800">Troca Fácil & Sem Descomplicação</h4>
-            <p className="text-xs text-stone-500 font-medium leading-relaxed">Suporte atencioso para você acertar sempre no caimento ideal</p>
+            <h3 className="font-extrabold text-base 2xl:text-lg text-stone-800">Troca Fácil & Sem Descomplicação</h3>
+            <p className="text-xs sm:text-sm text-stone-600 font-medium leading-relaxed">Suporte atencioso para você acertar sempre no caimento ideal</p>
           </div>
         </div>
       </motion.section>
@@ -522,30 +534,30 @@ export default function HomePage() {
       <PresentePorIdade faixas={faixasIdade} />
 
       {/* 4. VITRINES EM CARROSSEL HORIZONTAL */}
-      <section className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 py-12 relative z-10 space-y-16">
+      <section className="w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-12 2xl:py-16 relative z-10 space-y-16 2xl:space-y-20" aria-label="Vitrines de produtos">
         {carregando ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-[#673ab7]" />
+          <div className="flex h-48 items-center justify-center" aria-label="Carregando produtos">
+            <Loader2 className="h-8 w-8 animate-spin text-[#673ab7]" aria-hidden="true" />
           </div>
         ) : !temProdutosNaHome && !ehAdmin ? (
           /* Estado Vazio Padronizado com o Catálogo */
-          <div className="text-center py-20 bg-white/80 rounded-3xl border border-[#b39ddb]/20 p-8 shadow-xs max-w-xl mx-auto my-8 space-y-4">
+          <div className="text-center py-20 bg-white/80 rounded-3xl border border-[#b39ddb]/20 p-8 shadow-xs max-w-xl 2xl:max-w-2xl mx-auto my-8 space-y-4">
             <div className="inline-flex p-4 rounded-3xl bg-[#b39ddb]/10 text-[#673ab7] mb-2 border border-[#b39ddb]/20 shadow-2xs">
-              <PackageOpen className="h-10 w-10 stroke-[1.5]" />
+              <PackageOpen className="h-10 w-10 2xl:h-12 2xl:w-12 stroke-[1.5]" aria-hidden="true" />
             </div>
-            <h3 className="text-xl font-bold text-stone-800 tracking-tight">
+            <h2 className="text-xl 2xl:text-2xl font-bold text-stone-800 tracking-tight">
               Nenhum produto em destaque no momento
-            </h3>
-            <p className="text-sm text-stone-500 max-w-md mx-auto leading-relaxed">
+            </h2>
+            <p className="text-sm 2xl:text-base text-stone-600 max-w-md mx-auto leading-relaxed">
               Estamos preparando novidades incríveis para você. Enquanto isso, confira todas as nossas opções disponíveis no catálogo completo!
             </p>
             <div className="pt-2">
               <Link
                 href="/catalogo"
-                className="inline-flex items-center gap-2 bg-[#673ab7] hover:bg-[#7e57c2] text-white font-bold px-6 py-3 rounded-2xl text-sm transition-all shadow-md active:scale-95"
+                className="inline-flex items-center gap-2 bg-[#673ab7] hover:bg-[#7e57c2] text-white font-bold px-6 py-3 2xl:px-8 2xl:py-4 rounded-2xl text-sm 2xl:text-base transition-all shadow-md active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]"
               >
                 Ver Todo o Catálogo
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4 2xl:h-5 2xl:w-5" aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -560,15 +572,15 @@ export default function HomePage() {
                 transition={{ duration: 0.6, ease: "easeOut" }}
                 className="w-full"
               >
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-6 2xl:mb-8">
                   <div>
-                    <span className="text-xs font-black uppercase tracking-wider text-[#673ab7] bg-[#b39ddb]/15 px-3.5 py-1.5 rounded-full border border-[#b39ddb]/30">
+                    <span className="text-xs 2xl:text-sm font-black uppercase tracking-wider text-[#673ab7] bg-[#b39ddb]/15 px-3.5 py-1.5 rounded-full border border-[#b39ddb]/30">
                       Os Queridinhos
                     </span>
-                    <h2 className="text-3xl font-black text-stone-800 mt-2 tracking-tight">Destaques da Semana</h2>
+                    <h2 className="text-3xl 2xl:text-4xl font-black text-stone-800 mt-2 tracking-tight">Destaques da Semana</h2>
                   </div>
-                  <Link href="/catalogo" className="text-sm font-extrabold text-[#673ab7] hover:text-[#7e57c2] transition-colors flex items-center gap-1.5 bg-[#b39ddb]/10 px-4 py-2 rounded-2xl border border-[#b39ddb]/20">
-                    Ver tudo <ArrowRight className="h-4 w-4" />
+                  <Link href="/catalogo" className="text-sm 2xl:text-base font-extrabold text-[#673ab7] hover:text-[#7e57c2] transition-colors flex items-center gap-1.5 bg-[#b39ddb]/10 px-4 py-2 2xl:px-5 2xl:py-2.5 rounded-2xl border border-[#b39ddb]/20 focus:outline-hidden focus:ring-2 focus:ring-[#673ab7]">
+                    Ver tudo <ArrowRight className="h-4 w-4 2xl:h-5 2xl:w-5" aria-hidden="true" />
                   </Link>
                 </div>
 
@@ -576,6 +588,7 @@ export default function HomePage() {
                   produtos={produtosDestaque}
                   ehAdmin={ehAdmin}
                   handleAlterarExibicaoAdmin={handleAlterarExibicaoAdmin}
+                  tituloSecao="Destaques da Semana"
                 />
               </motion.div>
             )}
@@ -589,12 +602,12 @@ export default function HomePage() {
                 transition={{ duration: 0.6, ease: "easeOut" }}
                 className="w-full"
               >
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-6 2xl:mb-8">
                   <div>
-                    <span className="text-xs font-black uppercase tracking-wider text-[#0284c7] bg-[#81d4fa]/15 px-3.5 py-1.5 rounded-full border border-[#81d4fa]/30">
+                    <span className="text-xs 2xl:text-sm font-black uppercase tracking-wider text-[#0284c7] bg-[#81d4fa]/15 px-3.5 py-1.5 rounded-full border border-[#81d4fa]/30">
                       Acabaram de Chegar
                     </span>
-                    <h2 className="text-3xl font-black text-stone-800 mt-2 tracking-tight">Novidades & Lançamentos</h2>
+                    <h2 className="text-3xl 2xl:text-4xl font-black text-stone-800 mt-2 tracking-tight">Novidades & Lançamentos</h2>
                   </div>
                 </div>
 
@@ -602,6 +615,7 @@ export default function HomePage() {
                   produtos={produtosNovidades}
                   ehAdmin={ehAdmin}
                   handleAlterarExibicaoAdmin={handleAlterarExibicaoAdmin}
+                  tituloSecao="Novidades"
                 />
               </motion.div>
             )}
@@ -615,12 +629,12 @@ export default function HomePage() {
                 transition={{ duration: 0.6, ease: "easeOut" }}
                 className="w-full"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 2xl:mb-8">
                   <div>
-                    <span className="text-xs font-black uppercase tracking-wider text-[#b45309] bg-[#ffd54f]/20 px-3.5 py-1.5 rounded-full border border-[#ffd54f]/40">
+                    <span className="text-xs 2xl:text-sm font-black uppercase tracking-wider text-amber-900 bg-[#ffd54f]/20 px-3.5 py-1.5 rounded-full border border-[#ffd54f]/40">
                       Ofertas Imperdíveis
                     </span>
-                    <h2 className="text-3xl font-black text-stone-800 mt-2 tracking-tight">Promoções do Mês</h2>
+                    <h2 className="text-3xl 2xl:text-4xl font-black text-stone-800 mt-2 tracking-tight">Promoções do Mês</h2>
                   </div>
                   
                   <TimerFimDoMes />
@@ -630,24 +644,26 @@ export default function HomePage() {
                   produtos={produtosPromocoes}
                   ehAdmin={ehAdmin}
                   handleAlterarExibicaoAdmin={handleAlterarExibicaoAdmin}
+                  tituloSecao="Promoções"
                 />
               </motion.div>
             )}
 
             {/* VISÃO DO ADMIN */}
             {ehAdmin && produtosSemLocalOuOutros.length > 0 && (
-              <div className="mt-16 p-6 bg-white/90 backdrop-blur-xs rounded-3xl border border-stone-200 shadow-2xs w-full">
+              <div className="mt-16 p-6 2xl:p-8 bg-white/90 backdrop-blur-xs rounded-3xl border border-stone-200 shadow-2xs w-full">
                 <div className="mb-6">
-                  <span className="text-xs font-black uppercase tracking-wider text-stone-700 bg-stone-100 px-3.5 py-1.5 rounded-full border border-stone-200">
+                  <span className="text-xs 2xl:text-sm font-black uppercase tracking-wider text-stone-700 bg-stone-100 px-3.5 py-1.5 rounded-full border border-stone-200">
                     Painel do Administrador
                   </span>
-                  <h3 className="text-xl font-bold text-stone-800 mt-2">Produtos no Catálogo (Sem Destaque na Home)</h3>
+                  <h3 className="text-xl 2xl:text-2xl font-bold text-stone-800 mt-2">Produtos no Catálogo (Sem Destaque na Home)</h3>
                 </div>
 
                 <CarrosselProdutos
                   produtos={produtosSemLocalOuOutros}
                   ehAdmin={ehAdmin}
                   handleAlterarExibicaoAdmin={handleAlterarExibicaoAdmin}
+                  tituloSecao="Catálogo Geral (Admin)"
                 />
               </div>
             )}
@@ -661,32 +677,33 @@ export default function HomePage() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-50px" }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 pb-20 text-center relative z-10"
+        className="w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 pb-20 2xl:pb-28 text-center relative z-10"
+        aria-label="Chamada para ação do catálogo"
       >
-        <div className="bg-gradient-to-r from-[#81d4fa]/15 via-[#b39ddb]/15 to-[#f48fb1]/15 text-stone-800 rounded-3xl p-8 md:p-14 shadow-xl border border-[#b39ddb]/25 max-w-5xl mx-auto space-y-6 relative overflow-hidden">
-          <div className="absolute -top-12 -right-12 w-64 h-64 bg-[#b39ddb]/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-[#f48fb1]/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="bg-gradient-to-r from-[#81d4fa]/15 via-[#b39ddb]/15 to-[#f48fb1]/15 text-stone-800 rounded-3xl p-8 md:p-14 2xl:p-20 shadow-xl border border-[#b39ddb]/25 max-w-5xl 2xl:max-w-6xl mx-auto space-y-6 2xl:space-y-8 relative overflow-hidden">
+          <div className="absolute -top-12 -right-12 w-64 h-64 bg-[#b39ddb]/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
+          <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-[#f48fb1]/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
           
-          <div className="inline-flex items-center gap-1.5 bg-white/90 px-4 py-1.5 rounded-full border border-[#b39ddb]/30 text-xs font-extrabold text-[#673ab7] shadow-2xs">
-            <Heart className="h-3.5 w-3.5 fill-[#673ab7] text-[#673ab7]" /> Procurando algo em específico?
+          <div className="inline-flex items-center gap-1.5 bg-white/90 px-4 py-1.5 rounded-full border border-[#b39ddb]/30 text-xs 2xl:text-sm font-extrabold text-[#673ab7] shadow-2xs">
+            <Heart className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 fill-[#673ab7] text-[#673ab7]" aria-hidden="true" /> Procurando algo em específico?
           </div>
 
-          <div className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight text-stone-800">
+          <h2 className="text-2xl sm:text-4xl lg:text-5xl 2xl:text-6xl font-black tracking-tight leading-tight text-stone-800">
             Encontre o tamanho e estilo perfeito para cada ocasião
-          </div>
-          <p className="text-stone-600 text-sm sm:text-base lg:text-lg max-w-2xl mx-auto leading-relaxed font-medium">
+          </h2>
+          <p className="text-stone-600 text-sm sm:text-base lg:text-lg 2xl:text-xl max-w-2xl 2xl:max-w-3xl mx-auto leading-relaxed font-medium">
             Filtre por categoria, tamanho, idade ou faixa de preço direto no nosso catálogo completo!
           </p>
           <div className="pt-2">
             <Link 
               href="/catalogo" 
-              className="inline-flex items-center gap-3 bg-gradient-to-r from-[#673ab7] via-[#7e57c2] to-[#0284c7] hover:opacity-95 text-white font-bold px-8 py-4 rounded-2xl transition-all text-sm sm:text-base shadow-lg shadow-[#673ab7]/25 active:scale-95 transform hover:-translate-y-0.5"
+              className="inline-flex items-center gap-3 bg-gradient-to-r from-[#673ab7] via-[#7e57c2] to-[#0284c7] hover:opacity-95 text-white font-bold px-8 py-4 2xl:px-10 2xl:py-5 rounded-2xl transition-all text-sm sm:text-base 2xl:text-lg shadow-lg shadow-[#673ab7]/25 active:scale-95 transform hover:-translate-y-0.5 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#673ab7]"
             >
-              Acessar Catálogo Completo <ArrowRight className="h-5 w-5" />
+              Acessar Catálogo Completo <ArrowRight className="h-5 w-5 2xl:h-6 2xl:w-6" aria-hidden="true" />
             </Link>
           </div>
         </div>
       </motion.section>
-    </div>
+    </main>
   )
 }
