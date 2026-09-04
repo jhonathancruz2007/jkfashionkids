@@ -144,7 +144,7 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="max-w-7xl mx-auto px-6 pt-12 relative z-10"
+      className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-12 relative z-10"
     >
       <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 md:p-8 border border-[#b39ddb]/20 shadow-xs">
         <div className="flex items-center justify-between mb-6">
@@ -235,7 +235,7 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
   }, [imagens.length])
 
   return (
-    <section className="relative w-full h-[540px] sm:h-[600px] lg:h-[650px] overflow-hidden bg-stone-100 border-b border-[#b39ddb]/20">
+    <section className="relative w-full h-[540px] sm:h-[600px] lg:h-[650px] xl:h-[700px] overflow-hidden bg-stone-100 border-b border-[#b39ddb]/20">
       {imagens.map((img, index) => (
         <img
           key={img + index}
@@ -252,25 +252,25 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
       <div className="absolute inset-0 bg-gradient-to-r from-stone-900/40 via-stone-900/10 to-transparent z-10" />
       <div className="absolute inset-0 bg-gradient-to-t from-stone-950/40 via-transparent to-white/20 z-10" />
 
-      <div className="relative z-20 max-w-7xl mx-auto h-full px-6 flex items-center">
+      <div className="relative z-20 max-w-[1400px] mx-auto h-full px-4 sm:px-6 lg:px-8 flex items-center">
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-xl bg-white/85 backdrop-blur-md p-6 sm:p-10 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
+          className="max-w-xl lg:max-w-2xl bg-white/85 backdrop-blur-md p-6 sm:p-10 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
         >
           <span className="inline-flex items-center gap-2 bg-[#b39ddb]/15 backdrop-blur-md border border-[#b39ddb]/30 text-[#673ab7] text-xs font-black px-4 py-2 rounded-full tracking-wide shadow-2xs">
             <Sparkles className="h-4 w-4 text-amber-500 fill-amber-500" /> Moda Infantil Divertida & Confortável
           </span>
 
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-[1.12] text-stone-900">
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.12] text-stone-900">
             Vestindo a infância de{" "}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#673ab7] via-[#0284c7] to-[#c2185b]">
               alegria e estilo!
             </span>
           </h1>
 
-          <p className="text-stone-600 text-sm sm:text-base leading-relaxed font-medium">
+          <p className="text-stone-600 text-sm sm:text-base lg:text-lg leading-relaxed font-medium">
             Explore nossos lookinhos cheios de vida, maciez e liberdade para os pequenos aproveitarem cada brincadeira com conforto.
           </p>
 
@@ -387,12 +387,11 @@ function CarrosselProdutos({
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {produtos.map((produto) => (
-          <div key={produto.id} className="w-[260px] sm:w-[280px] flex-none snap-start">
+          <div key={produto.id} className="w-[260px] sm:w-[280px] lg:w-[300px] flex-none snap-start">
             <CardProduto
               produto={produto}
-              isAdmin={ehAdmin}
-              onAlterarExibicaoAdmin={handleAlterarExibicaoAdmin}
-              apenasDetalhes={true}
+              admin={ehAdmin}
+              onAlterarExibicao={handleAlterarExibicaoAdmin}
             />
           </div>
         ))}
@@ -492,7 +491,7 @@ export default function HomePage() {
         transition={{ duration: 0.6, ease: "easeOut" }}
         className="bg-white/90 border-b border-[#b39ddb]/20 py-10 relative z-10 shadow-2xs backdrop-blur-xs"
       >
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
           <div className="flex flex-col items-center gap-3 p-5 bg-gradient-to-b from-[#81d4fa]/10 to-white rounded-3xl border border-[#81d4fa]/20 shadow-2xs hover:shadow-xs transition-shadow">
             <div className="p-3.5 rounded-2xl bg-[#81d4fa]/15 text-[#0284c7] shadow-2xs border border-[#81d4fa]/30">
               <Truck className="h-6 w-6" />
@@ -523,7 +522,7 @@ export default function HomePage() {
       <PresentePorIdade faixas={faixasIdade} />
 
       {/* 4. VITRINES EM CARROSSEL HORIZONTAL */}
-      <section className="max-w-7xl mx-auto px-6 py-12 relative z-10 space-y-16">
+      <section className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12 relative z-10 space-y-16">
         {carregando ? (
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[#673ab7]" />
@@ -659,7 +658,7 @@ export default function HomePage() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-50px" }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="max-w-7xl mx-auto px-6 pb-20 text-center relative z-10"
+        className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pb-20 text-center relative z-10"
       >
         <div className="bg-gradient-to-r from-[#81d4fa]/15 via-[#b39ddb]/15 to-[#f48fb1]/15 text-stone-800 rounded-3xl p-8 md:p-12 shadow-xl border border-[#b39ddb]/25 max-w-4xl mx-auto space-y-6 relative overflow-hidden">
           <div className="absolute -top-12 -right-12 w-64 h-64 bg-[#b39ddb]/20 rounded-full blur-3xl pointer-events-none" />
