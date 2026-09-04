@@ -144,7 +144,7 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-12 relative z-10"
+      className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 pt-12 relative z-10"
     >
       <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 md:p-8 border border-[#b39ddb]/20 shadow-xs">
         <div className="flex items-center justify-between mb-6">
@@ -189,7 +189,7 @@ function PresentePorIdade({ faixas }: { faixas: typeof faixasIdade }) {
         <div className="relative">
           <div
             ref={scrollRef}
-            className="flex gap-3 overflow-x-auto pb-2 scroll-smooth scrollbar-none sm:grid sm:grid-cols-3 md:grid-cols-5 sm:overflow-visible"
+            className="flex gap-3 overflow-x-auto pb-2 scroll-smooth scrollbar-none sm:grid sm:grid-cols-3 md:grid-cols-5 sm:overflow-visible w-full"
             style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           >
             {faixas.map((item) => (
@@ -252,12 +252,12 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
       <div className="absolute inset-0 bg-gradient-to-r from-stone-900/40 via-stone-900/10 to-transparent z-10" />
       <div className="absolute inset-0 bg-gradient-to-t from-stone-950/40 via-transparent to-white/20 z-10" />
 
-      <div className="relative z-20 max-w-[1400px] mx-auto h-full px-4 sm:px-6 lg:px-8 flex items-center">
+      <div className="relative z-20 w-full max-w-[1700px] mx-auto h-full px-4 sm:px-6 lg:px-8 xl:px-12 flex items-center">
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-xl lg:max-w-2xl bg-white/85 backdrop-blur-md p-6 sm:p-10 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
+          className="max-w-xl lg:max-w-2xl xl:max-w-3xl bg-white/85 backdrop-blur-md p-6 sm:p-10 lg:p-12 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
         >
           <span className="inline-flex items-center gap-2 bg-[#b39ddb]/15 backdrop-blur-md border border-[#b39ddb]/30 text-[#673ab7] text-xs font-black px-4 py-2 rounded-full tracking-wide shadow-2xs">
             <Sparkles className="h-4 w-4 text-amber-500 fill-amber-500" /> Moda Infantil Divertida & Confortável
@@ -356,13 +356,13 @@ function CarrosselProdutos({
 
   const rolar = (direcao: "esquerda" | "direita") => {
     if (scrollRef.current) {
-      const deslocamento = direcao === "esquerda" ? -320 : 320
+      const deslocamento = direcao === "esquerda" ? -340 : 340
       scrollRef.current.scrollBy({ left: deslocamento, behavior: "smooth" })
     }
   }
 
   return (
-    <div className="relative group/carrossel">
+    <div className="relative group/carrossel w-full">
       <button
         type="button"
         onClick={() => rolar("esquerda")}
@@ -383,11 +383,11 @@ function CarrosselProdutos({
 
       <div
         ref={scrollRef}
-        className="flex gap-6 overflow-x-auto scroll-smooth py-3 px-1 snap-x snap-mandatory"
+        className="flex gap-6 overflow-x-auto scroll-smooth py-3 px-1 snap-x snap-mandatory w-full"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {produtos.map((produto) => (
-          <div key={produto.id} className="w-[260px] sm:w-[280px] lg:w-[300px] flex-none snap-start">
+          <div key={produto.id} className="w-[260px] sm:w-[280px] lg:w-[300px] xl:w-[320px] flex-none snap-start">
             <CardProduto
               produto={produto}
               admin={ehAdmin}
@@ -472,7 +472,7 @@ export default function HomePage() {
     produtosPromocoes.length > 0
 
   return (
-    <div className="min-h-screen bg-stone-50/70 text-stone-800 relative overflow-hidden font-sans">
+    <div className="min-h-screen bg-stone-50/70 text-stone-800 relative overflow-hidden font-sans w-full">
       <div className="absolute top-10 left-[-8%] w-[600px] h-[600px] bg-[#81d4fa]/20 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute top-1/3 right-[-8%] w-[600px] h-[600px] bg-[#b39ddb]/20 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute bottom-1/4 left-1/4 w-[500px] h-[500px] bg-[#f48fb1]/15 rounded-full blur-[140px] pointer-events-none" />
@@ -489,10 +489,10 @@ export default function HomePage() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-50px" }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="bg-white/90 border-b border-[#b39ddb]/20 py-10 relative z-10 shadow-2xs backdrop-blur-xs"
+        className="w-full bg-white/90 border-b border-[#b39ddb]/20 py-10 relative z-10 shadow-2xs backdrop-blur-xs"
       >
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
-          <div className="flex flex-col items-center gap-3 p-5 bg-gradient-to-b from-[#81d4fa]/10 to-white rounded-3xl border border-[#81d4fa]/20 shadow-2xs hover:shadow-xs transition-shadow">
+        <div className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#81d4fa]/10 to-white rounded-3xl border border-[#81d4fa]/20 shadow-2xs hover:shadow-xs transition-shadow">
             <div className="p-3.5 rounded-2xl bg-[#81d4fa]/15 text-[#0284c7] shadow-2xs border border-[#81d4fa]/30">
               <Truck className="h-6 w-6" />
             </div>
@@ -500,7 +500,7 @@ export default function HomePage() {
             <p className="text-xs text-stone-500 font-medium leading-relaxed">Compre online e receba suas roupinhas com toda a comodidade</p>
           </div>
 
-          <div className="flex flex-col items-center gap-3 p-5 bg-gradient-to-b from-[#b39ddb]/10 to-white rounded-3xl border border-[#b39ddb]/20 shadow-2xs hover:shadow-xs transition-shadow">
+          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#b39ddb]/10 to-white rounded-3xl border border-[#b39ddb]/20 shadow-2xs hover:shadow-xs transition-shadow">
             <div className="p-3.5 rounded-2xl bg-[#b39ddb]/15 text-[#673ab7] shadow-2xs border border-[#b39ddb]/30">
               <HeartHandshake className="h-6 w-6" />
             </div>
@@ -508,7 +508,7 @@ export default function HomePage() {
             <p className="text-xs text-stone-500 font-medium leading-relaxed">Tecidos macios e resistentes para acompanhar toda energia dos pequenos</p>
           </div>
 
-          <div className="flex flex-col items-center gap-3 p-5 bg-gradient-to-b from-[#f48fb1]/10 to-white rounded-3xl border border-[#f48fb1]/20 shadow-2xs hover:shadow-xs transition-shadow">
+          <div className="flex flex-col items-center gap-3 p-6 bg-gradient-to-b from-[#f48fb1]/10 to-white rounded-3xl border border-[#f48fb1]/20 shadow-2xs hover:shadow-xs transition-shadow">
             <div className="p-3.5 rounded-2xl bg-[#f48fb1]/15 text-[#c2185b] shadow-2xs border border-[#f48fb1]/30">
               <ShieldCheck className="h-6 w-6" />
             </div>
@@ -522,7 +522,7 @@ export default function HomePage() {
       <PresentePorIdade faixas={faixasIdade} />
 
       {/* 4. VITRINES EM CARROSSEL HORIZONTAL */}
-      <section className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12 relative z-10 space-y-16">
+      <section className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 py-12 relative z-10 space-y-16">
         {carregando ? (
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[#673ab7]" />
@@ -558,6 +558,7 @@ export default function HomePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
+                className="w-full"
               >
                 <div className="flex items-center justify-between mb-6">
                   <div>
@@ -586,6 +587,7 @@ export default function HomePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
+                className="w-full"
               >
                 <div className="flex items-center justify-between mb-6">
                   <div>
@@ -611,6 +613,7 @@ export default function HomePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
+                className="w-full"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                   <div>
@@ -633,7 +636,7 @@ export default function HomePage() {
 
             {/* VISÃO DO ADMIN */}
             {ehAdmin && produtosSemLocalOuOutros.length > 0 && (
-              <div className="mt-16 p-6 bg-white/90 backdrop-blur-xs rounded-3xl border border-stone-200 shadow-2xs">
+              <div className="mt-16 p-6 bg-white/90 backdrop-blur-xs rounded-3xl border border-stone-200 shadow-2xs w-full">
                 <div className="mb-6">
                   <span className="text-xs font-black uppercase tracking-wider text-stone-700 bg-stone-100 px-3.5 py-1.5 rounded-full border border-stone-200">
                     Painel do Administrador
@@ -658,9 +661,9 @@ export default function HomePage() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-50px" }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pb-20 text-center relative z-10"
+        className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 pb-20 text-center relative z-10"
       >
-        <div className="bg-gradient-to-r from-[#81d4fa]/15 via-[#b39ddb]/15 to-[#f48fb1]/15 text-stone-800 rounded-3xl p-8 md:p-12 shadow-xl border border-[#b39ddb]/25 max-w-4xl mx-auto space-y-6 relative overflow-hidden">
+        <div className="bg-gradient-to-r from-[#81d4fa]/15 via-[#b39ddb]/15 to-[#f48fb1]/15 text-stone-800 rounded-3xl p-8 md:p-14 shadow-xl border border-[#b39ddb]/25 max-w-5xl mx-auto space-y-6 relative overflow-hidden">
           <div className="absolute -top-12 -right-12 w-64 h-64 bg-[#b39ddb]/20 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-[#f48fb1]/20 rounded-full blur-3xl pointer-events-none" />
           
@@ -668,10 +671,10 @@ export default function HomePage() {
             <Heart className="h-3.5 w-3.5 fill-[#673ab7] text-[#673ab7]" /> Procurando algo em específico?
           </div>
 
-          <div className="text-2xl sm:text-4xl font-black tracking-tight leading-tight text-stone-800">
+          <div className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight text-stone-800">
             Encontre o tamanho e estilo perfeito para cada ocasião
           </div>
-          <p className="text-stone-600 text-sm sm:text-base max-w-xl mx-auto leading-relaxed font-medium">
+          <p className="text-stone-600 text-sm sm:text-base lg:text-lg max-w-2xl mx-auto leading-relaxed font-medium">
             Filtre por categoria, tamanho, idade ou faixa de preço direto no nosso catálogo completo!
           </p>
           <div className="pt-2">
