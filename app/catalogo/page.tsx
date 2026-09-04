@@ -5,7 +5,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { CardProduto, Produto } from "@/components/CartaoProduto"
 import { ShoppingBag, Loader2, Search, SlidersHorizontal, X, RotateCcw, ChevronDown, Gift, Check } from "lucide-react"
 
-const ITENS_POR_PAGINA = 18
+const ITENS_POR_PAGINA = 24 // Aumentado ligeiramente para preencher melhor grades maiores
 
 const FAIXAS_IDADE = [
   { id: "todos", label: "Todas", query: "todos", activeColor: "bg-slate-900 border-slate-900 text-white shadow-slate-200" },
@@ -202,11 +202,11 @@ function CatalogoConteudo() {
           const listaProd = Array.isArray(dataProd) ? dataProd : dataProd.produtos || dataProd.data || []
           setProdutos(listaProd)
         }
-     } catch (e) {
-  console.error("Erro ao carregar dados do catálogo:", e)
-} finally {
-  setCarregando(false)
-}
+      } catch (e) {
+        console.error("Erro ao carregar dados do catálogo:", e)
+      } finally {
+        setCarregando(false)
+      }
     }
     carregarDados()
   }, [])
@@ -349,7 +349,8 @@ function CatalogoConteudo() {
 
   return (
     <div className="min-h-screen bg-slate-50 py-6 sm:py-10 font-sans text-slate-800">
-      <div className="mx-auto max-w-7xl px-3 sm:px-6">
+      {/* Container expandido: max-w-[1800px] garante boa visualização em Monitores 2K e 4K */}
+      <div className="mx-auto max-w-[1800px] px-4 sm:px-8 xl:px-12">
         
         {/* Cabeçalho */}
         <div className="mb-6 sm:mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-slate-200 pb-5 sm:pb-6">
@@ -429,7 +430,8 @@ function CatalogoConteudo() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 sm:gap-8">
+        {/* Layout Grid Adaptável: Sidebar fixada em largura conveniente, produtos ocupam todo o espaço restante */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 sm:gap-8">
           
           {/* Sidebar / Modal Drawer Mobile */}
           <aside
@@ -680,8 +682,8 @@ function CatalogoConteudo() {
             )}
           </aside>
 
-          {/* Área Principal de Produtos */}
-          <main className="lg:col-span-3">
+          {/* Área Principal de Produtos (Adapta colunas conforme o tamanho da tela) */}
+          <main className="lg:col-span-3 xl:col-span-4 2xl:col-span-5">
             {produtosFiltrados.length === 0 ? (
               <div className="rounded-3xl bg-white border border-slate-200 p-8 sm:p-12 text-center space-y-3 shadow-xs text-slate-700">
                 <ShoppingBag className="h-10 w-10 text-slate-300 mx-auto" />
@@ -696,8 +698,8 @@ function CatalogoConteudo() {
               </div>
             ) : (
               <>
-                {/* Grid Responsivo Ajustado: 2 colunas no Mobile, 3 no Tablet/Desktop */}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6">
+                {/* As colunas do Grid aumentam progressivamente em monitores Full HD, QuadHD (2K) e 4K */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-6">
                   {produtosPaginados.map((produto) => (
                     <CardProduto
                       key={String((produto as any).id || (produto as any)._id)}
@@ -706,7 +708,6 @@ function CatalogoConteudo() {
                   ))}
                 </div>
 
-                {/* Paginação Otimizada para Telas Pequenas */}
                 {totalPaginas > 1 && (
                   <div className="mt-8 sm:mt-10 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
                     <button
