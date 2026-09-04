@@ -202,11 +202,11 @@ function CatalogoConteudo() {
           const listaProd = Array.isArray(dataProd) ? dataProd : dataProd.produtos || dataProd.data || []
           setProdutos(listaProd)
         }
-      } catch (e) {
-        console.error("Erro ao carregar dados do catálogo:", e)
-      } font-medium {
-        setCarregando(false)
-      }
+     } catch (e) {
+  console.error("Erro ao carregar dados do catálogo:", e)
+} finally {
+  setCarregando(false)
+}
     }
     carregarDados()
   }, [])
