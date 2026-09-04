@@ -154,7 +154,6 @@ function CatalogoConteudo() {
   const [categoriasAberto, setCategoriasAberto] = useState(false)
   const [tamanhosAberto, setTamanhosAberto] = useState(false)
 
-  // Estado da Paginação
   const [paginaAtual, setPaginaAtual] = useState(1)
 
   useEffect(() => {
@@ -205,14 +204,13 @@ function CatalogoConteudo() {
         }
       } catch (e) {
         console.error("Erro ao carregar dados do catálogo:", e)
-      } finally {
+      } font-medium {
         setCarregando(false)
       }
     }
     carregarDados()
   }, [])
 
-  // Reseta para a página 1 ao alterar filtros
   useEffect(() => {
     setPaginaAtual(1)
   }, [busca, categoriaSelecionada, tamanhoSelecionado, generoSelecionado, idadeSelecionada, ordenacao])
@@ -350,12 +348,14 @@ function CatalogoConteudo() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 font-sans text-slate-800">
-      <div className="mx-auto max-w-7xl px-4">
-        <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-slate-200 pb-6">
+    <div className="min-h-screen bg-slate-50 py-6 sm:py-10 font-sans text-slate-800">
+      <div className="mx-auto max-w-7xl px-3 sm:px-6">
+        
+        {/* Cabeçalho */}
+        <div className="mb-6 sm:mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-4 border-b border-slate-200 pb-5 sm:pb-6">
           <div>
-            <div className="inline-flex items-center gap-2.5">
-              <span className="text-3xl font-black tracking-tight flex items-center select-none">
+            <div className="inline-flex items-center gap-2">
+              <span className="text-2xl sm:text-3xl font-black tracking-tight flex items-center select-none">
                 <span className="text-[#81d4fa]">J</span>
                 <span className="text-[#f48fb1]">K</span>
                 <span className="w-1.5"></span>
@@ -367,40 +367,41 @@ function CatalogoConteudo() {
                 <span className="text-[#ffd54f]">o</span>
                 <span className="text-[#b39ddb]">n</span>
               </span>
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-black uppercase tracking-widest text-amber-700 shadow-xs">
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] sm:text-xs font-black uppercase tracking-widest text-amber-700 shadow-xs">
                 Kids
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1 font-medium">Moda infantil de alta qualidade com elegância e conforto.</p>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">Moda infantil de alta qualidade com elegância e conforto.</p>
           </div>
 
           <button
-            onClick={() => setFiltroMobileAberto(!filtroMobileAberto)}
-            className="lg:hidden flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-100"
+            onClick={() => setFiltroMobileAberto(true)}
+            className="lg:hidden w-full sm:w-auto flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-xs font-bold text-slate-700 shadow-xs transition-all active:scale-98 hover:bg-slate-100"
           >
             <SlidersHorizontal className="h-4 w-4 text-slate-700" />
             Filtros e Busca
           </button>
         </div>
 
-        <div className="mb-8 bg-white backdrop-blur-md rounded-2xl p-4 border border-slate-200 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+        {/* Banner Presente Por Idade */}
+        <div className="mb-6 sm:mb-8 bg-white backdrop-blur-md rounded-2xl p-3.5 sm:p-4 border border-slate-200 shadow-xs">
+          <div className="flex flex-row items-center justify-between gap-2 mb-2.5">
             <div className="flex items-center gap-2 font-bold text-slate-800 text-xs sm:text-sm">
-              <Gift className="h-4 w-4 text-amber-500" />
+              <Gift className="h-4 w-4 text-amber-500 shrink-0" />
               <span>Presente por idade:</span>
             </div>
 
             {idadeSelecionada !== "todos" && (
               <button
                 onClick={() => alterarFiltroIdade("todos")}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl border border-slate-300 transition-all self-start sm:self-auto"
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl border border-slate-300 transition-all"
               >
-                <X className="h-3 w-3" /> Limpar filtro de idade
+                <X className="h-3 w-3" /> Limpar
               </button>
             )}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex gap-2 overflow-x-auto pb-1 pt-1 scrollbar-none -mx-1 px-1">
             {FAIXAS_IDADE.map((item) => {
               const estaAtivo =
                 (idadeSelecionada === "todos" && item.query === "todos") ||
@@ -413,11 +414,11 @@ function CatalogoConteudo() {
                   type="button"
                   onClick={() => alterarFiltroIdade(item.query)}
                   className={`
-                    px-4 py-2 rounded-full font-bold text-xs whitespace-nowrap transition-all border shadow-md
+                    px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full font-bold text-xs whitespace-nowrap transition-all border shrink-0
                     ${
                       estaAtivo
-                        ? `${item.activeColor} scale-105`
-                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900 shadow-none"
+                        ? `${item.activeColor} scale-105 shadow-sm`
+                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
                     }
                   `}
                 >
@@ -428,255 +429,275 @@ function CatalogoConteudo() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 sm:gap-8">
+          
+          {/* Sidebar / Modal Drawer Mobile */}
           <aside
-            className={`lg:block ${
-              filtroMobileAberto ? "block fixed inset-0 z-50 bg-slate-50 p-6 overflow-y-auto" : "hidden"
-            } lg:col-span-1 space-y-6`}
+            className={`
+              lg:block lg:col-span-1
+              ${filtroMobileAberto ? "fixed inset-0 z-50 bg-white p-5 overflow-y-auto flex flex-col justify-between" : "hidden"}
+            `}
           >
-            {filtroMobileAberto && (
-              <div className="flex items-center justify-between pb-4 border-b border-slate-200 lg:hidden">
-                <h2 className="text-lg font-bold text-slate-900">Filtros</h2>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 lg:hidden">
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4" /> Filtros
+                </h2>
                 <button
                   onClick={() => setFiltroMobileAberto(false)}
-                  className="p-2 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  className="p-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
-            )}
 
-            <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500" />
-                  Filtros
-                </h3>
-                {(busca || categoriaSelecionada !== "todos" || tamanhoSelecionado !== "todos" || generoSelecionado !== "todos" || idadeSelecionada !== "todos" || ordenacao !== "relevancia") && (
-                  <button
-                    onClick={limparFiltros}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline transition-all"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    Limpar
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700">Buscar produto</label>
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Nome da peça..."
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    className="w-full rounded-2xl bg-slate-50 border border-slate-200 py-3 pl-10 pr-4 text-xs text-slate-800 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700">Ordenar por</label>
-                <select
-                  value={ordenacao}
-                  onChange={(e) => setOrdenacao(e.target.value)}
-                  className="w-full rounded-2xl bg-slate-50 border border-slate-200 py-3 px-4 text-xs text-slate-800 font-semibold focus:border-slate-800 focus:bg-white focus:outline-none transition-all cursor-pointer"
-                >
-                  <option value="relevancia">Relevância</option>
-                  <option value="menor-preco">Menor Preço</option>
-                  <option value="maior-preco">Maior Preço</option>
-                  <option value="az">Ordem Alfabética (A-Z)</option>
-                  <option value="za">Ordem Alfabética (Z-A)</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700">Gênero</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { label: "Todos", value: "todos" },
-                    { label: "Feminino", value: "feminino" },
-                    { label: "Masculino", value: "masculino" },
-                  ].map((gen) => {
-                    const ativo = generoSelecionado === gen.value
-                    return (
-                      <button
-                        key={gen.value}
-                        type="button"
-                        onClick={() => alterarFiltroGenero(gen.value)}
-                        className={`py-2 px-2.5 rounded-2xl text-xs font-bold border transition-all flex items-center justify-center gap-1 ${
-                          ativo
-                            ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-200 scale-[1.02]"
-                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        {ativo && <Check className="h-3 w-3 text-pink-400" />}
-                        {gen.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700">Categorias</label>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategoriasAberto(!categoriasAberto)
-                      setTamanhosAberto(false)
-                    }}
-                    className="w-full flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-200 py-3 px-4 text-xs font-semibold text-slate-800 hover:bg-slate-100 transition-all cursor-pointer"
-                  >
-                    <span className="truncate capitalize">
-                      {categoriaSelecionada === "todos" ? "Todas as categorias" : categoriaSelecionada}
-                    </span>
-                    <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform duration-200 ${categoriasAberto ? "rotate-180" : ""}`} />
-                  </button>
-
-                  {categoriasAberto && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-30 rounded-2xl bg-white border border-slate-200 p-2 shadow-lg space-y-1 max-h-56 overflow-y-auto">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCategoriaSelecionada("todos")
-                          setCategoriasAberto(false)
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                          categoriaSelecionada === "todos"
-                            ? "bg-slate-900 text-white font-bold shadow-md shadow-slate-200"
-                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        Todas as categorias
-                      </button>
-                      {categoriasDisponiveis.map((cat) => (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => {
-                            setCategoriaSelecionada(cat)
-                            setCategoriasAberto(false)
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all capitalize ${
-                            categoriaSelecionada === cat
-                              ? "bg-slate-900 text-white font-bold shadow-md shadow-slate-200"
-                              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
+              <div className="rounded-3xl bg-white lg:border border-slate-200 lg:p-6 lg:shadow-xs space-y-6">
+                <div className="hidden lg:flex items-center justify-between">
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500" />
+                    Filtros
+                  </h3>
+                  {(busca || categoriaSelecionada !== "todos" || tamanhoSelecionado !== "todos" || generoSelecionado !== "todos" || idadeSelecionada !== "todos" || ordenacao !== "relevancia") && (
+                    <button
+                      onClick={limparFiltros}
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline transition-all"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Limpar
+                    </button>
                   )}
                 </div>
-              </div>
 
-              {tamanhosDisponiveis.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700">Tamanho</label>
-                    {tamanhoSelecionado !== "todos" && (
-                      <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                        {tamanhoSelecionado}
-                      </span>
-                    )}
+                {/* Busca */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Buscar produto</label>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Nome da peça..."
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      className="w-full rounded-2xl bg-slate-50 border border-slate-200 py-2.5 pl-10 pr-4 text-xs text-slate-800 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none transition-all"
+                    />
                   </div>
+                </div>
 
+                {/* Ordenação */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Ordenar por</label>
+                  <select
+                    value={ordenacao}
+                    onChange={(e) => setOrdenacao(e.target.value)}
+                    className="w-full rounded-2xl bg-slate-50 border border-slate-200 py-2.5 px-3.5 text-xs text-slate-800 font-semibold focus:border-slate-800 focus:bg-white focus:outline-none transition-all cursor-pointer"
+                  >
+                    <option value="relevancia">Relevância</option>
+                    <option value="menor-preco">Menor Preço</option>
+                    <option value="maior-preco">Maior Preço</option>
+                    <option value="az">Ordem Alfabética (A-Z)</option>
+                    <option value="za">Ordem Alfabética (Z-A)</option>
+                  </select>
+                </div>
+
+                {/* Gênero */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Gênero</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { label: "Todos", value: "todos" },
+                      { label: "Feminino", value: "feminino" },
+                      { label: "Masculino", value: "masculino" },
+                    ].map((gen) => {
+                      const ativo = generoSelecionado === gen.value
+                      return (
+                        <button
+                          key={gen.value}
+                          type="button"
+                          onClick={() => alterarFiltroGenero(gen.value)}
+                          className={`py-2 px-1.5 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1 ${
+                            ativo
+                              ? "bg-slate-900 text-white border-slate-900 shadow-xs"
+                              : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          {ativo && <Check className="h-3 w-3 text-pink-400 shrink-0" />}
+                          <span className="truncate">{gen.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Categorias */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Categorias</label>
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => {
-                        setTamanhosAberto(!tamanhosAberto)
-                        setCategoriasAberto(false)
+                        setCategoriasAberto(!categoriasAberto)
+                        setTamanhosAberto(false)
                       }}
-                      className="w-full flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-200 py-3 px-4 text-xs font-semibold text-slate-800 hover:bg-slate-100 transition-all cursor-pointer shadow-xs"
+                      className="w-full flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-200 py-2.5 px-3.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 transition-all cursor-pointer"
                     >
-                      <span className="truncate">
-                        {tamanhoSelecionado === "todos" ? "Todos" : tamanhoSelecionado}
+                      <span className="truncate capitalize">
+                        {categoriaSelecionada === "todos" ? "Todas as categorias" : categoriaSelecionada}
                       </span>
-                      <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform duration-200 ${tamanhosAberto ? "rotate-180" : ""}`} />
+                      <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform duration-200 shrink-0 ${categoriasAberto ? "rotate-180" : ""}`} />
                     </button>
 
-                    {tamanhosAberto && (
-                      <div className="absolute top-full left-0 right-0 mt-2 z-30 rounded-2xl bg-white border border-slate-200 p-2.5 shadow-xl space-y-2 max-h-60 overflow-y-auto">
+                    {categoriasAberto && (
+                      <div className="absolute top-full left-0 right-0 mt-2 z-30 rounded-2xl bg-white border border-slate-200 p-2 shadow-lg space-y-1 max-h-56 overflow-y-auto">
                         <button
                           type="button"
                           onClick={() => {
-                            setTamanhoSelecionado("todos")
-                            setTamanhosAberto(false)
+                            setCategoriaSelecionada("todos")
+                            setCategoriasAberto(false)
                           }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                            tamanhoSelecionado === "todos"
-                              ? "bg-slate-900 text-white shadow-md shadow-slate-200"
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                            categoriaSelecionada === "todos"
+                              ? "bg-slate-900 text-white font-bold"
                               : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                           }`}
                         >
-                          <span>Todos</span>
-                          {tamanhoSelecionado === "todos" && <Check className="h-3.5 w-3.5 text-amber-400" />}
+                          Todas as categorias
                         </button>
-
-                        <div className="border-t border-slate-100" />
-
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {tamanhosDisponiveis.map((tam) => {
-                            const ativo = tamanhoSelecionado === tam
-                            return (
-                              <button
-                                key={tam}
-                                type="button"
-                                onClick={() => {
-                                  setTamanhoSelecionado(tam)
-                                  setTamanhosAberto(false)
-                                }}
-                                className={`py-2 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
-                                  ativo
-                                    ? "bg-slate-900 text-white shadow-md shadow-slate-200"
-                                    : "bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-100"
-                                }`}
-                              >
-                                {ativo && <Check className="h-3 w-3 text-amber-400" />}
-                                {tam}
-                              </button>
-                            )
-                          })}
-                        </div>
+                        {categoriasDisponiveis.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              setCategoriaSelecionada(cat)
+                              setCategoriasAberto(false)
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all capitalize ${
+                              categoriaSelecionada === cat
+                                ? "bg-slate-900 text-white font-bold"
+                                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
                 </div>
-              )}
 
-              {filtroMobileAberto && (
+                {/* Tamanhos */}
+                {tamanhosDisponiveis.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700">Tamanho</label>
+                      {tamanhoSelecionado !== "todos" && (
+                        <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          {tamanhoSelecionado}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTamanhosAberto(!tamanhosAberto)
+                          setCategoriasAberto(false)
+                        }}
+                        className="w-full flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-200 py-2.5 px-3.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 transition-all cursor-pointer shadow-xs"
+                      >
+                        <span className="truncate">
+                          {tamanhoSelecionado === "todos" ? "Todos" : tamanhoSelecionado}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform duration-200 shrink-0 ${tamanhosAberto ? "rotate-180" : ""}`} />
+                      </button>
+
+                      {tamanhosAberto && (
+                        <div className="absolute top-full left-0 right-0 mt-2 z-30 rounded-2xl bg-white border border-slate-200 p-2.5 shadow-xl space-y-2 max-h-60 overflow-y-auto">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTamanhoSelecionado("todos")
+                              setTamanhosAberto(false)
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                              tamanhoSelecionado === "todos"
+                                ? "bg-slate-900 text-white"
+                                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            }`}
+                          >
+                            <span>Todos</span>
+                            {tamanhoSelecionado === "todos" && <Check className="h-3.5 w-3.5 text-amber-400" />}
+                          </button>
+
+                          <div className="border-t border-slate-100" />
+
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {tamanhosDisponiveis.map((tam) => {
+                              const ativo = tamanhoSelecionado === tam
+                              return (
+                                <button
+                                  key={tam}
+                                  type="button"
+                                  onClick={() => {
+                                    setTamanhoSelecionado(tam)
+                                    setTamanhosAberto(false)
+                                  }}
+                                  className={`py-2 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                                    ativo
+                                      ? "bg-slate-900 text-white"
+                                      : "bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-100"
+                                  }`}
+                                >
+                                  {ativo && <Check className="h-3 w-3 text-amber-400 shrink-0" />}
+                                  {tam}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {filtroMobileAberto && (
+              <div className="pt-4 border-t border-slate-100 mt-6 lg:hidden flex gap-2">
+                <button
+                  onClick={limparFiltros}
+                  className="w-1/3 rounded-2xl bg-slate-100 hover:bg-slate-200 py-3 text-xs font-bold text-slate-700 transition-all"
+                >
+                  Limpar
+                </button>
                 <button
                   onClick={() => setFiltroMobileAberto(false)}
-                  className="w-full rounded-2xl bg-slate-900 hover:bg-slate-800 py-3.5 text-xs font-bold text-white shadow-lg shadow-slate-200 mt-4 transition-transform active:scale-95"
+                  className="w-2/3 rounded-2xl bg-slate-900 hover:bg-slate-800 py-3 text-xs font-bold text-white shadow-md transition-transform active:scale-95"
                 >
-                  Ver Produtos ({produtosFiltrados.length})
+                  Ver ({produtosFiltrados.length})
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </aside>
 
+          {/* Área Principal de Produtos */}
           <main className="lg:col-span-3">
             {produtosFiltrados.length === 0 ? (
-              <div className="rounded-3xl bg-white border border-slate-200 p-12 text-center space-y-3 shadow-sm text-slate-700">
+              <div className="rounded-3xl bg-white border border-slate-200 p-8 sm:p-12 text-center space-y-3 shadow-xs text-slate-700">
                 <ShoppingBag className="h-10 w-10 text-slate-300 mx-auto" />
                 <p className="text-sm font-bold text-slate-800">Nenhum produto encontrado com esses filtros.</p>
                 <p className="text-xs text-slate-500">Tente buscar por outro termo ou limpar os filtros aplicados.</p>
                 <button
                   onClick={limparFiltros}
-                  className="mt-2 inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-slate-200 transition-all hover:bg-slate-800"
+                  className="mt-2 inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all hover:bg-slate-800"
                 >
                   Limpar Filtros
                 </button>
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                {/* Grid Responsivo Ajustado: 2 colunas no Mobile, 3 no Tablet/Desktop */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6">
                   {produtosPaginados.map((produto) => (
                     <CardProduto
                       key={String((produto as any).id || (produto as any)._id)}
@@ -685,34 +706,37 @@ function CatalogoConteudo() {
                   ))}
                 </div>
 
+                {/* Paginação Otimizada para Telas Pequenas */}
                 {totalPaginas > 1 && (
-                  <div className="mt-10 flex items-center justify-center gap-2">
+                  <div className="mt-8 sm:mt-10 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
                     <button
                       onClick={() => mudarPagina(paginaAtual - 1)}
                       disabled={paginaAtual === 1}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                       Anterior
                     </button>
 
-                    {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((num) => (
-                      <button
-                        key={num}
-                        onClick={() => mudarPagina(num)}
-                        className={`h-9 w-9 rounded-xl text-xs font-bold transition-all ${
-                          paginaAtual === num
-                            ? "bg-slate-900 text-white shadow-md shadow-slate-200"
-                            : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((num) => (
+                        <button
+                          key={num}
+                          onClick={() => mudarPagina(num)}
+                          className={`h-8 w-8 sm:h-9 sm:w-9 rounded-xl text-xs font-bold transition-all ${
+                            paginaAtual === num
+                              ? "bg-slate-900 text-white shadow-xs"
+                              : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
 
                     <button
                       onClick={() => mudarPagina(paginaAtual + 1)}
                       disabled={paginaAtual === totalPaginas}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                       Próxima
                     </button>
