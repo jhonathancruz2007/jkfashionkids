@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, Mail, User, Loader2, Sparkles, Eye, EyeOff, ShoppingBag, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Lock, Mail, User, Loader2, Sparkles, Eye, EyeOff, PartyPopper, Zap, Truck } from "lucide-react";
 
 function FormularioLogin() {
   const router = useRouter();
@@ -141,46 +141,59 @@ function FormularioLogin() {
         {/* Outer Layout Container */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center bg-white/60 backdrop-blur-md rounded-3xl p-4 sm:p-6 lg:p-8 border border-red-500/10 shadow-2xl shadow-red-500/5">
           
-          {/* Coluna Esquerda: Exclusiva para Resoluções Maiores (lg+) */}
-          <div className="hidden lg:flex lg:col-span-6 flex-col justify-between h-full p-8 rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white shadow-lg relative overflow-hidden">
-            <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+          {/* Coluna Esquerda: Estilo Divertido e Dinâmico */}
+          <div className="hidden lg:flex lg:col-span-6 flex-col justify-between h-full p-8 sm:p-10 rounded-2xl bg-gradient-to-br from-red-600 via-rose-600 to-pink-600 text-white shadow-xl relative overflow-hidden group">
             
-            <div className="space-y-6 relative z-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/15 text-white text-xs font-bold w-fit backdrop-blur-sm">
-                <Sparkles className="h-4 w-4" /> Experiência Exclusiva
-              </div>
-              <h2 className="text-3xl font-black tracking-tight leading-tight">
-                Sua jornada de compras mais simples, rápida e segura.
-              </h2>
-              <p className="text-xs text-white/80 leading-relaxed font-medium max-w-md">
-                Acesse sua conta para visualizar seu histórico de pedidos, gerenciar suas preferências e ter acesso antecipado a ofertas exclusivas.
-              </p>
+            {/* Elementos decorativos de fundo */}
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-2xl group-hover:scale-125 transition-transform duration-700 pointer-events-none" />
+            <div className="absolute -bottom-16 -left-16 w-60 h-60 bg-amber-400/20 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-700 pointer-events-none" />
+            <div className="absolute top-1/2 right-4 text-white/5 font-black text-8xl select-none pointer-events-none rotate-12">
+              🛒
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-12 relative z-10 pt-6 border-t border-white/20">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-white/10 backdrop-blur-md">
-                  <ShoppingBag className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold">Catálogo Amplo</h3>
-                  <p className="text-[10px] text-white/70">Produtos selecionados</p>
-                </div>
+            <div className="space-y-6 relative z-10">
+              {/* Tag Interativa */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-white text-xs font-black tracking-wide w-fit shadow-xs border border-white/20 hover:scale-105 transition-transform cursor-default">
+                <PartyPopper className="h-4 w-4 text-amber-300 animate-bounce" />
+                <span>Sua dose diária de achadinhos!</span>
               </div>
 
+              <div className="space-y-3">
+                <h2 className="text-3xl xl:text-4xl font-black tracking-tight leading-tight drop-shadow-sm">
+                  Pronto pra encher o carrinho sem culpa? 🛍️✨
+                </h2>
+                <p className="text-xs xl:text-sm text-white/90 leading-relaxed font-medium max-w-md">
+                  Entra aí pra liberar cupons secretos, acompanhar suas entregas na velocidade do som e garantir os melhores preços do catálogo.
+                </p>
+              </div>
+
+              {/* Badges Rápidos */}
+              <div className="flex flex-wrap gap-2 pt-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-black/15 backdrop-blur-xs text-[11px] font-bold text-white/90">
+                  <Zap className="h-3.5 w-3.5 text-amber-300" /> Checkout Express
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-black/15 backdrop-blur-xs text-[11px] font-bold text-white/90">
+                  🎁 Cupons Exclusivos
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-black/15 backdrop-blur-xs text-[11px] font-bold text-white/90">
+                  <Truck className="h-3.5 w-3.5 text-sky-200" /> Rastreio Fácil
+                </span>
+              </div>
+            </div>
+
+            {/* Destaque Inferior */}
+            <div className="mt-8 relative z-10 pt-6 border-t border-white/20 flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-2xl border">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-white/10 backdrop-blur-md">
-                  <ShieldCheck className="h-5 w-5 text-white" />
-                </div>
+                <div className="text-2xl">🔥</div>
                 <div>
-                  <h3 className="text-xs font-bold">Compra Segura</h3>
-                  <p className="text-[10px] text-white/70">Proteção de dados</p>
+                  <h3 className="text-xs font-black tracking-wide uppercase text-white">Ofertas Relâmpago</h3>
+                  <p className="text-[11px] text-white/80 font-medium">Os membros logados pegam os descontos primeiro!</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Coluna Direita: Formulário (Ocupa full width no mobile e 6 colunas no lg) */}
+          {/* Coluna Direita: Formulário */}
           <div className="lg:col-span-6 w-full max-w-md mx-auto lg:max-w-none lg:p-4">
             <div className="rounded-3xl border border-red-500/15 bg-white p-6 sm:p-8 shadow-xl shadow-red-500/5">
               <div className="text-center space-y-2 mb-6">
