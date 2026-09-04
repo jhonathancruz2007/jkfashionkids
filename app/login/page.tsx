@@ -44,7 +44,7 @@ function FormularioLogin() {
         }
       } catch (err) {
         console.error("Erro ao verificar sessão:", err);
-      } font-medium {
+      } finally {
         setChecandoSessao(false);
       }
     }
