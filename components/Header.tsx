@@ -62,7 +62,7 @@ export default function Header() {
 
   return (
     <header
-      className={`sticky top-0 z-30 transition-all duration-300 ease-in-out relative font-bold ${
+      className={`sticky top-0 z-30 transition-all duration-300 ease-in-out relative font-bold w-full ${
         scrolled
           ? "border-b border-stone-200 bg-white/95 backdrop-blur-md shadow-xs"
           : "border-b border-stone-200/50 bg-white/80 backdrop-blur-sm shadow-none"
@@ -91,9 +91,9 @@ export default function Header() {
 
       <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-[280px] sm:w-[450px] h-[70px] bg-gradient-to-r from-[#03a9f4]/30 via-[#f48fb1]/40 to-[#ba68c8]/30 rounded-full blur-2xl pointer-events-none" />
 
-      {/* 2. CONTEÚDO PRINCIPAL DO HEADER */}
+      {/* 2. CONTEÚDO PRINCIPAL DO HEADER (Alinhado em max-w-[1700px]) */}
       <div
-        className={`mx-auto flex max-w-7xl items-center justify-between px-3 sm:px-6 transition-all duration-300 relative z-10 ${
+        className={`mx-auto flex w-full max-w-[1700px] items-center justify-between px-4 sm:px-6 lg:px-8 xl:px-12 transition-all duration-300 relative z-10 ${
           scrolled ? "py-2.5" : "py-3.5 sm:py-5"
         }`}
       >
