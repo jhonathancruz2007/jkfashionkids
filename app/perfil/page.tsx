@@ -21,6 +21,7 @@ import {
   CreditCard,
   Tag,
   Sparkles,
+  ShieldCheck,
 } from "lucide-react"
 
 // Função auxiliar para identificar e calcular preço promocional vs preço original
@@ -212,7 +213,7 @@ export default function PerfilPage() {
 
   return (
     <div className="min-h-screen bg-neutral-50 py-10 font-sans text-neutral-800 relative">
-      <div className="mx-auto max-w-5xl px-4">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho do Perfil */}
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-3xl bg-white border border-neutral-200/80 p-6 shadow-sm gap-4">
           <div className="flex items-center gap-4">
@@ -243,7 +244,7 @@ export default function PerfilPage() {
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-100 transition-all shadow-sm"
+              className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-100 transition-all shadow-sm cursor-pointer"
             >
               <LogOut className="h-3.5 w-3.5" /> Sair
             </button>
@@ -255,7 +256,7 @@ export default function PerfilPage() {
           <button
             type="button"
             onClick={() => setAbaAtiva("dados")}
-            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap ${
+            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap cursor-pointer ${
               abaAtiva === "dados"
                 ? "text-red-600"
                 : "text-neutral-500 hover:text-neutral-800"
@@ -270,7 +271,7 @@ export default function PerfilPage() {
           <button
             type="button"
             onClick={() => setAbaAtiva("favoritos")}
-            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap ${
+            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap cursor-pointer ${
               abaAtiva === "favoritos"
                 ? "text-red-600"
                 : "text-neutral-500 hover:text-neutral-800"
@@ -285,7 +286,7 @@ export default function PerfilPage() {
           <button
             type="button"
             onClick={() => setAbaAtiva("pedidos")}
-            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap ${
+            className={`flex items-center gap-2 pb-3.5 text-xs font-bold transition-all relative whitespace-nowrap cursor-pointer ${
               abaAtiva === "pedidos"
                 ? "text-red-600"
                 : "text-neutral-500 hover:text-neutral-800"
@@ -300,91 +301,126 @@ export default function PerfilPage() {
 
         {/* ABA 1: MEUS DADOS & ENDEREÇO */}
         {abaAtiva === "dados" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="rounded-3xl bg-white border border-neutral-200/80 p-7 shadow-sm space-y-6 text-neutral-800">
-              <h2 className="font-extrabold text-xs uppercase tracking-wider text-neutral-500 flex items-center gap-2.5">
-                <User className="h-4 w-4 text-red-600" /> Informações Pessoais
-              </h2>
-              <div className="space-y-4">
-                <div className="border-b border-neutral-100 pb-3">
-                  <span className="text-neutral-400 block font-medium text-xs mb-1">
-                    Nome Completo:
-                  </span>
-                  <span className="text-neutral-900 font-bold text-sm">
-                    {cliente?.nome || "Não informado"}
-                  </span>
-                </div>
-                <div className="border-b border-neutral-100 pb-3">
-                  <span className="text-neutral-400 block font-medium text-xs mb-1">
-                    E-mail:
-                  </span>
-                  <span className="text-neutral-900 font-bold text-sm">
-                    {cliente?.email || "Não informado"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-400 block font-medium text-xs mb-1">
-                    Telefone / WhatsApp:
-                  </span>
-                  <span className="text-neutral-900 font-bold text-sm">
-                    {cliente?.telefone || cliente?.whatsapp || "Não informado"}
-                  </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="rounded-3xl bg-white border border-neutral-200/80 p-7 shadow-sm space-y-6 text-neutral-800 flex flex-col justify-between">
+              <div>
+                <h2 className="font-extrabold text-xs uppercase tracking-wider text-neutral-500 flex items-center gap-2.5 mb-6">
+                  <User className="h-4 w-4 text-red-600" /> Informações Pessoais
+                </h2>
+                <div className="space-y-4">
+                  <div className="border-b border-neutral-100 pb-3">
+                    <span className="text-neutral-400 block font-medium text-xs mb-1">
+                      Nome Completo:
+                    </span>
+                    <span className="text-neutral-900 font-bold text-sm">
+                      {cliente?.nome || "Não informado"}
+                    </span>
+                  </div>
+                  <div className="border-b border-neutral-100 pb-3">
+                    <span className="text-neutral-400 block font-medium text-xs mb-1">
+                      E-mail:
+                    </span>
+                    <span className="text-neutral-900 font-bold text-sm">
+                      {cliente?.email || "Não informado"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-neutral-400 block font-medium text-xs mb-1">
+                      Telefone / WhatsApp:
+                    </span>
+                    <span className="text-neutral-900 font-bold text-sm">
+                      {cliente?.telefone || cliente?.whatsapp || "Não informado"}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-3xl bg-white border border-neutral-200/80 p-7 shadow-sm space-y-6 text-neutral-800">
-              <h2 className="font-extrabold text-xs uppercase tracking-wider text-neutral-500 flex items-center gap-2.5">
-                <MapPin className="h-4 w-4 text-red-600" /> Endereço de Entrega
-              </h2>
-              <div className="space-y-4">
-                <div className="border-b border-neutral-100 pb-3">
-                  <span className="text-neutral-400 block font-medium text-xs mb-1">
-                    Rua / Logradouro:
-                  </span>
-                  <span className="text-neutral-900 font-bold text-sm">
-                    {cliente?.rua || cliente?.endereco || "Não informado"}
-                    {cliente?.numero ? `, ${cliente.numero}` : ""}
-                  </span>
-                </div>
-                {cliente?.complemento && (
+            <div className="rounded-3xl bg-white border border-neutral-200/80 p-7 shadow-sm space-y-6 text-neutral-800 flex flex-col justify-between">
+              <div>
+                <h2 className="font-extrabold text-xs uppercase tracking-wider text-neutral-500 flex items-center gap-2.5 mb-6">
+                  <MapPin className="h-4 w-4 text-red-600" /> Endereço de Entrega
+                </h2>
+                <div className="space-y-4">
                   <div className="border-b border-neutral-100 pb-3">
                     <span className="text-neutral-400 block font-medium text-xs mb-1">
-                      Complemento:
+                      Rua / Logradouro:
                     </span>
                     <span className="text-neutral-900 font-bold text-sm">
-                      {cliente.complemento}
+                      {cliente?.rua || cliente?.endereco || "Não informado"}
+                      {cliente?.numero ? `, ${cliente.numero}` : ""}
                     </span>
                   </div>
-                )}
-                <div className="grid grid-cols-2 gap-4 border-b border-neutral-100 pb-3">
-                  <div>
-                    <span className="text-neutral-400 block font-medium text-xs mb-1">
-                      Bairro:
-                    </span>
-                    <span className="text-neutral-900 font-bold text-sm">
-                      {cliente?.bairro || "Não informado"}
-                    </span>
+                  {cliente?.complemento && (
+                    <div className="border-b border-neutral-100 pb-3">
+                      <span className="text-neutral-400 block font-medium text-xs mb-1">
+                        Complemento:
+                      </span>
+                      <span className="text-neutral-900 font-bold text-sm">
+                        {cliente.complemento}
+                      </span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4 border-b border-neutral-100 pb-3">
+                    <div>
+                      <span className="text-neutral-400 block font-medium text-xs mb-1">
+                        Bairro:
+                      </span>
+                      <span className="text-neutral-900 font-bold text-sm">
+                        {cliente?.bairro || "Não informado"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-400 block font-medium text-xs mb-1">
+                        CEP:
+                      </span>
+                      <span className="text-neutral-900 font-bold text-sm">
+                        {cliente?.cep || "Não informado"}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <span className="text-neutral-400 block font-medium text-xs mb-1">
-                      CEP:
+                      Cidade / Estado:
                     </span>
                     <span className="text-neutral-900 font-bold text-sm">
-                      {cliente?.cep || "Não informado"}
+                      {cliente?.cidade
+                        ? `${cliente.cidade}${cliente.estado ? ` - ${cliente.estado}` : ""}`
+                        : "Não informado"}
                     </span>
                   </div>
                 </div>
-                <div>
-                  <span className="text-neutral-400 block font-medium text-xs mb-1">
-                    Cidade / Estado:
-                  </span>
-                  <span className="text-neutral-900 font-bold text-sm">
-                    {cliente?.cidade
-                      ? `${cliente.cidade}${cliente.estado ? ` - ${cliente.estado}` : ""}`
-                      : "Não informado"}
-                  </span>
+              </div>
+            </div>
+
+            {/* Terceira coluna para equilibrar a tela em monitores grandes */}
+            <div className="rounded-3xl bg-white border border-neutral-200/80 p-7 shadow-sm space-y-6 text-neutral-800 flex flex-col justify-between col-span-1 md:col-span-2 lg:col-span-1">
+              <div>
+                <h2 className="font-extrabold text-xs uppercase tracking-wider text-neutral-500 flex items-center gap-2.5 mb-6">
+                  <ShieldCheck className="h-4 w-4 text-red-600" /> Resumo da Conta
+                </h2>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <span className="text-neutral-500 text-xs font-semibold">Total de Pedidos</span>
+                    <span className="text-neutral-900 font-extrabold text-sm">{pedidos.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <span className="text-neutral-500 text-xs font-semibold">Itens Salvos</span>
+                    <span className="text-neutral-900 font-extrabold text-sm">{listaFavoritos.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-neutral-500 text-xs font-semibold">Status do Perfil</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
+                      Ativo
+                    </span>
+                  </div>
                 </div>
+              </div>
+
+              <div className="bg-neutral-50 border border-neutral-200/80 rounded-2xl p-4 mt-6">
+                <p className="text-xs text-neutral-500 font-medium leading-relaxed">
+                  Mantenha seu endereço atualizado para garantir que suas entregas cheguem no prazo correto.
+                </p>
               </div>
             </div>
           </div>
@@ -407,7 +443,7 @@ export default function PerfilPage() {
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                 {listaFavoritos.map((item: any, index: number) => {
                   const prodObj = item.produto || item.Produto || item
 
@@ -470,7 +506,7 @@ export default function PerfilPage() {
                         type="button"
                         onClick={() => toggleFavorito(produtoReal)}
                         title="Remover dos favoritos"
-                        className="absolute top-6 right-6 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 backdrop-blur-md border border-neutral-200 shadow-sm transition-all hover:scale-105 text-red-600 hover:bg-red-50"
+                        className="absolute top-6 right-6 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 backdrop-blur-md border border-neutral-200 shadow-sm transition-all hover:scale-105 text-red-600 hover:bg-red-50 cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -540,7 +576,7 @@ export default function PerfilPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {pedidos.map((pedido: any) => (
                   <div
                     key={pedido.id || pedido._id}
@@ -600,7 +636,7 @@ export default function PerfilPage() {
               <button
                 type="button"
                 onClick={() => setPedidoSelecionado(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 border border-neutral-200 text-neutral-500 hover:text-white hover:bg-red-600 hover:border-red-600 transition-all"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 border border-neutral-200 text-neutral-500 hover:text-white hover:bg-red-600 hover:border-red-600 transition-all cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
