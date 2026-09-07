@@ -245,7 +245,7 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
       {imagens.map((img, index) => (
         <img
           key={img + index}
-          src={img}
+          src="public/principal.jpg"
           alt={`Foto da Loja JK Fashion Kids ${index + 1} de ${imagens.length}`}
           aria-hidden={index !== indexAtual}
           className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-out transform ${
