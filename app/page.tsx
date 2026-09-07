@@ -417,7 +417,7 @@ export default function HomePage() {
   const [ehAdmin, setEhAdmin] = useState(false)
 
   const fotosLoja = [
-    "public/principal.jpg",
+    "public/Principal.jpg",
     "/loja-2.jpg",
     "/loja-3.jpg",
   ]
