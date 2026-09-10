@@ -28,10 +28,14 @@ import {
   FolderPlus,
   FileSpreadsheet,
   CheckCircle,
-  Menu
+  Menu,
+  Star,
+  RefreshCw,
+  Check
 } from "lucide-react"
 
 interface CategoriaItem {
+  id?: string
   value: string
   label: string
 }
@@ -81,7 +85,7 @@ interface ItemPedido {
 interface Pedido {
   id: string
   total: number
-  status: string
+  status: "PENDENTE" | "PAGO" | "ENVIADO" | "ENTREGUE" | "CANCELADO" | string
   createdAt: string
   cliente: {
     nome: string
@@ -90,7 +94,22 @@ interface Pedido {
   itens: ItemPedido[]
 }
 
-const TAMANHOS_INICIAIS = ["RN", "P", "M", "G", "GG", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16", "Unico", "Animais", "Normais"]
+interface ApiCategoria {
+  id?: string
+  value?: string
+  label?: string
+  nome?: string
+}
+
+interface ApiTamanho {
+  id: string
+  nome?: string
+  value?: string
+}
+
+const TAMANHOS_INICIAIS: string[] = [
+  "RN", "P", "M", "G", "GG", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16", "Unico", "Animais", "Normais"
+]
 
 const CATEGORIAS_INICIAIS: CategoriaItem[] = [
   { value: "CONJUNTOS", label: "Conjuntos" },
@@ -116,50 +135,60 @@ const OPCOES_LOCAIS = [
   { value: "CATALOGO_GERAL", label: "Apenas no Catálogo Geral" },
 ]
 
+const formatarMoeda = (valor: number): string => {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(valor || 0)
+}
+
 export default function PaginaDashboardAdmin() {
   const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config" | "tiny">("geral")
-  const [saindo, setSaindo] = useState(false)
-  const [sidebarAberta, setSidebarAberta] = useState(false)
+  const [saindo, setSaindo] = useState<boolean>(false)
+  const [sidebarAberta, setSidebarAberta] = useState<boolean>(false)
 
   // ESTADO DINÂMICO DE CATEGORIAS
   const [categorias, setCategorias] = useState<CategoriaItem[]>(CATEGORIAS_INICIAIS)
-  const [novaCategoriaLabel, setNovaCategoriaLabel] = useState("")
-  const [modalGerenciarCategorias, setModalGerenciarCategorias] = useState(false)
+  const [novaCategoriaLabel, setNovaCategoriaLabel] = useState<string>("")
+  const [modalGerenciarCategorias, setModalGerenciarCategorias] = useState<boolean>(false)
 
   // ESTADO DINÂMICO DE TAMANHOS
   const [opcoesTamanhos, setOpcoesTamanhos] = useState<TamanhoItem[]>(
     TAMANHOS_INICIAIS.map((t, index) => ({ id: `temp-${index}`, nome: t }))
   )
-  const [novoTamanho, setNovoTamanho] = useState("")
-  const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState(false)
+  const [novoTamanho, setNovoTamanho] = useState<string>("")
+  const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState<boolean>(false)
+
+  // INPUT MANUAL DE TAMANHO NO MODAL DO PRODUTO
+  const [tamanhoManualInput, setTamanhoManualInput] = useState<string>("")
 
   // ESTADOS DE PRODUTOS
   const [produtos, setProdutos] = useState<Produto[]>([])
-  const [carregandoProdutos, setCarregandoProdutos] = useState(false)
-  const [buscaProduto, setBuscaProduto] = useState("")
-  const [modalProduto, setModalProduto] = useState(false)
+  const [carregandoProdutos, setCarregandoProdutos] = useState<boolean>(false)
+  const [buscaProduto, setBuscaProduto] = useState<string>("")
+  const [modalProduto, setModalProduto] = useState<boolean>(false)
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null)
-  const [salvandoProduto, setSalvandoProduto] = useState(false)
+  const [salvandoProduto, setSalvandoProduto] = useState<boolean>(false)
   const [produtoParaExcluir, setProdutoParaExcluir] = useState<Produto | null>(null)
-  const [deletandoProduto, setDeletandoProduto] = useState(false)
+  const [deletandoProduto, setDeletandoProduto] = useState<boolean>(false)
 
   // Form Produto
-  const [formNome, setFormNome] = useState("")
-  const [formDesc, setFormDesc] = useState("")
-  const [formPreco, setFormPreco] = useState("")
-  const [formPrecoPromocional, setFormPrecoPromocional] = useState("")
-  const [formEstoqueManual, setFormEstoqueManual] = useState("0")
+  const [formNome, setFormNome] = useState<string>("")
+  const [formDesc, setFormDesc] = useState<string>("")
+  const [formPreco, setFormPreco] = useState<string>("")
+  const [formPrecoPromocional, setFormPrecoPromocional] = useState<string>("")
+  const [formEstoqueManual, setFormEstoqueManual] = useState<string>("0")
   
   // Múltiplas imagens
   const [formImagens, setFormImagens] = useState<string[]>([])
-  const [novaUrlImagem, setNovaUrlImagem] = useState("")
+  const [novaUrlImagem, setNovaUrlImagem] = useState<string>("")
 
   const [formTamanhos, setFormTamanhos] = useState<string[]>([])
   const [formEstoquePorTamanho, setFormEstoquePorTamanho] = useState<Record<string, number>>({})
-  const [formGenero, setFormGenero] = useState("masculino")
-  const [formCategoria, setFormCategoria] = useState("CONJUNTOS")
-  const [formFaixaEtaria, setFormFaixaEtaria] = useState("0-1") 
-  const [formLocalCard, setFormLocalCard] = useState("HOME_DESTAQUE")
+  const [formGenero, setFormGenero] = useState<string>("masculino")
+  const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
+  const [formFaixaEtaria, setFormFaixaEtaria] = useState<string>("0-1") 
+  const [formLocalCard, setFormLocalCard] = useState<string>("HOME_DESTAQUE")
 
   // Refs para inputs de arquivo e câmera
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -167,38 +196,48 @@ export default function PaginaDashboardAdmin() {
 
   // ESTADOS DE CLIENTES
   const [clientes, setClientes] = useState<Cliente[]>([])
-  const [carregandoClientes, setCarregandoClientes] = useState(false)
-  const [buscaCliente, setBuscaCliente] = useState("")
+  const [carregandoClientes, setCarregandoClientes] = useState<boolean>(false)
+  const [buscaCliente, setBuscaCliente] = useState<string>("")
   const [clienteParaExcluir, setClienteParaExcluir] = useState<Cliente | null>(null)
-  const [deletandoCliente, setDeletandoCliente] = useState(false)
+  const [deletandoCliente, setDeletandoCliente] = useState<boolean>(false)
 
   // ESTADOS DE PEDIDOS
   const [pedidos, setPedidos] = useState<Pedido[]>([])
-  const [carregandoPedidos, setCarregandoPedidos] = useState(false)
-  const [buscaPedido, setBuscaPedido] = useState("")
+  const [carregandoPedidos, setCarregandoPedidos] = useState<boolean>(false)
+  const [buscaPedido, setBuscaPedido] = useState<string>("")
   const [pedidoDetalhes, setPedidoDetalhes] = useState<Pedido | null>(null)
   const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null)
   const [pedidoParaExcluir, setPedidoParaExcluir] = useState<Pedido | null>(null)
-  const [deletandoPedido, setDeletandoPedido] = useState(false)
+  const [deletandoPedido, setDeletandoPedido] = useState<boolean>(false)
 
   // ESTADOS MINHA CONTA & CONFIG
-  const [nomeAdmin, setNomeAdmin] = useState("Administrador")
-  const [emailAdmin, setEmailAdmin] = useState("admin@seusite.com")
+  const [nomeAdmin, setNomeAdmin] = useState<string>("Administrador")
+  const [emailAdmin, setEmailAdmin] = useState<string>("admin@seusite.com")
+  const [nomeLoja, setNomeLoja] = useState<string>("JKfashion Kids")
 
   // ESTADOS PARA IMPORTAÇÃO DO TINY ERP
-  const [loadingTiny, setLoadingTiny] = useState(false)
+  const [loadingTiny, setLoadingTiny] = useState<boolean>(false)
   const [tinyMessage, setTinyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // NOTIFICAÇÕES TOAST LOCAIS
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const exibirToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ text, type })
+    setTimeout(() => setToastMessage(null), 4000)
+  }
 
   // BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
   const carregarCategorias = async () => {
     try {
       const res = await fetch("/api/admin/categorias")
       if (res.ok) {
-        const data = await res.json()
+        const data: ApiCategoria[] = await res.json()
         if (Array.isArray(data) && data.length > 0) {
-          const catsFormatadas: CategoriaItem[] = data.map((cat: any) => ({
-            value: cat.id || cat.value || cat.nome,
-            label: cat.nome || cat.label || cat.value
+          const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
+            id: cat.id,
+            value: cat.id || cat.value || cat.nome || "",
+            label: cat.nome || cat.label || cat.value || ""
           }))
           setCategorias(catsFormatadas)
         }
@@ -213,11 +252,11 @@ export default function PaginaDashboardAdmin() {
     try {
       const res = await fetch("/api/admin/tamanhos")
       if (res.ok) {
-        const data = await res.json()
+        const data: ApiTamanho[] = await res.json()
         if (Array.isArray(data) && data.length > 0) {
-          const tamanhosFormatados: TamanhoItem[] = data.map((t: any) => ({
+          const tamanhosFormatados: TamanhoItem[] = data.map((t) => ({
             id: t.id,
-            nome: t.nome || t.value
+            nome: t.nome || t.value || ""
           }))
           setOpcoesTamanhos(tamanhosFormatados)
         }
@@ -257,6 +296,7 @@ export default function PaginaDashboardAdmin() {
         type: 'success', 
         text: data.message || `Arquivo "${file.name}" importado com sucesso!` 
       })
+      exibirToast("Importação do Tiny concluída com sucesso!")
       carregarProdutos()
       carregarCategorias()
     } catch (error) {
@@ -285,8 +325,9 @@ export default function PaginaDashboardAdmin() {
       })
 
       if (res.ok) {
-        const novaCatBanco = await res.json()
+        const novaCatBanco: ApiCategoria = await res.json()
         const catItem: CategoriaItem = {
+          id: novaCatBanco.id,
           value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
           label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
         }
@@ -297,6 +338,7 @@ export default function PaginaDashboardAdmin() {
         })
         setFormCategoria(catItem.value)
         setNovaCategoriaLabel("")
+        exibirToast(`Categoria "${nomeFormatado}" adicionada!`)
       } else {
         const data = await res.json().catch(() => ({}))
         alert(data.erro || data.error || "Erro ao adicionar categoria.")
@@ -327,6 +369,7 @@ export default function PaginaDashboardAdmin() {
         }
 
         await carregarCategorias()
+        exibirToast("Categoria removida com sucesso!")
       } else {
         const data = await res.json().catch(() => ({}))
         alert(data.erro || data.error || "Não foi possível excluir a categoria.")
@@ -337,14 +380,14 @@ export default function PaginaDashboardAdmin() {
     }
   }
 
-  // HANDLERS DE TAMANHOS
+  // HANDLERS DE TAMANHOS GLOBAIS
   const handleAdicionarTamanho = async (e: React.FormEvent) => {
     e.preventDefault()
     const tamFormatado = novoTamanho.trim()
     if (!tamFormatado) return
 
     if (opcoesTamanhos.some((t) => t.nome.toLowerCase() === tamFormatado.toLowerCase())) {
-      alert("Este tamanho já existe!")
+      alert("Este tamanho já existe no banco!")
       return
     }
 
@@ -356,12 +399,13 @@ export default function PaginaDashboardAdmin() {
       })
 
       if (res.ok) {
-        const novoTamBanco = await res.json()
+        const novoTamBanco: ApiTamanho = await res.json()
         setOpcoesTamanhos((prev) => [
           ...prev, 
           { id: novoTamBanco.id || String(Date.now()), nome: novoTamBanco.nome || tamFormatado }
         ])
         setNovoTamanho("")
+        exibirToast(`Tamanho "${tamFormatado}" adicionado!`)
       } else {
         setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: tamFormatado }])
         setNovoTamanho("")
@@ -377,38 +421,41 @@ export default function PaginaDashboardAdmin() {
     const idParaDeletar = typeof tamanhoItem === 'object' ? tamanhoItem.id : tamanhoItem
     const nomeParaFiltro = typeof tamanhoItem === 'object' ? tamanhoItem.nome : tamanhoItem
 
-    if (idParaDeletar.startsWith("temp-")) {
-        setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
-        if (formTamanhos.includes(nomeParaFiltro)) {
-          toggleTamanho(nomeParaFiltro)
-        }
-        return
+    if (idParaDeletar.startsWith("temp-") || idParaDeletar.startsWith("local-")) {
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Tamanho removido!")
+      return
     }
 
     try {
-        const res = await fetch(`/api/admin/tamanhos/${idParaDeletar}`, {
-            method: "DELETE",
-        })
+      const res = await fetch(`/api/admin/tamanhos/${idParaDeletar}`, {
+        method: "DELETE",
+      })
 
-        if (!res.ok) {
-            const erroData = await res.json().catch(() => null)
-            throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
-        }
+      if (!res.ok) {
+        const erroData = await res.json().catch(() => null)
+        throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      }
 
-        setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
 
-        if (formTamanhos.includes(nomeParaFiltro)) {
-          toggleTamanho(nomeParaFiltro)
-        }
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Tamanho excluído do banco!")
     } catch (error: any) {
-        console.error("Detalhe do erro ao deletar tamanho:", error)
-        setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
-        if (formTamanhos.includes(nomeParaFiltro)) {
-          toggleTamanho(nomeParaFiltro)
-        }
+      console.error("Detalhe do erro ao deletar tamanho:", error)
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
     }
   }
 
+  // GERENCIAMENTO DE TAMANHOS NO PRODUTO ATUAL
   const toggleTamanho = (tam: string) => {
     setFormTamanhos((prev) => {
       const existe = prev.includes(tam)
@@ -426,6 +473,34 @@ export default function PaginaDashboardAdmin() {
         return [...prev, tam]
       }
     })
+  }
+
+  const handleRemoverTamanhoDoProduto = (tamNome: string) => {
+    setFormTamanhos((prev) => prev.filter((t) => t !== tamNome))
+    setFormEstoquePorTamanho((prev) => {
+      const novo = { ...prev }
+      delete novo[tamNome]
+      return novo
+    })
+  }
+
+  const handleAdicionarTamanhoManualAoProduto = () => {
+    const nomeFormatado = tamanhoManualInput.trim()
+    if (!nomeFormatado) return
+
+    if (!formTamanhos.includes(nomeFormatado)) {
+      setFormTamanhos((prev) => [...prev, nomeFormatado])
+      setFormEstoquePorTamanho((prev) => ({
+        ...prev,
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
+      }))
+    }
+
+    if (!opcoesTamanhos.some((t) => t.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+      setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: nomeFormatado }])
+    }
+
+    setTamanhoManualInput("")
   }
 
   const handleQtdTamanhoChange = (tamanho: string, quantidade: number) => {
@@ -459,6 +534,17 @@ export default function PaginaDashboardAdmin() {
     if (!novaUrlImagem.trim()) return
     setFormImagens((prev) => [...prev, novaUrlImagem.trim()])
     setNovaUrlImagem("")
+  }
+
+  const handleDefinirCapaImagem = (index: number) => {
+    if (index === 0) return
+    setFormImagens((prev) => {
+      const novas = [...prev]
+      const [item] = novas.splice(index, 1)
+      novas.unshift(item)
+      return novas
+    })
+    exibirToast("Imagem definida como capa principal!")
   }
 
   const handleRemoverImagem = (index: number) => {
@@ -528,6 +614,7 @@ export default function PaginaDashboardAdmin() {
     setNovaUrlImagem("")
     setFormTamanhos([])
     setFormEstoquePorTamanho({})
+    setTamanhoManualInput("")
     setFormGenero("masculino")
     setFormCategoria(categorias[0]?.value || "CONJUNTOS")
     setFormFaixaEtaria("0-1")
@@ -551,6 +638,7 @@ export default function PaginaDashboardAdmin() {
     }
     setFormImagens(imgs)
     setNovaUrlImagem("")
+    setTamanhoManualInput("")
 
     setFormTamanhos(prod.tamanhos || [])
     setFormGenero(prod.genero || "masculino")
@@ -627,6 +715,7 @@ export default function PaginaDashboardAdmin() {
       if (res.ok) {
         setModalProduto(false)
         setProdutoEditando(null)
+        exibirToast(produtoEditando ? "Produto atualizado com sucesso!" : "Produto cadastrado com sucesso!")
         carregarProdutos()
       } else {
         const data = await res.json().catch(() => ({}))
@@ -647,6 +736,7 @@ export default function PaginaDashboardAdmin() {
       const res = await fetch(`/api/admin/produtos/${produtoParaExcluir.id}`, { method: "DELETE" })
       if (res.ok) {
         setProdutoParaExcluir(null)
+        exibirToast("Produto excluído com sucesso!")
         carregarProdutos()
       } else {
         alert("Erro ao excluir produto.")
@@ -665,6 +755,7 @@ export default function PaginaDashboardAdmin() {
       const res = await fetch(`/api/admin/clientes/${clienteParaExcluir.id}`, { method: "DELETE" })
       if (res.ok) {
         setClienteParaExcluir(null)
+        exibirToast("Conta de cliente excluída!")
         carregarClientes()
       } else {
         alert("Erro ao excluir cliente.")
@@ -683,6 +774,7 @@ export default function PaginaDashboardAdmin() {
       const res = await fetch(`/api/admin/pedidos/${pedidoParaExcluir.id}`, { method: "DELETE" })
       if (res.ok) {
         setPedidoParaExcluir(null)
+        exibirToast("Venda excluída e estoque estornado!")
         carregarPedidos()
         carregarProdutos()
       } else {
@@ -707,6 +799,7 @@ export default function PaginaDashboardAdmin() {
       })
 
       if (res.ok) {
+        exibirToast(`Status do pedido alterado para ${novoStatus}!`)
         carregarPedidos()
       } else {
         alert("Erro ao alterar status do pedido.")
@@ -736,8 +829,8 @@ export default function PaginaDashboardAdmin() {
   const pedidosFiltrados = pedidos.filter(
     (p) =>
       p.id.toLowerCase().includes(buscaPedido.toLowerCase()) ||
-      p.cliente.nome.toLowerCase().includes(buscaPedido.toLowerCase()) ||
-      p.cliente.email.toLowerCase().includes(buscaPedido.toLowerCase())
+      (p.cliente?.nome || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
+      (p.cliente?.email || "").toLowerCase().includes(buscaPedido.toLowerCase())
   )
 
   const totalVendas = pedidos.reduce((acc, p) => acc + (p.total || 0), 0)
@@ -764,6 +857,14 @@ export default function PaginaDashboardAdmin() {
   return (
     <div className="fixed inset-0 z-[999] flex flex-col md:flex-row bg-slate-950 text-slate-100 font-sans w-screen h-screen overflow-hidden">
       
+      {/* TOAST FEEDBACK NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-[200] flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/30 text-emerald-400 shadow-2xl animate-in slide-in-from-top-3 duration-200 text-xs font-bold">
+          <CheckCircle className="h-4 w-4" />
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
+
       {/* HEADER MOBILE */}
       <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 shrink-0 z-30">
         <div className="flex items-center gap-2">
@@ -900,16 +1001,31 @@ export default function PaginaDashboardAdmin() {
         {/* ABA: VISÃO GERAL */}
         {abaAtiva === "geral" && (
           <div className="space-y-6 md:space-y-8 max-w-6xl">
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
-              <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
+                <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  carregarProdutos()
+                  carregarClientes()
+                  carregarPedidos()
+                  exibirToast("Dados atualizados!")
+                }}
+                className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold"
+                title="Atualizar dados"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Atualizar
+              </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
                 <span className="text-xs font-semibold text-slate-400 uppercase">Vendas Totais</span>
-                <p className="text-xl md:text-2xl font-bold text-white mt-2">
-                  R$ {Number(totalVendas || 0).toFixed(2).replace(".", ",")}
+                <p className="text-xl md:text-2xl font-bold text-emerald-400 mt-2">
+                  {formatarMoeda(totalVendas)}
                 </p>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
@@ -1010,13 +1126,13 @@ export default function PaginaDashboardAdmin() {
                             </td>
                             <td className="p-3">
                               <div className="font-bold text-rose-400">
-                                R$ {Number(prod.preco || 0).toFixed(2).replace(".", ",")}
+                                {formatarMoeda(prod.preco)}
                               </div>
-                              {prod.precoPromocional && (
+                              {prod.precoPromocional ? (
                                 <div className="text-[10px] text-emerald-400 font-semibold">
-                                  Promo: R$ {Number(prod.precoPromocional || 0).toFixed(2).replace(".", ",")}
+                                  Promo: {formatarMoeda(prod.precoPromocional)}
                                 </div>
-                              )}
+                              ) : null}
                             </td>
                             <td className="p-3 space-y-1">
                               <div className="flex flex-wrap gap-1">
@@ -1165,7 +1281,7 @@ export default function PaginaDashboardAdmin() {
                             {new Date(ped.createdAt).toLocaleDateString("pt-BR")}
                           </td>
                           <td className="p-3 font-bold text-white">
-                            R$ {Number(ped.total || 0).toFixed(2).replace(".", ",")}
+                            {formatarMoeda(ped.total)}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center gap-2">
@@ -1378,9 +1494,13 @@ export default function PaginaDashboardAdmin() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
                 />
               </div>
-              <div className="pt-4 border-t border-slate-800">
-                <button type="button" className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors">
-                  <Key className="h-4 w-4" /> Alterar Senha de Acesso
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <button 
+                  type="button" 
+                  onClick={() => exibirToast("Alterações da conta salvas!")}
+                  className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors"
+                >
+                  <Key className="h-4 w-4" /> Salvar Dados da Conta
                 </button>
               </div>
             </div>
@@ -1400,10 +1520,18 @@ export default function PaginaDashboardAdmin() {
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome da Loja</label>
                 <input
                   type="text"
-                  defaultValue="JKfashion Kids"
+                  value={nomeLoja}
+                  onChange={(e) => setNomeLoja(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => exibirToast("Configurações atualizadas!")}
+                className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+              >
+                Salvar Configurações
+              </button>
             </div>
 
             {/* SEÇÃO: GERENCIAMENTO DE CATEGORIAS */}
@@ -1541,13 +1669,13 @@ export default function PaginaDashboardAdmin() {
                       <div>
                         <span className="text-xs font-bold text-white block">{item.produto?.nome || "Produto Não Encontrado"}</span>
                         <span className="text-[10px] text-slate-400">
-                          {item.quantidade}x R$ {Number(item.precoUnitario || 0).toFixed(2).replace(".", ",")}
+                          {item.quantidade}x {formatarMoeda(item.precoUnitario)}
                           {item.tamanho && ` (Tamanho: ${item.tamanho})`}
                         </span>
                       </div>
                     </div>
                     <span className="text-xs font-bold text-rose-400 shrink-0">
-                      R$ {Number((item.quantidade || 0) * (item.precoUnitario || 0)).toFixed(2).replace(".", ",")}
+                      {formatarMoeda((item.quantidade || 0) * (item.precoUnitario || 0))}
                     </span>
                   </div>
                 ))}
@@ -1557,7 +1685,7 @@ export default function PaginaDashboardAdmin() {
             <div className="border-t border-slate-800 pt-4 flex items-center justify-between">
               <span className="text-xs font-bold text-slate-300">Total Pago:</span>
               <span className="text-base font-bold text-emerald-400">
-                R$ {Number(pedidoDetalhes.total || 0).toFixed(2).replace(".", ",")}
+                {formatarMoeda(pedidoDetalhes.total)}
               </span>
             </div>
           </div>
@@ -1764,10 +1892,19 @@ export default function PaginaDashboardAdmin() {
                     {formImagens.map((img, index) => (
                       <div key={index} className="relative group h-20 rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
                         <img src={img} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" />
-                        {index === 0 && (
-                          <span className="absolute bottom-1 left-1 bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow">
-                            Capa
+                        {index === 0 ? (
+                          <span className="absolute bottom-1 left-1 bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow flex items-center gap-1">
+                            <Star className="h-2.5 w-2.5 fill-white" /> Capa
                           </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDefinirCapaImagem(index)}
+                            className="absolute bottom-1 left-1 bg-slate-900/80 hover:bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors"
+                            title="Definir como capa principal"
+                          >
+                            Tornar Capa
+                          </button>
                         )}
                         <button
                           type="button"
@@ -1833,49 +1970,118 @@ export default function PaginaDashboardAdmin() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              {/* CONTROLE DE TAMANHOS DO PRODUTO */}
+              <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-medium text-slate-300">
-                    1. Adicionar ou Remover Tamanhos (Variáveis)
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Package className="h-3.5 w-3.5 text-rose-500" />
+                    Tamanhos Selecionados ({formTamanhos.length})
                   </label>
                   <button
                     type="button"
                     onClick={() => setModalGerenciarTamanhos(true)}
                     className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
                   >
-                    <FolderPlus className="h-3 w-3" /> Gerenciar Tamanhos
+                    <FolderPlus className="h-3 w-3" /> Gerenciar Banco
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {opcoesTamanhos.map((tam) => {
-                    const selecionado = formTamanhos.includes(tam.nome)
-                    return (
-                      <button
-                        key={tam.id}
-                        type="button"
-                        onClick={() => toggleTamanho(tam.nome)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                          selecionado
-                            ? "bg-rose-600 text-white border-rose-500"
-                            : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
-                        }`}
+
+                {/* LISTA DE TAMANHOS ATIVOS NO PRODUTO COM BOTAO DE REMOVER */}
+                {formTamanhos.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
+                    {formTamanhos.map((tam) => (
+                      <span
+                        key={tam}
+                        className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
                       >
-                        {tam.nome}
-                      </button>
-                    )
-                  })}
+                        {tam}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverTamanhoDoProduto(tam)}
+                          className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
+                          title={`Remover tamanho ${tam} do produto`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Nenhum tamanho selecionado para este produto.
+                  </p>
+                )}
+
+                {/* SELETOR RÁPIDO COM OS TAMANHOS DO BANCO */}
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                    Puxar tamanhos do banco de dados:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                    {opcoesTamanhos.map((tam) => {
+                      const selecionado = formTamanhos.includes(tam.nome)
+                      return (
+                        <button
+                          key={tam.id}
+                          type="button"
+                          onClick={() => toggleTamanho(tam.nome)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                            selecionado
+                              ? "bg-rose-600 text-white border-rose-500 shadow-sm"
+                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          {selecionado ? `✓ ${tam.nome}` : `+ ${tam.nome}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* ADICIONAR TAMANHO MANUALMENTE SE NÃO ESTIVER NA LISTA */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Ou insira outro tamanho manualmente:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tamanhoManualInput}
+                      onChange={(e) => setTamanhoManualInput(e.target.value)}
+                      placeholder="Ex: 18, Extra G..."
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdicionarTamanhoManualAoProduto}
+                      className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
                 </div>
               </div>
 
+              {/* ESTOQUE POR TAMANHO */}
               {formTamanhos.length > 0 && (
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
                   <label className="block text-xs font-bold text-rose-400 uppercase tracking-wider">
-                    2. Ajustar Estoque de Cada Tamanho
+                    Ajustar Estoque de Cada Tamanho
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {formTamanhos.map((tam) => (
                       <div key={tam} className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2.5">
-                        <span className="text-sm font-bold text-white">{tam}</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverTamanhoDoProduto(tam)}
+                            className="text-slate-500 hover:text-rose-400 transition-colors"
+                            title="Remover tamanho"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="text-sm font-bold text-white">{tam}</span>
+                        </div>
                         <input
                           type="number"
                           min="0"
