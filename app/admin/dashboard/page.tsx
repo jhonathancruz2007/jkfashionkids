@@ -1,4 +1,4 @@
-"use client"
+[cite: 7]"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { 
@@ -741,7 +741,7 @@ export default function PaginaDashboardAdmin() {
       }
     } catch (err) {
       console.error("Erro ao carregar produtos:", err)
-    } finally {
+    } font-semibold
       setCarregandoProdutos(false)
     }
   }
@@ -2348,30 +2348,22 @@ export default function PaginaDashboardAdmin() {
 
               {/* ESTOQUE POR TAMANHO */}
               {formTamanhos.length > 0 && (
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-                  <label className="block text-xs font-bold text-rose-400 uppercase tracking-wider">
-                    Ajustar Estoque de Cada Tamanho
-                  </label>
+                <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-200 block">
+                    Definir Quantidade por Tamanho
+                  </span>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {formTamanhos.map((tam) => (
-                      <div key={tam} className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoverTamanhoDoProduto(tam)}
-                            className="text-slate-500 hover:text-rose-400 transition-colors"
-                            title="Remover tamanho"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="text-sm font-bold text-white">{tam}</span>
-                        </div>
+                      <div key={tam} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <label className="text-[11px] font-bold text-rose-400 block mb-1">
+                          Tamanho: {tam}
+                        </label>
                         <input
                           type="number"
                           min="0"
                           value={formEstoquePorTamanho[tam] ?? 0}
                           onChange={(e) => handleQtdTamanhoChange(tam, parseInt(e.target.value) || 0)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg text-center text-sm py-1 text-emerald-400 font-extrabold focus:outline-none focus:border-rose-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
                         />
                       </div>
                     ))}
@@ -2379,12 +2371,12 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
-              {/* CONTROLE DE CORES DO PRODUTO (OPCIONAL) */}
+              {/* CONTROLE DE CORES DO PRODUTO */}
               <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                     <Palette className="h-3.5 w-3.5 text-rose-500" />
-                    Cores Selecionadas ({formCores.length}) <span className="text-[10px] text-slate-500 font-normal">(Opcional)</span>
+                    Cores Selecionadas ({formCores.length})
                   </label>
                   <button
                     type="button"
@@ -2457,7 +2449,7 @@ export default function PaginaDashboardAdmin() {
                       type="text"
                       value={corManualInput}
                       onChange={(e) => setCorManualInput(e.target.value)}
-                      placeholder="Ex: Verde Militar, Coral..."
+                      placeholder="Ex: Rosa Bebê, Azul Marinho..."
                       className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
                     />
                     <button
@@ -2471,32 +2463,24 @@ export default function PaginaDashboardAdmin() {
                 </div>
               </div>
 
-              {/* ESTOQUE POR COR (APENAS SE NÃO HOUVER TAMANHOS SELECIONADOS OU PARA AJUSTE INDIVIDUAL) */}
-              {formCores.length > 0 && formTamanhos.length === 0 && (
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-                  <label className="block text-xs font-bold text-rose-400 uppercase tracking-wider">
-                    Ajustar Estoque de Cada Cor
-                  </label>
+              {/* ESTOQUE POR COR */}
+              {formCores.length > 0 && (
+                <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-200 block">
+                    Definir Quantidade por Cor
+                  </span>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {formCores.map((cor) => (
-                      <div key={cor} className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoverCorDoProduto(cor)}
-                            className="text-slate-500 hover:text-rose-400 transition-colors"
-                            title="Remover cor"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="text-sm font-bold text-white">{cor}</span>
-                        </div>
+                      <div key={cor} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <label className="text-[11px] font-bold text-rose-400 block mb-1">
+                          Cor: {cor}
+                        </label>
                         <input
                           type="number"
                           min="0"
                           value={formEstoquePorCor[cor] ?? 0}
                           onChange={(e) => handleQtdCorChange(cor, parseInt(e.target.value) || 0)}
-                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg text-center text-sm py-1 text-emerald-400 font-extrabold focus:outline-none focus:border-rose-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
                         />
                       </div>
                     ))}
@@ -2504,61 +2488,173 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                disabled={salvandoProduto}
-                className="w-full flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-3 rounded-xl transition-colors disabled:opacity-50 shadow-lg shadow-rose-600/20"
-              >
-                {salvandoProduto ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Salvando...
-                  </>
-                ) : produtoEditando ? (
-                  "Salvar Alterações do Produto"
-                ) : (
-                  "Cadastrar Produto"
-                )}
-              </button>
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalProduto(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoProduto}
+                  className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 disabled:opacity-50"
+                >
+                  {salvandoProduto ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
+                </button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* MODAL DE GERENCIAMENTO DE CATEGORIAS */}
-      {modalGerenciarCategorias && (
+      {/* MODAL EXCLUIR PRODUTO */}
+      {produtoParaExcluir && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Gerenciar Categorias</h3>
-              <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Excluir Produto</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Tem certeza que deseja excluir "{produtoParaExcluir.nome}"? Esta ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setProdutoParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusao}
+                disabled={deletandoProduto}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
+              >
+                {deletandoProduto ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Excluir
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EXCLUIR CLIENTE */}
+      {clienteParaExcluir && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Excluir Cliente</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja excluir a conta de "{clienteParaExcluir.nome}"?
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setClienteParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusaoCliente}
+                disabled={deletandoCliente}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
+              >
+                {deletandoCliente ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EXCLUIR PEDIDO */}
+      {pedidoParaExcluir && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Excluir Venda</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Excluir o pedido #{pedidoParaExcluir.id.substring(0, 8)}? O estoque dos produtos será estornado.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setPedidoParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-xs font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusaoPedido}
+                disabled={deletandoPedido}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
+              >
+                {deletandoPedido ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GERENCIAR CATEGORIAS */}
+      {modalGerenciarCategorias && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-rose-500" />
+                <h3 className="text-sm font-bold text-white">Gerenciar Categorias</h3>
+              </div>
+              <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
             <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
               <input
                 type="text"
                 value={novaCategoriaLabel}
                 onChange={(e) => setNovaCategoriaLabel(e.target.value)}
-                placeholder="Nome da categoria..."
+                placeholder="Nova categoria..."
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
               />
               <button
                 type="submit"
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
               >
-                Adicionar
+                <Plus className="h-4 w-4" /> Adicionar
               </button>
             </form>
-            <div className="max-h-60 overflow-y-auto space-y-2 pt-2">
+
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               {categorias.map((cat) => (
-                <div key={cat.value} className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs">
-                  <span className="text-white font-medium">{cat.label}</span>
+                <div key={cat.value} className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2 text-xs">
+                  <span className="font-semibold text-white">{cat.label}</span>
                   <button
                     type="button"
                     onClick={() => handleDeletarCategoria(cat.value)}
-                    className="text-slate-400 hover:text-rose-400 p-1"
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
@@ -2567,16 +2663,20 @@ export default function PaginaDashboardAdmin() {
         </div>
       )}
 
-      {/* MODAL DE GERENCIAMENTO DE TAMANHOS */}
+      {/* MODAL GERENCIAR TAMANHOS */}
       {modalGerenciarTamanhos && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Gerenciar Tamanhos no Banco</h3>
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-rose-500" />
+                <h3 className="text-sm font-bold text-white">Gerenciar Banco de Tamanhos</h3>
+              </div>
               <button type="button" onClick={() => setModalGerenciarTamanhos(false)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
+
             <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
               <input
                 type="text"
@@ -2587,19 +2687,20 @@ export default function PaginaDashboardAdmin() {
               />
               <button
                 type="submit"
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
               >
-                Adicionar
+                <Plus className="h-4 w-4" /> Adicionar
               </button>
             </form>
-            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pt-2">
+
+            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
               {opcoesTamanhos.map((tam) => (
-                <div key={tam.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
-                  <span className="text-white font-medium">{tam.nome}</span>
+                <div key={tam.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="font-semibold text-white">{tam.nome}</span>
                   <button
                     type="button"
                     onClick={() => handleDeletarTamanho(tam)}
-                    className="text-slate-400 hover:text-rose-400 p-0.5"
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -2610,16 +2711,20 @@ export default function PaginaDashboardAdmin() {
         </div>
       )}
 
-      {/* MODAL DE GERENCIAMENTO DE CORES */}
+      {/* MODAL GERENCIAR CORES */}
       {modalGerenciarCores && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Gerenciar Cores no Banco</h3>
+              <div className="flex items-center gap-2">
+                <Palette className="h-4 w-4 text-rose-500" />
+                <h3 className="text-sm font-bold text-white">Gerenciar Banco de Cores</h3>
+              </div>
               <button type="button" onClick={() => setModalGerenciarCores(false)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
+
             <form onSubmit={handleAdicionarCor} className="flex gap-2">
               <input
                 type="text"
@@ -2630,120 +2735,25 @@ export default function PaginaDashboardAdmin() {
               />
               <button
                 type="submit"
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
               >
-                Adicionar
+                <Plus className="h-4 w-4" /> Adicionar
               </button>
             </form>
-            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pt-2">
+
+            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
               {opcoesCores.map((cor) => (
-                <div key={cor.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
-                  <span className="text-white font-medium">{cor.nome}</span>
+                <div key={cor.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="font-semibold text-white">{cor.nome}</span>
                   <button
                     type="button"
                     onClick={() => handleDeletarCor(cor)}
-                    className="text-slate-400 hover:text-rose-400 p-0.5"
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CONFIRMAÇÃO EXCLUIR PRODUTO */}
-      {produtoParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
-            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-white">Excluir Produto?</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Deseja realmente remover o produto <strong className="text-white">{produtoParaExcluir.nome}</strong>?
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setProdutoParaExcluir(null)}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarExclusao}
-                disabled={deletandoProduto}
-                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {deletandoProduto ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CONFIRMAÇÃO EXCLUIR CLIENTE */}
-      {clienteParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
-            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-white">Excluir Cliente?</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Deseja remover a conta de <strong className="text-white">{clienteParaExcluir.nome}</strong>?
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setClienteParaExcluir(null)}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarExclusaoCliente}
-                disabled={deletandoCliente}
-                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {deletandoCliente ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CONFIRMAÇÃO EXCLUIR PEDIDO */}
-      {pedidoParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
-            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-white">Excluir Pedido?</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Deseja cancelar e remover a venda <strong className="text-white font-mono">#{pedidoParaExcluir.id.substring(0, 8)}</strong>? O estoque dos itens será estornado.
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPedidoParaExcluir(null)}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarExclusaoPedido}
-                disabled={deletandoPedido}
-                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                {deletandoPedido ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
-              </button>
             </div>
           </div>
         </div>
