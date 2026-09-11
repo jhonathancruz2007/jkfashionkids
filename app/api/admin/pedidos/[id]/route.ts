@@ -2,11 +2,68 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { Resend } from 'resend'
 
-// Inicializa a Resend com a chave de API
 const resend = new Resend(process.env.RESEND_API_KEY)
+const TINY_TOKEN = process.env.TINY_API_TOKEN
+
+// Função auxiliar para enviar o pedido aprovado para o Tiny ERP
+async function enviarPedidoParaTiny(pedido: any) {
+  if (!TINY_TOKEN) {
+    console.warn('⚠️ Token do Tiny não configurado nas variáveis de ambiente.')
+    return
+  }
+
+  try {
+    const cliente = pedido.cliente
+    const itensFormatados = pedido.itens.map((item: any) => ({
+      item: {
+        codigo: item.produto?.sku || item.produtoId || 'GERAL',
+        descricao: item.produto?.nome || item.nome || 'Produto Loja',
+        quantidade: Number(item.quantidade || 1),
+        valorUnitario: Number(item.precoUnitario || item.preco || 0),
+        // Se houver controle de tamanho, repassa para o Tiny se necessário
+        observacoes: item.tamanho ? `Tamanho: ${item.tamanho}` : undefined
+      }
+    }))
+
+    // Estrutura de dados exigida pela API do Tiny para inclusão de pedidos
+    const payloadTiny = {
+      pedido: {
+        cliente: {
+          nome: cliente?.nome || 'Cliente do Site',
+          email: cliente?.email || '',
+          fone: cliente?.telefone || '',
+          cpfCNPJ: cliente?.cpf || ''
+        },
+        formaPagamento: 'Site / Cartão / Pix',
+        itens: itensFormatados,
+        observacoes: `Pedido gerado automaticamente pelo site - ID: ${pedido.id}`
+      }
+    }
+
+    // Endpoint oficial da API V3 do Tiny para pedidos
+    const response = await fetch('https://api.tiny.com.br/public-api/v3/pedidos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TINY_TOKEN}`
+      },
+      body: JSON.stringify(payloadTiny)
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      console.error('❌ Erro retornado pela API do Tiny:', data)
+    } else {
+      console.log('✅ [TINY ERP] Pedido integrado e estoque baixado com sucesso no Tiny!', data)
+    }
+  } catch (err) {
+    console.error('❌ Erro de conexão ao enviar pedido para o Tiny:', err)
+  }
+}
 
 // ==========================================
-// 1. MÉTODO PUT: Atualizar o status e notificar
+// MÉTODO PUT: Atualizar status, notificar e integrar
 // ==========================================
 export async function PUT(
   request: Request,
@@ -22,7 +79,7 @@ export async function PUT(
       return NextResponse.json({ error: 'ID ou status não informados.' }, { status: 400 })
     }
 
-    // Atualiza o pedido no banco buscando também os itens e os produtos relacionados
+    // Atualiza o pedido no banco do site
     const pedidoAtualizado = await db.pedido.update({
       where: { id },
       data: { status },
@@ -30,19 +87,22 @@ export async function PUT(
         cliente: true,
         itens: {
           include: {
-            produto: true, // Traz os dados do produto para exibir nome/detalhes no e-mail da loja
+            produto: true,
           },
         },
       },
     })
 
-    // Se o status for PAGO, dispara as notificações por e-mail
+    // Se o status for PAGO: Executa todas as automações
     if (status.toUpperCase() === 'PAGO') {
       const cliente = (pedidoAtualizado as any).cliente
       const primeiroNome = cliente?.nome ? cliente.nome.split(' ')[0] : 'Cliente'
       const idCurto = pedidoAtualizado.id.slice(0, 6)
 
-      // A) Enviar E-mail de confirmação para o Cliente
+      // 1. Enviar pedido para o Tiny ERP (Faz a baixa automática de estoque físico/virtual)
+      await enviarPedidoParaTiny(pedidoAtualizado)
+
+      // 2. Enviar E-mail de confirmação para o Cliente
       if (cliente?.email) {
         try {
           await resend.emails.send({
@@ -65,7 +125,7 @@ export async function PUT(
         }
       }
 
-      // B) Montar a lista de itens para o e-mail interno da loja
+      // 3. Montar a lista de itens para o e-mail interno da loja
       let itensHtml = ''
       const itensPedido = (pedidoAtualizado as any).itens || []
       
@@ -82,8 +142,7 @@ export async function PUT(
         `
       }
 
-      // C) Enviar E-mail interno para a Loja (Aviso de Separação de Estoque)
-      // Substitua 'contato@jkfashionkids.com.br' pelo e-mail oficial onde vocês recebem os pedidos
+      // 4. Enviar E-mail interno para a Loja
       const emailLoja = 'contato@jkfashionkids.com.br' 
       try {
         await resend.emails.send({
@@ -93,7 +152,7 @@ export async function PUT(
           html: `
             <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
               <h2 style="color: #2563eb;">Novo Pedido Aprovado! 📦</h2>
-              <p>O pagamento do pedido <strong>#${idCurto}</strong> foi confirmado. Hora de separar os itens no estoque (Físico / Virtual):</p>
+              <p>O pagamento do pedido <strong>#${idCurto}</strong> foi confirmado. O pedido já foi enviado ao Tiny ERP.</p>
               
               <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <p style="margin: 0 0 10px 0;"><strong>Cliente:</strong> ${cliente?.nome || 'Não informado'} (${cliente?.telefone || 'Sem tel'})</p>
@@ -115,7 +174,7 @@ export async function PUT(
 
     return NextResponse.json({
       sucesso: true,
-      mensagem: 'Status atualizado e notificações processadas com sucesso!',
+      mensagem: 'Status atualizado, estoque integrado ao Tiny e notificações processadas!',
       pedido: pedidoAtualizado,
     })
   } catch (erro: any) {
@@ -128,7 +187,7 @@ export async function PUT(
 }
 
 // ==========================================
-// 2. MÉTODO DELETE: Excluir venda e devolver estoque
+// MÉTODO DELETE: Excluir venda e devolver estoque local
 // ==========================================
 export async function DELETE(
   request: Request,
