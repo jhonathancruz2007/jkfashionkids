@@ -9,25 +9,44 @@ export async function GET() {
   }
 
   try {
-    const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&formato=json`;
+    let pagina = 1;
+    let continuarBuscando = true;
+    const produtosEncontrados: any[] = [];
 
-    const response = await fetch(urlTiny, { method: "GET" });
-    const textResponse = await response.text();
+    // Loop para buscar todas as páginas de produtos do Tiny
+    while (continuarBuscando && pagina <= 20) { // Limite de segurança de 20 páginas (2000 produtos)
+      const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
 
-    let data;
-    try {
-      data = JSON.parse(textResponse);
-    } catch (e) {
-      return NextResponse.json({ error: "Erro ao interpretar JSON do Tiny.", recebido: textResponse }, { status: 400 });
+      const response = await fetch(urlTiny, { method: "GET" });
+      const textResponse = await response.text();
+
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch (e) {
+        break;
+      }
+
+      const retorno = data.retorno;
+      if (!retorno || retorno.status !== "OK") {
+        // Se a página não tiver mais registros ou der erro, encerra o loop
+        break;
+      }
+
+      const lista = retorno.produtos || [];
+      if (lista.length === 0) {
+        continuarBuscando = false;
+      } else {
+        produtosEncontrados.push(...lista);
+        // Se vieram menos que 100 itens, provavelmente chegamos na última página
+        if (lista.length < 50) {
+          continuarBuscando = false;
+        } else {
+          pagina++;
+        }
+      }
     }
 
-    const retorno = data.retorno;
-    if (!retorno || retorno.status !== "OK") {
-      return NextResponse.json({ error: "Erro na pesquisa de produtos do Tiny.", detalhes: retorno }, { status: 400 });
-    }
-
-    const produtosEncontrados = retorno.produtos || [];
-    
     // Objeto para agrupar produtos pelo nome base
     const produtosAgrupados: { [key: string]: any } = {};
 
@@ -36,8 +55,6 @@ export async function GET() {
       if (!p || !p.nome) continue;
 
       let nomeCompleto = p.nome.trim();
-      
-      // Declaração corrigida com const
       const parts = nomeCompleto.split(" - ");
       
       let nomeBase = nomeCompleto;
@@ -113,10 +130,10 @@ export async function GET() {
 
     return NextResponse.json({ 
       success: true, 
-      message: `${importados} produtos únicos foram agrupados e sincronizados com sucesso!` 
+      message: `Sincronização concluída! ${importados} produtos únicos foram importados de um total de ${produtosEncontrados.length} variações brutas encontradas no Tiny.` 
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: "Erro interno ao processar agrupamento", details: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Erro interno ao processar paginação e agrupamento", details: error.message }, { status: 500 });
   }
 }
