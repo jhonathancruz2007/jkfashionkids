@@ -1,36 +1,40 @@
 const express = require('express');
 const router = express.Router();
-
-// Exemplo de banco de dados simulado em memória
-const produtosCores = [
-  {
-    produtoId: "123",
-    variantes: [
-      { id: "v1", cor: "Preto", hex: "#000000", disponivel: true, estoque: 10 },
-      { id: "v2", cor: "Branco", hex: "#FFFFFF", disponivel: true, estoque: 5 },
-      { id: "v3", cor: "Azul", hex: "#0000FF", disponivel: false, estoque: 0 }
-    ]
-  }
-];
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // Rota 1: Buscar opções de cores de um produto específico pelo ID
-router.get('/api/produtos/:id/cores', (req, res) => {
+router.get('/api/produtos/:id/cores', async (req, res) => {
   const produtoId = req.params.id;
-  const produto = produtosCores.find(p => p.produtoId === produtoId);
 
-  if (!produto) {
-    return res.status(404).json({ sucesso: false, mensagem: "Produto não encontrado." });
+  try {
+    const produto = await prisma.produto.findUnique({
+      where: { id: produtoId }, // Ajuste para o nome correto da chave primaria se for diferente (ex: id ou produtoId)
+      select: {
+        id: true,
+        cores: true,
+        coresDetalhes: true
+      }
+    });
+
+    if (!produto) {
+      return res.status(404).json({ sucesso: false, mensagem: "Produto não encontrado." });
+    }
+
+    res.status(200).json({
+      sucesso: true,
+      produtoId: produto.id,
+      cores: produto.cores,
+      coresDetalhes: produto.coresDetalhes
+    });
+  } catch (erro) {
+    console.error("Erro ao buscar cores:", erro);
+    res.status(500).json({ sucesso: false, mensagem: "Erro interno no servidor." });
   }
-
-  res.status(200).json({
-    sucesso: true,
-    produtoId: produto.produtoId,
-    cores: produto.variantes
-  });
 });
 
 // Rota 2: Cadastrar uma nova cor/variante para o produto
-router.post('/api/produtos/:id/cores', (req, res) => {
+router.post('/api/produtos/:id/cores', async (req, res) => {
   const produtoId = req.params.id;
   const { cor, hex, estoque } = req.body;
 
@@ -42,23 +46,55 @@ router.post('/api/produtos/:id/cores', (req, res) => {
     id: `v${Date.now()}`,
     cor,
     hex,
-    disponivel: (estoque > 0),
-    estoque: estoque || 0
+    disponivel: (Number(estoque) > 0),
+    estoque: Number(estoque) || 0
   };
 
-  let produto = produtosCores.find(p => p.produtoId === produtoId);
-  if (!produto) {
-    produto = { produtoId, variantes: [] };
-    produtosCores.push(produto);
+  try {
+    // Busca o produto atual para pegar os arrays/json existentes
+    const produtoExistente = await prisma.produto.findUnique({
+      where: { id: produtoId }
+    });
+
+    let listaCores = produtoExistente?.cores || [];
+    let listaDetalhes = produtoExistente?.coresDetalhes || [];
+
+    // Adiciona o nome da cor na lista text[] se já não existir
+    if (!listaCores.includes(cor)) {
+      listaCores.push(cor);
+    }
+
+    // Adiciona o objeto detalhado no jsonb
+    if (Array.isArray(listaDetalhes)) {
+      listaDetalhes.push(novaVariante);
+    } else {
+      listaDetalhes = [novaVariante];
+    }
+
+    // Atualiza ou cria o produto com os novos dados usando upsert
+    const produtoAtualizado = await prisma.produto.upsert({
+      where: { id: produtoId },
+      update: {
+        cores: listaCores,
+        coresDetalhes: listaDetalhes
+      },
+      create: {
+        id: produtoId,
+        cores: [cor],
+        coresDetalhes: [novaVariante]
+      }
+    });
+
+    res.status(201).json({
+      sucesso: true,
+      mensagem: "Cor adicionada com sucesso no banco via Prisma!",
+      variante: novaVariante,
+      produto: produtoAtualizado
+    });
+  } catch (erro) {
+    console.error("Erro ao salvar cor:", erro);
+    res.status(500).json({ sucesso: false, mensagem: "Erro ao salvar no banco de dados." });
   }
-
-  produto.variantes.push(novaVariante);
-
-  res.status(201).json({
-    sucesso: true,
-    mensagem: "Cor adicionada com sucesso!",
-    variante: novaVariante
-  });
 });
 
 module.exports = router;
