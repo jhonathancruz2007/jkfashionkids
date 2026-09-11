@@ -3,7 +3,7 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-router.post('/api/produtos/:id/cores', async (req, res) => {
+router.post('/api/admin/cores', async (req, res) => {
   const produtoId = req.params.id;
   
   // 🔍 ADICIONE ESTES LOGS PARA VERIFICAR NO TERMINAL DO NODE
