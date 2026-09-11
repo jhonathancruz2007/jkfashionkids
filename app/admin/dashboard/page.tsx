@@ -1,4 +1,4 @@
-[cite: 7]"use client"
+"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { 
