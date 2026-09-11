@@ -1008,7 +1008,7 @@ export default function PaginaDashboardAdmin() {
       }
     } catch (err) {
       console.error("Erro ao alterar status:", err)
-    } fontally {
+    } finally {
       setAtualizandoStatus(null)
     }
   }
