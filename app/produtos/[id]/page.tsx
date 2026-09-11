@@ -53,6 +53,7 @@ export default function ProdutoDetalhePage() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const [produto, setProduto] = useState<any>(null);
+  const [estoqueTinyReal, setEstoqueTinyReal] = useState<number | null>(null);
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState<string>("");
   const [corSelecionada, setCorSelecionada] = useState<string>("");
   const [imagemIndex, setImagemIndex] = useState<number>(0);
@@ -157,8 +158,12 @@ export default function ProdutoDetalhePage() {
     return {};
   }, [produto]);
 
-  // Quantidade total do estoque
+  // Quantidade total do estoque (prioriza o Tiny em tempo real se disponível)
   const getEstoqueDisponivel = (tam: string) => {
+    if (estoqueTinyReal !== null) {
+      return estoqueTinyReal;
+    }
+
     if (!tam) return 0;
     const tamClean = String(tam).trim().toUpperCase();
     const chaves = Object.keys(estoqueTamanhosObj);
@@ -225,41 +230,54 @@ export default function ProdutoDetalhePage() {
     async function carregarDados() {
       try {
         setCarregando(true);
+        let produtoEncontrado = null;
+
         const resProduto = await fetch(`/api/produtos/${id}`).catch(() => null);
 
         if (resProduto && resProduto.ok) {
           const data = await resProduto.json();
-          const p = data.produto || data;
-          if (p && (p.id || p._id)) {
-            setProduto(p);
-            setImagemIndex(0);
-            setTamanhoSelecionado(ordenarTamanhos(p.tamanhos || ["P", "M", "G", "GG"])[0]);
-            
-            const cores = p.cores || p.coresDisponiveis || [];
-            if (Array.isArray(cores) && cores.length > 0) {
-              const primeiraCor = typeof cores[0] === "string" ? cores[0] : cores[0].nome || cores[0].cor;
-              setCorSelecionada(primeiraCor || "");
-            }
-            return;
+          produtoEncontrado = data.produto || data;
+        } else {
+          const resTodos = await fetch("/api/produtos");
+          if (resTodos.ok) {
+            const dataTodos = await resTodos.json();
+            const lista = Array.isArray(dataTodos) ? dataTodos : dataTodos.produtos || [];
+            produtoEncontrado = lista.find((p: any) => String(p.id || p._id) === String(id)) || null;
           }
         }
 
-        const resTodos = await fetch("/api/produtos");
-        if (resTodos.ok) {
-          const dataTodos = await resTodos.json();
-          const lista = Array.isArray(dataTodos) ? dataTodos : dataTodos.produtos || [];
-          const encontrado = lista.find((p: any) => String(p.id || p._id) === String(id));
+        if (produtoEncontrado && (produtoEncontrado.id || produtoEncontrado._id)) {
+          setProduto(produtoEncontrado);
+          setImagemIndex(0);
+          setTamanhoSelecionado(ordenarTamanhos(produtoEncontrado.tamanhos || ["P", "M", "G", "GG"])[0]);
           
-          setProduto(encontrado || null);
-          if (encontrado) {
-            setImagemIndex(0);
-            setTamanhoSelecionado(ordenarTamanhos(encontrado.tamanhos || ["P", "M", "G", "GG"])[0]);
-            
-            const cores = encontrado.cores || encontrado.coresDisponiveis || [];
-            if (Array.isArray(cores) && cores.length > 0) {
-              const primeiraCor = typeof cores[0] === "string" ? cores[0] : cores[0].nome || cores[0].cor;
-              setCorSelecionada(primeiraCor || "");
+          const cores = produtoEncontrado.cores || produtoEncontrado.coresDisponiveis || [];
+          if (Array.isArray(cores) && cores.length > 0) {
+            const primeiraCor = typeof cores[0] === "string" ? cores[0] : cores[0].nome || cores[0].cor;
+            setCorSelecionada(primeiraCor || "");
+          }
+
+          // Consulta o estoque atualizado em tempo real no Tiny usando o SKU ou ID
+          const skuBusca = produtoEncontrado.sku || produtoEncontrado.id || id;
+          try {
+            const resTiny = await fetch(`https://api.tiny.com.br/public-api/v3/produtos?pesquisa=${encodeURIComponent(skuBusca)}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TINY_API_TOKEN || ""}`
+              }
+            }).catch(() => null);
+
+            if (resTiny && resTiny.ok) {
+              const tinyData = await resTiny.json();
+              if (tinyData.itens && tinyData.itens.length > 0) {
+                const saldo = tinyData.itens[0].produto?.saldoEstoque;
+                if (saldo !== undefined && saldo !== null) {
+                  setEstoqueTinyReal(Number(saldo));
+                }
+              }
             }
+          } catch (err) {
+            console.warn("Aviso: Não foi possível buscar o estoque do Tiny diretamente no cliente.", err);
           }
         }
       } catch (e) {
