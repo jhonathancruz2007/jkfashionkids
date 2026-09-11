@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Transação para alterar status para PAGO e descontar estoque de forma atômica
+    // Transação para alterar status para PAGO e descontar estoque localmente
     await prisma.$transaction(async (tx) => {
       // 1. Atualiza a situação do pedido
       await tx.pedido.update({
@@ -71,9 +71,33 @@ export async function POST(req: Request) {
       }
     });
 
+    // 3. Envia a baixa de estoque para o Tiny ERP de forma síncrona/assíncrona após o pagamento confirmado
+    const TINY_TOKEN = process.env.TINY_API_TOKEN;
+    if (TINY_TOKEN) {
+      for (const item of pedido.itens) {
+        try {
+          const urlBaixaTiny = `https://api.tiny.com.br/api2/estoque.atualizar.php`;
+          const params = new URLSearchParams({
+            token: TINY_TOKEN.trim(),
+            formato: "json",
+            idProduto: String(item.produtoId),
+            tipo: "B", // 'B' para Baixa / Saída de estoque
+            quantidade: String(item.quantidade),
+          });
+
+          await fetch(urlBaixaTiny, {
+            method: "POST",
+            body: params,
+          });
+        } catch (errTiny) {
+          console.error(`Erro ao enviar baixa para o Tiny (Produto ID: ${item.produtoId}):`, errTiny);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Estoque abatido e pedido confirmado com sucesso!",
+      message: "Estoque abatido no site e no Tiny, e pedido confirmado com sucesso!",
     });
   } catch (error: any) {
     console.error("Erro ao confirmar o pedido:", error);
