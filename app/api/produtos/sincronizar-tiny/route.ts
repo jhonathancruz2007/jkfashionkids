@@ -9,46 +9,65 @@ export async function GET() {
   }
 
   try {
-    // 1. Busca os produtos cadastrados na API V3 do Tiny
-    const response = await fetch("https://api.tiny.com.br/public-api/v3/produtos", {
+    // 1. Faz a requisição para a API V3 do Tiny (adicionando paginação básica se necessário)
+    const response = await fetch("https://api.tiny.com.br/public-api/v3/produtos?pagina=1", {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${TINY_TOKEN}`,
-        "Content-Type": "application/json"
+        "Accept": "application/json"
       }
     });
 
-    const data = await response.json();
-
-    if (!response.ok || !data.itens) {
+    const textResponse = await response.text();
+    
+    // Se a resposta estiver vazia
+    if (!textResponse) {
       return NextResponse.json({ 
-        error: "Erro ao buscar produtos na API do Tiny", 
+        error: "A API do Tiny retornou uma resposta vazia.", 
+        statusTiny: response.status 
+      }, { status: 400 });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(textResponse);
+    } catch (e) {
+      return NextResponse.json({ 
+        error: "A resposta do Tiny não é um JSON válido.", 
+        respostaRecebida: textResponse.substring(0, 200) 
+      }, { status: 400 });
+    }
+
+    if (!response.ok || (!data.itens && !Array.isArray(data))) {
+      return NextResponse.json({ 
+        error: "Erro retornado pela API do Tiny", 
         details: data 
       }, { status: 400 });
     }
 
+    // Normaliza a lista de produtos dependendo de como o Tiny retorna (data.itens ou direto um array)
+    const listaProdutos = data.itens || (Array.isArray(data) ? data : []);
+
     let importados = 0;
 
-    // 2. Varre cada item retornado pelo Tiny e salva/atualiza no banco via Prisma
-    for (const item of data.itens) {
-      const p = item.produto;
+    for (const item of listaProdutos) {
+      // Ajusta caso o objeto venha encapsulado em .produto ou direto no item
+      const p = item.produto || item;
       
       const skuOuId = String(p.sku || p.id || "");
       if (!skuOuId) continue;
 
       const nomeProduto = p.nome || "Produto sem nome";
       const precoProduto = Number(p.preco) || 0;
-      const estoqueProduto = Number(p.saldoEstoque) || 0;
+      const estoqueProduto = Number(p.saldoEstoque ?? p.estoque ?? 0);
       const descricaoProduto = p.descricao || "Sem descrição";
       
-      // Imagens
-      const imagemPrincipal = p.anexos && p.anexos.length > 0 ? p.anexos[0].url : (p.imagem || "");
+      const imagemPrincipal = (p.anexos && p.anexos.length > 0 ? p.anexos[0].url : null) || p.imagem || "https://via.placeholder.com/300";
       const todasImagens = p.anexos ? p.anexos.map((a: any) => a.url) : [];
 
-      // Tratamento de Categoria (se houver no Tiny, garante que ela existe no banco para evitar erro de FK)
       let categoriaNomeVinculada = null;
       if (p.categoria) {
-        categoriaNomeVinculada = String(p.categoria).trim();
+        categoriaNomeVinculada = String(typeof p.categoria === 'object' ? p.categoria.nome : p.categoria).trim();
         await db.categoria.upsert({
           where: { nome: categoriaNomeVinculada },
           update: {},
@@ -56,9 +75,6 @@ export async function GET() {
         }).catch(() => null);
       }
 
-      // Como o Prisma não possui um campo 'sku' nativo no seu modelo atual mas tem o 'id' como UUID,
-      // vamos usar o 'id' do Tiny (ou SKU) para identificar o produto de forma única, ou buscar pelo nome/id.
-      // Se preferir salvar o id do Tiny como id do produto no banco:
       const produtoIdTiny = String(p.id || skuOuId);
 
       await db.produto.upsert({
@@ -68,7 +84,7 @@ export async function GET() {
           preco: precoProduto,
           estoque: estoqueProduto,
           descricao: descricaoProduto,
-          imagemUrl: imagemPrincipal || "https://via.placeholder.com/300",
+          imagemUrl: imagemPrincipal,
           imagens: todasImagens,
           ...(categoriaNomeVinculada ? { categoriaNome: categoriaNomeVinculada } : {})
         },
@@ -78,7 +94,7 @@ export async function GET() {
           preco: precoProduto,
           estoque: estoqueProduto,
           descricao: descricaoProduto,
-          imagemUrl: imagemPrincipal || "https://via.placeholder.com/300",
+          imagemUrl: imagemPrincipal,
           imagens: todasImagens,
           ativo: true,
           ...(categoriaNomeVinculada ? { categoriaNome: categoriaNomeVinculada } : {})
@@ -94,7 +110,7 @@ export async function GET() {
     });
 
   } catch (error: any) {
-    console.error("Erro crítico na sincronização com o Tiny:", error);
+    console.error("Erro crítico na sincronização:", error);
     return NextResponse.json({ 
       error: "Erro interno ao processar a sincronização", 
       message: error.message 
