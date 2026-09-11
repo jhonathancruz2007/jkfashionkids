@@ -13,8 +13,7 @@ export async function GET() {
     let continuarBuscando = true;
     const produtosEncontrados: any[] = [];
 
-    // Loop para buscar todas as páginas de produtos do Tiny
-    while (continuarBuscando && pagina <= 20) { // Limite de segurança de 20 páginas (2000 produtos)
+    while (continuarBuscando && pagina <= 20) {
       const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
 
       const response = await fetch(urlTiny, { method: "GET" });
@@ -29,7 +28,6 @@ export async function GET() {
 
       const retorno = data.retorno;
       if (!retorno || retorno.status !== "OK") {
-        // Se a página não tiver mais registros ou der erro, encerra o loop
         break;
       }
 
@@ -38,7 +36,6 @@ export async function GET() {
         continuarBuscando = false;
       } else {
         produtosEncontrados.push(...lista);
-        // Se vieram menos que 100 itens, provavelmente chegamos na última página
         if (lista.length < 50) {
           continuarBuscando = false;
         } else {
@@ -47,7 +44,6 @@ export async function GET() {
       }
     }
 
-    // Objeto para agrupar produtos pelo nome base
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
@@ -71,7 +67,8 @@ export async function GET() {
       }
 
       const preco = Number(p.preco) || 0;
-      const estoque = Number(p.saldo || 0);
+      // Garante que pega o saldo, estoque ou o valor numérico disponível
+      const estoqueItem = Number(p.saldo ?? p.estoque ?? 0);
 
       if (!produtosAgrupados[nomeBase]) {
         produtosAgrupados[nomeBase] = {
@@ -86,7 +83,8 @@ export async function GET() {
         };
       }
 
-      produtosAgrupados[nomeBase].estoqueTotal += estoque;
+      // Soma o estoque de todas as variações daquele produto base
+      produtosAgrupados[nomeBase].estoqueTotal += estoqueItem;
 
       if (tamanhoEncontrado) {
         produtosAgrupados[nomeBase].tamanhos.add(tamanhoEncontrado);
@@ -107,7 +105,7 @@ export async function GET() {
         update: {
           nome: prod.nome,
           preco: prod.preco,
-          estoque: prod.estoqueTotal,
+          estoque: prod.estoqueTotal, // Atualiza com o estoque somado das variações
           tamanhos: arrayTamanhos,
           cores: arrayCores,
         },
@@ -116,7 +114,7 @@ export async function GET() {
           nome: prod.nome,
           descricao: prod.descricao,
           preco: prod.preco,
-          estoque: prod.estoqueTotal,
+          estoque: prod.estoqueTotal, // Cria com o estoque somado das variações
           tamanhos: arrayTamanhos,
           cores: arrayCores,
           imagemUrl: prod.imagemUrl,
@@ -130,10 +128,10 @@ export async function GET() {
 
     return NextResponse.json({ 
       success: true, 
-      message: `Sincronização concluída! ${importados} produtos únicos foram importados de um total de ${produtosEncontrados.length} variações brutas encontradas no Tiny.` 
+      message: `Sincronização e estoque atualizados com sucesso! ${importados} produtos únicos sincronizados.` 
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: "Erro interno ao processar paginação e agrupamento", details: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Erro interno ao processar estoque", details: error.message }, { status: 500 });
   }
 }
