@@ -37,20 +37,16 @@ export async function GET() {
 
       let nomeCompleto = p.nome.trim();
       
-      // Tentativa de extrair tamanho e cor do nome (ex: "CALÇA MASC JEANS JUVENIL - 14 - AZUL")
-      // Vamos limpar o nome para virar o produto "pai" (ex: "CALÇA MASC JEANS JUVENIL")
-      // Padrão comum: Nome - Tamanho - Cor ou variações semelhantes
-      parts = nomeCompleto.split(" - ");
+      // Declaração corrigida com const
+      const parts = nomeCompleto.split(" - ");
       
       let nomeBase = nomeCompleto;
       let tamanhoEncontrado = null;
       let corEncontrada = null;
 
       if (parts.length >= 3) {
-        // Assume que o penúltimo é tamanho e o último é cor, ou variações
         corEncontrada = parts[parts.length - 1].trim();
         tamanhoEncontrado = parts[parts.length - 2].trim();
-        // Remove os dois últimos pedaços para formar o nome base do produto
         nomeBase = parts.slice(0, parts.length - 2).join(" - ").trim();
       } else if (parts.length === 2) {
         tamanhoEncontrado = parts[1].trim();
@@ -60,22 +56,19 @@ export async function GET() {
       const preco = Number(p.preco) || 0;
       const estoque = Number(p.saldo || 0);
 
-      // Se o produto base ainda não existe no nosso objeto de agrupamento, criamos ele
       if (!produtosAgrupados[nomeBase]) {
         produtosAgrupados[nomeBase] = {
-          id: String(p.id), // Usa o ID do primeiro como base principal
+          id: String(p.id),
           nome: nomeBase,
           descricao: nomeBase,
           preco: preco,
           estoqueTotal: 0,
           tamanhos: new Set<string>(),
           cores: new Set<string>(),
-          estoquePorTamanho: {},
           imagemUrl: "https://via.placeholder.com/300"
         };
       }
 
-      // Acumula os dados nas variações do produto base
       produtosAgrupados[nomeBase].estoqueTotal += estoque;
 
       if (tamanhoEncontrado) {
@@ -88,7 +81,6 @@ export async function GET() {
 
     let importados = 0;
 
-    // Salva cada produto agrupado no banco via Prisma
     for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
       const arrayTamanhos = Array.from(prod.tamanhos);
       const arrayCores = Array.from(prod.cores);
