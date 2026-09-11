@@ -3,10 +3,27 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-router.post('/api/admin/cores', async (req, res) => {
+// ==========================================
+// 1. ROTA GET: Lista todas as cores cadastradas (Resolve o erro 405/GET no painel)
+// ==========================================
+router.get('/api/admin/cores', async (req, res) => {
+  try {
+    const cores = await prisma.cor.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    return res.status(200).json(cores);
+  } catch (erro) {
+    console.error("Erro ao buscar cores:", erro);
+    return res.status(500).json({ sucesso: false, mensagem: "Erro ao buscar cores." });
+  }
+});
+
+// ==========================================
+// 2. ROTA POST: Adiciona a cor a um produto específico
+// ==========================================
+router.post('/api/admin/produtos/:id/cores', async (req, res) => {
   const produtoId = req.params.id;
   
-  // 🔍 ADICIONE ESTES LOGS PARA VERIFICAR NO TERMINAL DO NODE
   console.log("ID recebido na URL:", produtoId);
   console.log("Dados recebidos no body:", req.body);
 
@@ -54,7 +71,7 @@ router.post('/api/admin/cores', async (req, res) => {
 
     console.log("Produto atualizado com sucesso:", produtoAtualizado);
 
-    res.status(201).json({
+    return res.status(201).json({
       sucesso: true,
       mensagem: "Cor salva com sucesso!",
       cores: produtoAtualizado.cores,
@@ -63,6 +80,23 @@ router.post('/api/admin/cores', async (req, res) => {
 
   } catch (erro) {
     console.error("Erro crítico ao salvar cor:", erro);
-    res.status(500).json({ sucesso: false, mensagem: "Erro interno", detalhe: erro.message });
+    return res.status(500).json({ sucesso: false, mensagem: "Erro interno", detalhe: erro.message });
   }
 });
+
+// ==========================================
+// 3. Rota extra de Tamanhos para evitar o 404 que apareceu no seu console
+// ==========================================
+router.get('/api/admin/tamanhos', async (req, res) => {
+  try {
+    const tamanhos = await prisma.tamanho.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    return res.status(200).json(tamanhos);
+  } catch (erro) {
+    console.error("Erro ao buscar tamanhos:", erro);
+    return res.status(500).json({ sucesso: false, mensagem: "Erro ao buscar tamanhos." });
+  }
+});
+
+module.exports = router;
