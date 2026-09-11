@@ -2,23 +2,23 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import nodemailer from 'nodemailer'
 
-// Configuração do transportador de e-mail (Certifique-se de configurar suas variáveis no .env)
+// Configuração do transportador de e-mail usando contato@jkfashionkids.com.br
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
   port: Number(process.env.EMAIL_PORT) || 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER,
+    user: process.env.EMAIL_USER, // Variável com o e-mail (ou senha específica de app)
     pass: process.env.EMAIL_PASS,
   },
 })
 
-// Função auxiliar para envio de WhatsApp (Integre aqui com sua API de preferência: Evolution, Z-API, etc.)
+// Função auxiliar para envio de WhatsApp
 async function enviarMensagemWhatsApp(telefone: string, mensagem: string) {
   if (!telefone) return
   
   try {
-    /* Exemplo com fetch para uma API de WhatsApp externa:
+    /* Exemplo com fetch para uma API de WhatsApp externa (Evolution, Z-API, etc.):
     await fetch('https://sua-api-whatsapp.com/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer SEU_TOKEN' },
@@ -52,52 +52,52 @@ export async function PUT(
       return NextResponse.json({ error: 'O novo status é obrigatório.' }, { status: 400 })
     }
 
-    // 1. Atualiza o status do pedido no banco de dados e traz os dados do cliente vinculado
+    // 1. Atualiza o status do pedido no banco de dados e traz os dados do cliente
     const pedidoAtualizado = await db.pedido.update({
       where: { id },
       data: { status },
       include: {
-        cliente: true, // Traz os dados do cliente (nome, email, telefone)
+        cliente: true,
         itens: true,
       },
     })
 
-    // 2. Verifica se o status foi alterado para "PAGO" (ou "Pago") para disparar as notificações
+    // 2. Verifica se o status foi alterado para "PAGO" para disparar as notificações
     if (status.toUpperCase() === 'PAGO') {
       const cliente = (pedidoAtualizado as any).cliente
+      const primeiroNome = cliente?.nome ? cliente.nome.split(' ')[0] : 'Cliente'
+      const idCurto = pedidoAtualizado.id.slice(0, 6)
 
-      if (cliente) {
-        const primeiroNome = cliente.nome ? cliente.nome.split(' ')[0] : 'Cliente'
-        const idCurto = pedidoAtualizado.id.slice(0, 6)
-
-        // A) Disparar E-mail
-        if (cliente.email) {
-          const mailOptions = {
-            from: `"JK Fashion Kids" <${process.env.EMAIL_USER}>`,
-            to: cliente.email,
-            subject: `Pagamento Aprovado! Pedido #${idCurto}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
-                <h2>Olá, ${primeiroNome}! 🎉</h2>
-                <p>Recebemos a confirmação do pagamento do seu pedido <strong>#${idCurto}</strong>.</p>
-                <p>Já estamos separando e preparando tudo com muito carinho para envio!</p>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-                <p>Obrigado por comprar conosco!</p>
-              </div>
-            `,
-          }
-
-          transporter.sendMail(mailOptions).catch((err) => {
-            console.error('❌ Erro ao enviar e-mail transacional:', err)
-          })
+      // A) Disparar E-mail para o cliente (remetente fixo: contato@jkfashionkids.com.br)
+      if (cliente?.email) {
+        const mailOptions = {
+          from: `"JK Fashion Kids" <contato@jkfashionkids.com.br>`,
+          to: cliente.email,
+          subject: `Pagamento Aprovado! Pedido #${idCurto}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
+              <h2>Olá, ${primeiroNome}! 🎉</h2>
+              <p>Recebemos a confirmação do pagamento do seu pedido <strong>#${idCurto}</strong>.</p>
+              <p>Já estamos separando e preparando tudo com muito carinho para envio!</p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+              <p>Obrigado por comprar conosco na <strong>JK Fashion Kids</strong>!</p>
+            </div>
+          `,
         }
 
-        // B) Disparar WhatsApp
-        if (cliente.telefone) {
-          const textoWhatsapp = `Olá ${primeiroNome}! 🌟 Passando para avisar que o pagamento do seu pedido #${idCurto} foi aprovado com sucesso! Já estamos separando seus produtos. Agradecemos pela preferência! 📦✨`
-          
-          await enviarMensagemWhatsApp(cliente.telefone, textoWhatsapp)
-        }
+        transporter.sendMail(mailOptions).catch((err) => {
+          console.error('❌ Erro ao enviar e-mail transacional:', err)
+        })
+      }
+
+      // B) Disparar WhatsApp de aviso interno para a loja (551933010493)
+      const mensagemAdmin = `🔔 *NOVO PEDIDO PAGO!*\n\nO pedido *#${idCurto}* de ${primeiroNome} foi aprovado com sucesso! Já pode iniciar a separação dos produtos. 📦✨`
+      await enviarMensagemWhatsApp('551933010493', mensagemAdmin)
+
+      // C) Disparar WhatsApp para o cliente (se ele tiver telefone cadastrado)
+      if (cliente?.telefone) {
+        const mensagemCliente = `Olá ${primeiroNome}! 🌟 Passando para avisar que o pagamento do seu pedido #${idCurto} foi aprovado com sucesso! Agradecemos pela preferência! 💖`
+        await enviarMensagemWhatsApp(cliente.telefone, mensagemCliente)
       }
     }
 
@@ -123,7 +123,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Compatibilidade para Next.js 14 e 15 (resolve Promise de params se necessário)
     const resolvedParams = await params
     const id = resolvedParams.id
 
@@ -131,9 +130,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'ID do pedido não informado.' }, { status: 400 })
     }
 
-    // Executa a transação atômica no banco de dados
     await db.$transaction(async (tx) => {
-      // 1. Busca o pedido e seus itens associados
       const pedido = await tx.pedido.findUnique({
         where: { id },
         include: {
@@ -145,7 +142,6 @@ export async function DELETE(
         throw new Error('Pedido não encontrado.')
       }
 
-      // 2. Devolve cada item comprado de volta ao estoque (geral e por tamanho)
       for (const item of pedido.itens) {
         const produtoId = (item as any).produtoId || (item as any).id
         const quantidadeDevolvida = Number(item.quantidade || 1)
@@ -159,7 +155,6 @@ export async function DELETE(
           if (produto) {
             const estoqueAtualGeral = Number(produto.estoque ?? (produto as any).quantidade ?? 0)
 
-            // Lê os tamanhos e estoques salvos no produto
             let brutoTamanhos = produto.estoquePorTamanho ?? (produto as any).tamanhos
             let estoqueObj: Record<string, number> = {}
             let temTamanhosControlados = false
@@ -178,7 +173,6 @@ export async function DELETE(
 
             const updateData: any = {}
 
-            // Se o produto usa controle por tamanho e o item comprado tinha tamanho
             if (tamanhoEscolhido && temTamanhosControlados) {
               const chaveTamanho = Object.keys(estoqueObj).find(
                 (k) => k.toUpperCase() === tamanhoEscolhido
@@ -186,10 +180,8 @@ export async function DELETE(
 
               if (chaveTamanho) {
                 const estoqueAtualDoTamanho = Number(estoqueObj[chaveTamanho] || 0)
-                // Devolve a quantidade para o tamanho específico
                 estoqueObj[chaveTamanho] = estoqueAtualDoTamanho + quantidadeDevolvida
 
-                // Recalcula o estoque total somando todos os tamanhos
                 const novoEstoqueTotal = Object.values(estoqueObj).reduce(
                   (acc: number, val: any) => acc + (Number(val) || 0),
                   0
@@ -205,13 +197,11 @@ export async function DELETE(
                       : estoqueObj
                 }
               } else {
-                // Caso o tamanho não exista mais no objeto, devolve para o geral por segurança
                 const novoEstoque = estoqueAtualGeral + quantidadeDevolvida
                 if ("estoque" in produto) updateData.estoque = novoEstoque
                 if ("quantidade" in produto) updateData.quantidade = novoEstoque
               }
             } else {
-              // Se não usa tamanhos, devolve apenas para o estoque geral
               const novoEstoque = estoqueAtualGeral + quantidadeDevolvida
               if ("estoque" in produto) updateData.estoque = novoEstoque
               if ("quantidade" in produto) updateData.quantidade = novoEstoque
@@ -229,12 +219,10 @@ export async function DELETE(
         }
       }
 
-      // 3. Deleta os itens vinculados ao pedido
       await tx.itemPedido.deleteMany({
         where: { pedidoId: id },
       })
 
-      // 4. Deleta o registro do pedido
       await tx.pedido.delete({
         where: { id },
       })
@@ -242,7 +230,7 @@ export async function DELETE(
 
     return NextResponse.json({
       sucesso: true,
-      mensagem: 'Venda excluída e itens devolvidos ao estoque (geral e por tamanho) com sucesso!',
+      mensagem: 'Venda excluída e itens devolvidos ao estoque com sucesso!',
     })
   } catch (erro: any) {
     console.error('❌ Erro ao excluir venda:', erro)
