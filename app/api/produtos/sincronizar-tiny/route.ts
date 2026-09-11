@@ -67,7 +67,7 @@ export async function GET() {
       }
 
       const preco = Number(p.preco) || 0;
-      // Garante que pega o saldo, estoque ou o valor numérico disponível
+      // Captura o estoque real vindo do Tiny (saldo ou estoque)
       const estoqueItem = Number(p.saldo ?? p.estoque ?? 0);
 
       if (!produtosAgrupados[nomeBase]) {
@@ -77,18 +77,20 @@ export async function GET() {
           descricao: nomeBase,
           preco: preco,
           estoqueTotal: 0,
-          tamanhos: new Set<string>(),
+          tamanhosMap: new Map<string, number>(), // Armazena tamanho -> estoque
           cores: new Set<string>(),
           imagemUrl: "https://via.placeholder.com/300"
         };
       }
 
-      // Soma o estoque de todas as variações daquele produto base
+      // Soma no estoque total do produto pai
       produtosAgrupados[nomeBase].estoqueTotal += estoqueItem;
 
       if (tamanhoEncontrado) {
-        produtosAgrupados[nomeBase].tamanhos.add(tamanhoEncontrado);
+        const estoqueAtualTamanho = produtosAgrupados[nomeBase].tamanhosMap.get(tamanhoEncontrado) || 0;
+        produtosAgrupados[nomeBase].tamanhosMap.set(tamanhoEncontrado, estoqueAtualTamanho + estoqueItem);
       }
+      
       if (corEncontrada) {
         produtosAgrupados[nomeBase].cores.add(corEncontrada);
       }
@@ -97,7 +99,8 @@ export async function GET() {
     let importados = 0;
 
     for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
-      const arrayTamanhos = Array.from(prod.tamanhos);
+      // Converte o mapa de tamanhos para o formato que seu banco espera (ex: ["1: 5", "10: 2"])
+      const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(([tam, qtd]) => `${tam}: ${qtd}`);
       const arrayCores = Array.from(prod.cores);
 
       await db.produto.upsert({
@@ -105,7 +108,7 @@ export async function GET() {
         update: {
           nome: prod.nome,
           preco: prod.preco,
-          estoque: prod.estoqueTotal, // Atualiza com o estoque somado das variações
+          estoque: prod.estoqueTotal, // Atualiza o estoque total somado corretamente
           tamanhos: arrayTamanhos,
           cores: arrayCores,
         },
@@ -114,7 +117,7 @@ export async function GET() {
           nome: prod.nome,
           descricao: prod.descricao,
           preco: prod.preco,
-          estoque: prod.estoqueTotal, // Cria com o estoque somado das variações
+          estoque: prod.estoqueTotal,
           tamanhos: arrayTamanhos,
           cores: arrayCores,
           imagemUrl: prod.imagemUrl,
@@ -128,10 +131,10 @@ export async function GET() {
 
     return NextResponse.json({ 
       success: true, 
-      message: `Sincronização e estoque atualizados com sucesso! ${importados} produtos únicos sincronizados.` 
+      message: `Sincronização de estoque e produtos concluída! ${importados} produtos atualizados.` 
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: "Erro interno ao processar estoque", details: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Erro interno ao processar sincronização", details: error.message }, { status: 500 });
   }
 }
