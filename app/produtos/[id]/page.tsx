@@ -22,6 +22,7 @@ import {
   Bell,
   Tag,
   AlertCircle,
+  Palette,
 } from "lucide-react";
 
 const ORDEM_TAMANHOS = [
@@ -53,6 +54,7 @@ export default function ProdutoDetalhePage() {
 
   const [produto, setProduto] = useState<any>(null);
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState<string>("");
+  const [corSelecionada, setCorSelecionada] = useState<string>("");
   const [imagemIndex, setImagemIndex] = useState<number>(0);
   const [carregando, setCarregando] = useState(true);
   const [adicionando, setAdicionando] = useState(false);
@@ -89,6 +91,7 @@ export default function ProdutoDetalhePage() {
   const idProd = String(produto?.id || produto?._id || id || "");
   const favoritado = isFavorito(idProd);
 
+  // LISTA DE TAMANHOS
   const listaTamanhos = useMemo(() => {
     const base = Array.isArray(produto?.tamanhos) && produto.tamanhos.length > 0
       ? produto.tamanhos
@@ -97,6 +100,23 @@ export default function ProdutoDetalhePage() {
       : ["P", "M", "G", "GG"];
     
     return ordenarTamanhos(base);
+  }, [produto]);
+
+  // LISTA DE CORES
+  const listaCores = useMemo(() => {
+    if (!produto) return [];
+    const base = Array.isArray(produto?.cores) && produto.cores.length > 0
+      ? produto.cores
+      : Array.isArray(produto?.coresDisponiveis) && produto.coresDisponiveis.length > 0
+      ? produto.coresDisponiveis
+      : Array.isArray(produto?.variantesCores) && produto.variantesCores.length > 0
+      ? produto.variantesCores
+      : [];
+
+    return base.map((c: any) => {
+      if (typeof c === "string") return { nome: c, hex: null };
+      return { nome: c.nome || c.cor || c.label, hex: c.hex || c.codigo || c.color || null };
+    }).filter((c: any) => Boolean(c.nome));
   }, [produto]);
 
   const estoqueTamanhosObj = useMemo(() => {
@@ -137,6 +157,7 @@ export default function ProdutoDetalhePage() {
     return {};
   }, [produto]);
 
+  // Quantidade total do estoque
   const getEstoqueDisponivel = (tam: string) => {
     if (!tam) return 0;
     const tamClean = String(tam).trim().toUpperCase();
@@ -152,38 +173,37 @@ export default function ProdutoDetalhePage() {
     return Number(produto?.estoque ?? produto?.quantidade ?? produto?.qtd ?? 0);
   };
 
+  // Quantidade já adicionada no carrinho
   const qtdNoCarrinho = useMemo(() => {
     if (!Array.isArray(carrinho) || !idProd || !tamanhoSelecionado) return 0;
     
     const item = carrinho.find((i: any) => {
       const itemProdId = String(i.produtoId || i.produto?.id || i.produto?._id || i.id || "");
       const itemTam = String(i.tamanho || "").trim().toUpperCase();
-      return itemProdId === idProd && itemTam === String(tamanhoSelecionado).trim().toUpperCase();
+      const itemCor = String(i.cor || "").trim().toUpperCase();
+      const corAtual = String(corSelecionada || "").trim().toUpperCase();
+
+      const mesmoTam = itemTam === String(tamanhoSelecionado).trim().toUpperCase();
+      const mesmaCor = !corAtual || itemCor === corAtual;
+
+      return itemProdId === idProd && mesmoTam && mesmaCor;
     });
 
     return Number(item?.quantidade || item?.qtd || 0);
-  }, [carrinho, idProd, tamanhoSelecionado]);
+  }, [carrinho, idProd, tamanhoSelecionado, corSelecionada]);
 
   const estoqueMaxAtual = getEstoqueDisponivel(tamanhoSelecionado);
+  
+  // Condição para saber se atingiu o limite total de estoque
   const tamanhoAtualEsgotado = estoqueMaxAtual <= 0 || qtdNoCarrinho >= estoqueMaxAtual;
 
   const isTamanhoEsgotado = (tam: string) => {
     const max = getEstoqueDisponivel(tam);
     if (max <= 0) return true;
-    
-    const tamClean = String(tam).trim().toUpperCase();
-    const qtdTamNoCarrinho = Array.isArray(carrinho)
-      ? carrinho.reduce((acc: number, item: any) => {
-          const itemProdId = String(item.produtoId || item.produto?.id || item.produto?._id || item.id || "");
-          const itemTam = String(item.tamanho || "").trim().toUpperCase();
-          if (itemProdId === idProd && itemTam === tamClean) {
-            return acc + Number(item.quantidade || item.qtd || 0);
-          }
-          return acc;
-        }, 0)
-      : 0;
-
-    return qtdTamNoCarrinho >= max;
+    if (String(tam).trim().toUpperCase() === String(tamanhoSelecionado).trim().toUpperCase()) {
+      return qtdNoCarrinho >= max;
+    }
+    return false;
   };
 
   const fotosGaleria = useMemo(() => {
@@ -214,6 +234,12 @@ export default function ProdutoDetalhePage() {
             setProduto(p);
             setImagemIndex(0);
             setTamanhoSelecionado(ordenarTamanhos(p.tamanhos || ["P", "M", "G", "GG"])[0]);
+            
+            const cores = p.cores || p.coresDisponiveis || [];
+            if (Array.isArray(cores) && cores.length > 0) {
+              const primeiraCor = typeof cores[0] === "string" ? cores[0] : cores[0].nome || cores[0].cor;
+              setCorSelecionada(primeiraCor || "");
+            }
             return;
           }
         }
@@ -228,6 +254,12 @@ export default function ProdutoDetalhePage() {
           if (encontrado) {
             setImagemIndex(0);
             setTamanhoSelecionado(ordenarTamanhos(encontrado.tamanhos || ["P", "M", "G", "GG"])[0]);
+            
+            const cores = encontrado.cores || encontrado.coresDisponiveis || [];
+            if (Array.isArray(cores) && cores.length > 0) {
+              const primeiraCor = typeof cores[0] === "string" ? cores[0] : cores[0].nome || cores[0].cor;
+              setCorSelecionada(primeiraCor || "");
+            }
           }
         }
       } catch (e) {
@@ -248,52 +280,28 @@ export default function ProdutoDetalhePage() {
     setZoomPos({ x, y });
   };
 
-  // FAVORITAR AJUSTADO IGUAL AOS CARDS
-  const handleToggleFavorito = async (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleToggleFavorito = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (!produto || !idProd) return;
 
-    const eraFavorito = favoritado;
-
-    // 1. Atualização instantânea na interface
-    await toggleFavorito({
+    toggleFavorito({
       ...produto,
       id: idProd,
       produtoId: idProd,
     });
-
-    mostrarToast(
-      eraFavorito
-        ? "Removido dos favoritos!"
-        : "Adicionado aos favoritos!"
-    );
-
-    // 2. Validação de autorização em segundo plano
-    try {
-      const resAuth = await fetch("/api/cliente/me");
-      if (resAuth.status === 401) {
-        // Reverte a alteração visual se não estiver autenticado
-        await toggleFavorito({
-          ...produto,
-          id: idProd,
-          produtoId: idProd,
-        });
-
-        mostrarToast("Faça login para salvar seus favoritos.");
-        setTimeout(() => {
-          window.location.href = `/login?redirectTo=/produtos/${idProd}`;
-        }, 1200);
-      }
-    } catch (err) {
-      console.warn("Sincronizado via localStorage.");
-    }
   };
 
   const handleAdicionarCarrinho = async () => {
     if (!produto) return;
 
+    if (listaCores.length > 0 && !corSelecionada) {
+      mostrarToast("Por favor, selecione uma cor antes de adicionar ao carrinho.");
+      return;
+    }
+
+    // Validação preventiva do limite de estoque
     if (qtdNoCarrinho >= estoqueMaxAtual) {
       mostrarToast(`Limite de estoque atingido! Restam apenas ${estoqueMaxAtual} unidade(s) no estoque.`);
       return;
@@ -307,6 +315,7 @@ export default function ProdutoDetalhePage() {
         body: JSON.stringify({
           produtoId: idProd,
           tamanho: tamanhoSelecionado || "Único",
+          cor: corSelecionada || null,
           quantidade: 1,
         }),
       });
@@ -318,14 +327,17 @@ export default function ProdutoDetalhePage() {
 
       const responseData = await res.json().catch(() => ({}));
 
+      // Caso o backend rejeite por falta de estoque
       if (!res.ok) {
         mostrarToast(responseData.message || "Não há mais unidades disponíveis em estoque.");
         if (typeof recarregarCarrinho === "function") await recarregarCarrinho();
         return;
       }
 
+      // Sucesso na adição
       setSucessoAdicao(true);
 
+      // Recarrega o estado global do carrinho imediatamente para atualizar o estoque na tela
       if (typeof recarregarCarrinho === "function") {
         await recarregarCarrinho();
       }
@@ -348,6 +360,7 @@ export default function ProdutoDetalhePage() {
         body: JSON.stringify({
           produtoId: idProd,
           tamanho: tamanhoSelecionado,
+          cor: corSelecionada,
           email: emailAviseMe,
           telefone: telefoneAviseMe,
         }),
@@ -395,8 +408,8 @@ export default function ProdutoDetalhePage() {
       {/* NOTIFICAÇÃO TOAST FLUTUANTE */}
       {toast.visivel && (
         <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 transform animate-bounce">
-          <div className="flex items-center gap-2.5 rounded-2xl bg-slate-900 px-5 py-3 text-xs font-bold text-white shadow-2xl backdrop-blur-md">
-            <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-400" />
+          <div className="flex items-center gap-2.5 rounded-2xl bg-amber-500 px-5 py-3 text-xs font-bold text-white shadow-2xl backdrop-blur-md">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span>{toast.mensagem}</span>
           </div>
         </div>
@@ -494,6 +507,44 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
+            {/* SELEÇÃO DE CORES */}
+            {listaCores.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase text-slate-700 flex items-center gap-1.5">
+                    <Palette className="h-3.5 w-3.5 text-slate-500" />
+                    Selecione a Cor: {corSelecionada && <span className="font-normal text-slate-500">({corSelecionada})</span>}
+                  </span>
+                </div>
+
+                <div className="flex gap-2.5 flex-wrap">
+                  {listaCores.map((item: any, idx: number) => {
+                    const selecionado = corSelecionada === item.nome;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setCorSelecionada(item.nome)}
+                        className={`h-10 px-4 rounded-2xl text-xs font-bold border transition-all flex items-center gap-2 ${
+                          selecionado
+                            ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                        }`}
+                      >
+                        {item.hex && (
+                          <span
+                            className="h-3.5 w-3.5 rounded-full border border-black/10 flex-shrink-0"
+                            style={{ backgroundColor: item.hex }}
+                          />
+                        )}
+                        <span>{item.nome}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* SELEÇÃO DE TAMANHOS */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -511,24 +562,19 @@ export default function ProdutoDetalhePage() {
                     <button
                       key={tam}
                       type="button"
-                      disabled={esgotado}
                       onClick={() => setTamanhoSelecionado(tam)}
                       className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
-                        esgotado
-                          ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-50 line-through"
-                          : selecionado
-                          ? "border-slate-900 bg-slate-900 text-white shadow-sm"
-                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                        selecionado ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
                       }`}
                     >
-                      <span>{tam}</span>
+                      <span className={esgotado && !selecionado ? "line-through opacity-50" : ""}>{tam}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* AÇÃO E ESTOQUE */}
+            {/* AÇÃO E VERIFICAÇÃO DE ESTOQUE */}
             <div className="space-y-3 pt-2">
               {tamanhoAtualEsgotado ? (
                 <div className="space-y-2 animate-fadeIn">
@@ -584,7 +630,7 @@ export default function ProdutoDetalhePage() {
               </div>
             )}
 
-            {/* SELOS */}
+            {/* SELOS E BENEFÍCIOS */}
             <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-5">
               <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100">
                 <Truck className="h-5 w-5 text-slate-700 flex-shrink-0" />
@@ -602,7 +648,7 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
-            {/* CUIDADOS E TROCAS */}
+            {/* SANFONADOS (CUIDADOS E TROCAS) */}
             <div className="border-t border-slate-100 pt-4 space-y-2">
               <div className="border border-slate-200 rounded-2xl overflow-hidden">
                 <button
@@ -705,7 +751,7 @@ export default function ProdutoDetalhePage() {
               <h3 className="text-base font-bold text-slate-900">Avisar quando chegar</h3>
             </div>
             <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-              Deixe seus dados para avisarmos assim que o tamanho <strong>{tamanhoSelecionado}</strong> estiver de volta ao estoque.
+              Deixe seus dados para avisarmos assim que o tamanho <strong>{tamanhoSelecionado}</strong> {corSelecionada ? `na cor ${corSelecionada}` : ""} estiver de volta ao estoque.
             </p>
 
             {sucessoAviseMe ? (
