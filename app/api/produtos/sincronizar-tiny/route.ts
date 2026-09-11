@@ -5,27 +5,28 @@ export async function GET() {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
   if (!TINY_TOKEN) {
-    return NextResponse.json({ error: "Variável TINY_API_TOKEN não encontrada no ambiente da Vercel." }, { status: 500 });
+    return NextResponse.json({ error: "Variável TINY_API_TOKEN não encontrada." }, { status: 500 });
   }
 
   try {
-    // Tentativa na API V3 do Tiny
-    const response = await fetch("https://api.tiny.com.br/public-api/v3/produtos?pagina=1", {
+    // Na API V3 do Tiny, muitas vezes o token é passado por parâmetro de query (token=...) 
+    // ou no header como 'Authorization: Bearer <token>'. Vamos tentar via Query Param se o Bearer falhou.
+    const urlTiny = `https://api.tiny.com.br/public-api/v3/produtos?token=${TINY_TOKEN.trim()}&pagina=1`;
+
+    const response = await fetch(urlTiny, {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${TINY_TOKEN.trim()}`,
         "Accept": "application/json"
       }
     });
 
     const textResponse = await response.text();
 
-    // Se a API recusar (401), retornamos o texto bruto que o Tiny mandou para entendermos o motivo
     if (!response.ok) {
       return NextResponse.json({ 
-        error: "O Tiny recusou o token (Erro 401).",
+        error: "O Tiny recusou o acesso.",
         statusHttp: response.status,
-        respostaBrutaDoTiny: textResponse || "Nenhuma resposta retornada pelo servidor do Tiny"
+        respostaBrutaDoTiny: textResponse || "Sem corpo de resposta"
       }, { status: 401 });
     }
 
@@ -34,12 +35,12 @@ export async function GET() {
       data = JSON.parse(textResponse);
     } catch (e) {
       return NextResponse.json({ 
-        error: "O Tiny retornou um formato que não é JSON.", 
+        error: "Retorno inválido do Tiny.", 
         recebido: textResponse 
       }, { status: 400 });
     }
 
-    const listaProdutos = data.itens || (Array.isArray(data) ? data : []);
+    const listaProdutos = data.itens || data.produtos || (Array.isArray(data) ? data : []);
     let importados = 0;
 
     for (const item of listaProdutos) {
@@ -96,12 +97,12 @@ export async function GET() {
 
     return NextResponse.json({ 
       success: true, 
-      message: `${importados} produtos sincronizados com sucesso!` 
+      message: `${importados} produtos sincronizados com sucesso do Tiny!` 
     });
 
   } catch (error: any) {
     return NextResponse.json({ 
-      error: "Erro interno no servidor ao chamar o Tiny", 
+      error: "Erro interno no servidor", 
       details: error.message 
     }, { status: 500 });
   }
