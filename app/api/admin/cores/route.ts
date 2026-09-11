@@ -4,12 +4,12 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 // ==========================================
-// 1. ROTA GET: Lista todas as cores cadastradas (Resolve o erro 405/GET no painel)
+// 1. ROTA GET: Lista todas as cores cadastradas
 // ==========================================
 router.get('/api/admin/cores', async (req, res) => {
   try {
-    const cores = await prisma.cor.findMany({
-      orderBy: { createdAt: 'desc' }
+    const cores = await prisma.cor.findMany({ 
+      orderBy: { createdAt: 'desc' } 
     });
     return res.status(200).json(cores);
   } catch (erro) {
@@ -19,18 +19,19 @@ router.get('/api/admin/cores', async (req, res) => {
 });
 
 // ==========================================
-// 2. ROTA POST: Adiciona a cor a um produto específico
+// 2. ROTA POST: Adiciona a cor ao produto (pegando o ID do corpo da requisição)
 // ==========================================
-router.post('/api/admin/produtos/:id/cores', async (req, res) => {
-  const produtoId = req.params.id;
-  
-  console.log("ID recebido na URL:", produtoId);
-  console.log("Dados recebidos no body:", req.body);
+router.post('/api/admin/cores', async (req, res) => {
+  // Exibe o que o front-end está enviando no body para conferirmos
+  console.log("Dados recebidos no body para salvar cor:", req.body);
 
-  const { cor, hex, estoque } = req.body;
+  const { produtoId, cor, hex, estoque } = req.body;
 
-  if (!cor) {
-    return res.status(400).json({ sucesso: false, mensagem: "O nome da cor é obrigatório." });
+  if (!produtoId || !cor) {
+    return res.status(400).json({ 
+      sucesso: false, 
+      mensagem: "O ID do produto e o nome da cor são obrigatórios no corpo da requisição." 
+    });
   }
 
   const novoDetalheCor = {
@@ -42,34 +43,40 @@ router.post('/api/admin/produtos/:id/cores', async (req, res) => {
   };
 
   try {
+    // Busca o produto no banco usando o ID que veio no body
     const produtoAtual = await prisma.produto.findUnique({
       where: { id: produtoId },
       select: { id: true, cores: true, coresDetalhes: true }
     });
 
-    console.log("Produto encontrado no banco:", produtoAtual);
-
     if (!produtoAtual) {
-      return res.status(404).json({ sucesso: false, mensagem: "Produto não encontrado no banco com esse ID!" });
+      return res.status(404).json({ 
+        sucesso: false, 
+        mensagem: `Produto com ID ${produtoId} não foi encontrado no banco!` 
+      });
     }
 
     let listaCores = produtoAtual.cores || [];
     let listaDetalhes = Array.isArray(produtoAtual.coresDetalhes) ? produtoAtual.coresDetalhes : [];
 
+    // Evita duplicar o nome da cor no array text[]
     if (!listaCores.includes(cor)) {
       listaCores.push(cor);
     }
+    
+    // Adiciona o novo objeto no JSON de detalhes
     listaDetalhes.push(novoDetalheCor);
 
+    // Atualiza o produto no banco
     const produtoAtualizado = await prisma.produto.update({
       where: { id: produtoId },
-      data: {
-        cores: listaCores,
-        coresDetalhes: listaDetalhes
+      data: { 
+        cores: listaCores, 
+        coresDetalhes: listaDetalhes 
       }
     });
 
-    console.log("Produto atualizado com sucesso:", produtoAtualizado);
+    console.log("Cor salva com sucesso no produto:", produtoAtualizado.id);
 
     return res.status(201).json({
       sucesso: true,
@@ -80,23 +87,34 @@ router.post('/api/admin/produtos/:id/cores', async (req, res) => {
 
   } catch (erro) {
     console.error("Erro crítico ao salvar cor:", erro);
-    return res.status(500).json({ sucesso: false, mensagem: "Erro interno", detalhe: erro.message });
+    return res.status(500).json({ 
+      sucesso: false, 
+      mensagem: "Erro interno ao salvar cor.", 
+      detalhe: erro.message 
+    });
   }
 });
 
 // ==========================================
-// 3. Rota extra de Tamanhos para evitar o 404 que apareceu no seu console
+// 3. Rota de Tamanhos (GET) para evitar o 404
 // ==========================================
 router.get('/api/admin/tamanhos', async (req, res) => {
   try {
-    const tamanhos = await prisma.tamanho.findMany({
-      orderBy: { createdAt: 'desc' }
+    const tamanhos = await prisma.tamanho.findMany({ 
+      orderBy: { createdAt: 'desc' } 
     });
     return res.status(200).json(tamanhos);
   } catch (erro) {
     console.error("Erro ao buscar tamanhos:", erro);
     return res.status(500).json({ sucesso: false, mensagem: "Erro ao buscar tamanhos." });
   }
+});
+
+// ==========================================
+// 4. Rota de Perfil do Cliente para evitar o 404
+// ==========================================
+router.get('/api/cliente/perfil', async (req, res) => {
+  return res.status(200).json({ logado: false, mensagem: "Rota padrão." });
 });
 
 module.exports = router;
