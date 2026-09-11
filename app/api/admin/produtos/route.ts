@@ -70,11 +70,13 @@ export async function POST(request: Request) {
       estoque,
       tamanhos,
       estoquePorTamanho,
+      cores,
+      coresDetalhes,
       genero,
       faixaEtaria,
       ativo,
       localCard,
-      categoriaId,
+      categoriaId, // Pode vir o nome da categoria vindo do frontend
     } = body
 
     // Validações individuais
@@ -100,7 +102,6 @@ export async function POST(request: Request) {
 
     let estoquePorTamanhoFinal = estoquePorTamanho
 
-    // Se ficou como tamanho "Único" e o estoque por tamanho não foi informado, preenche automaticamente
     if (
       tamanhosOrdenados.length === 1 && 
       tamanhosOrdenados[0] === 'Único' && 
@@ -109,28 +110,15 @@ export async function POST(request: Request) {
       estoquePorTamanhoFinal = { 'Único': estoqueTotalNum }
     }
 
-    // RESOLUÇÃO DA CATEGORIA
-    let categoriaUUIDReal: string | null = null;
+    // RESOLUÇÃO DA CATEGORIA (Atrelando pelo campo `nome`)
+    let categoriaNomeFinal: string | null = null;
 
     if (categoriaId && typeof categoriaId === "string" && categoriaId.trim() !== "") {
       const valorBusca = categoriaId.trim();
 
-      // Validação do formato UUID
-      const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(valorBusca);
-
-      // Monta as condições dinamicamente
-      const condicoesOR: any[] = [
-        { nome: { equals: valorBusca, mode: "insensitive" } }
-      ];
-
-      // Inclui a consulta por `id` apenas se a string for um UUID válido
-      if (isUUID) {
-        condicoesOR.push({ id: valorBusca });
-      }
-
       let categoriaEncontrada = await prisma.categoria.findFirst({
         where: {
-          OR: condicoesOR
+          nome: { equals: valorBusca, mode: "insensitive" }
         }
       });
 
@@ -154,7 +142,7 @@ export async function POST(request: Request) {
       }
 
       if (categoriaEncontrada) {
-        categoriaUUIDReal = categoriaEncontrada.id;
+        categoriaNomeFinal = categoriaEncontrada.nome;
       }
     }
 
@@ -170,11 +158,13 @@ export async function POST(request: Request) {
         estoque: estoqueTotalNum,
         tamanhos: tamanhosOrdenados,
         estoquePorTamanho: estoquePorTamanhoFinal ?? null,
+        cores: Array.isArray(cores) ? cores : [],
+        coresDetalhes: coresDetalhes ?? null,
         genero: genero || "masculino",
         faixaEtaria: faixaEtaria || "INFANTIL",
         ativo: ativo !== undefined ? Boolean(ativo) : true,
         localCard: localCard || "HOME_DESTAQUE",
-        categoriaId: categoriaUUIDReal,
+        categoriaNome: categoriaNomeFinal,
       },
       include: {
         categoria: true,
