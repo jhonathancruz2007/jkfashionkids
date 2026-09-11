@@ -31,7 +31,7 @@ import {
   Menu,
   Star,
   RefreshCw,
-  Check
+  Palette
 } from "lucide-react"
 
 interface CategoriaItem {
@@ -41,6 +41,11 @@ interface CategoriaItem {
 }
 
 interface TamanhoItem {
+  id: string
+  nome: string
+}
+
+interface CorItem {
   id: string
   nome: string
 }
@@ -55,7 +60,9 @@ interface Produto {
   imagens?: string[]
   estoque: number
   tamanhos: string[]
+  cores?: string[]
   estoquePorTamanho?: Record<string, number>
+  estoquePorCor?: Record<string, number>
   genero?: string
   localCard?: string
   categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
@@ -76,6 +83,7 @@ interface ItemPedido {
   quantidade: number
   precoUnitario: number
   tamanho?: string
+  cor?: string
   produto: {
     nome: string
     imagemUrl: string
@@ -107,8 +115,18 @@ interface ApiTamanho {
   value?: string
 }
 
+interface ApiCor {
+  id: string
+  nome?: string
+  value?: string
+}
+
 const TAMANHOS_INICIAIS: string[] = [
   "RN", "P", "M", "G", "GG", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16", "Unico", "Animais", "Normais"
+]
+
+const CORES_INICIAIS: string[] = [
+  "Preto", "Branco", "Azul", "Rosa", "Vermelho", "Amarelo", "Verde", "Cinza", "Bege", "Marrom", "Roxo", "Laranja", "Estampado"
 ]
 
 const CATEGORIAS_INICIAIS: CategoriaItem[] = [
@@ -159,8 +177,16 @@ export default function PaginaDashboardAdmin() {
   const [novoTamanho, setNovoTamanho] = useState<string>("")
   const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState<boolean>(false)
 
-  // INPUT MANUAL DE TAMANHO NO MODAL DO PRODUTO
+  // ESTADO DINÂMICO DE CORES
+  const [opcoesCores, setOpcoesCores] = useState<CorItem[]>(
+    CORES_INICIAIS.map((c, index) => ({ id: `temp-cor-${index}`, nome: c }))
+  )
+  const [novaCor, setNovaCor] = useState<string>("")
+  const [modalGerenciarCores, setModalGerenciarCores] = useState<boolean>(false)
+
+  // INPUT MANUAL DE TAMANHO E COR NO MODAL DO PRODUTO
   const [tamanhoManualInput, setTamanhoManualInput] = useState<string>("")
+  const [corManualInput, setCorManualInput] = useState<string>("")
 
   // ESTADOS DE PRODUTOS
   const [produtos, setProdutos] = useState<Produto[]>([])
@@ -185,6 +211,10 @@ export default function PaginaDashboardAdmin() {
 
   const [formTamanhos, setFormTamanhos] = useState<string[]>([])
   const [formEstoquePorTamanho, setFormEstoquePorTamanho] = useState<Record<string, number>>({})
+  
+  const [formCores, setFormCores] = useState<string[]>([])
+  const [formEstoquePorCor, setFormEstoquePorCor] = useState<Record<string, number>>({})
+
   const [formGenero, setFormGenero] = useState<string>("masculino")
   const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
   const [formFaixaEtaria, setFormFaixaEtaria] = useState<string>("0-1") 
@@ -263,6 +293,25 @@ export default function PaginaDashboardAdmin() {
       }
     } catch (error) {
       console.error("Erro ao carregar tamanhos da API:", error)
+    }
+  }
+
+  // BUSCAR CORES DO BANCO DE DADOS (API)
+  const carregarCores = async () => {
+    try {
+      const res = await fetch("/api/admin/cores")
+      if (res.ok) {
+        const data: ApiCor[] = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          const coresFormatadas: CorItem[] = data.map((c) => ({
+            id: c.id,
+            nome: c.nome || c.value || ""
+          }))
+          setOpcoesCores(coresFormatadas)
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar cores da API:", error)
     }
   }
 
@@ -455,6 +504,81 @@ export default function PaginaDashboardAdmin() {
     }
   }
 
+  // HANDLERS DE CORES GLOBAIS
+  const handleAdicionarCor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const corFormatada = novaCor.trim()
+    if (!corFormatada) return
+
+    if (opcoesCores.some((c) => c.nome.toLowerCase() === corFormatada.toLowerCase())) {
+      alert("Esta cor já existe no banco!")
+      return
+    }
+
+    try {
+      const res = await fetch("/api/admin/cores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: corFormatada }),
+      })
+
+      if (res.ok) {
+        const novaCorBanco: ApiCor = await res.json()
+        setOpcoesCores((prev) => [
+          ...prev, 
+          { id: novaCorBanco.id || String(Date.now()), nome: novaCorBanco.nome || corFormatada }
+        ])
+        setNovaCor("")
+        exibirToast(`Cor "${corFormatada}" adicionada!`)
+      } else {
+        setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
+        setNovaCor("")
+      }
+    } catch (error) {
+      console.error("Erro ao salvar cor:", error)
+      setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
+      setNovaCor("")
+    }
+  }
+
+  const handleDeletarCor = async (corItem: string | { id: string; nome: string }) => {
+    const idParaDeletar = typeof corItem === 'object' ? corItem.id : corItem
+    const nomeParaFiltro = typeof corItem === 'object' ? corItem.nome : corItem
+
+    if (idParaDeletar.startsWith("temp-cor-") || idParaDeletar.startsWith("local-cor-")) {
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Cor removida!")
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/admin/cores/${idParaDeletar}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const erroData = await res.json().catch(() => null)
+        throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      }
+
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Cor excluída do banco!")
+    } catch (error: any) {
+      console.error("Detalhe do erro ao deletar cor:", error)
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+    }
+  }
+
   // GERENCIAMENTO DE TAMANHOS NO PRODUTO ATUAL
   const toggleTamanho = (tam: string) => {
     setFormTamanhos((prev) => {
@@ -509,11 +633,67 @@ export default function PaginaDashboardAdmin() {
       [tamanho]: Math.max(0, quantidade),
     }))
   }
+
+  // GERENCIAMENTO DE CORES NO PRODUTO ATUAL
+  const toggleCor = (cor: string) => {
+    setFormCores((prev) => {
+      const existe = prev.includes(cor)
+      if (existe) {
+        const novasCores = prev.filter((c) => c !== cor)
+        const novoEstoque = { ...formEstoquePorCor }
+        delete novoEstoque[cor]
+        setFormEstoquePorCor(novoEstoque)
+        return novasCores
+      } else {
+        setFormEstoquePorCor((prevEstoque) => ({
+          ...prevEstoque,
+          [cor]: prevEstoque[cor] ?? 1,
+        }))
+        return [...prev, cor]
+      }
+    })
+  }
+
+  const handleRemoverCorDoProduto = (corNome: string) => {
+    setFormCores((prev) => prev.filter((c) => c !== corNome))
+    setFormEstoquePorCor((prev) => {
+      const novo = { ...prev }
+      delete novo[corNome]
+      return novo
+    })
+  }
+
+  const handleAdicionarCorManualAoProduto = () => {
+    const nomeFormatado = corManualInput.trim()
+    if (!nomeFormatado) return
+
+    if (!formCores.includes(nomeFormatado)) {
+      setFormCores((prev) => [...prev, nomeFormatado])
+      setFormEstoquePorCor((prev) => ({
+        ...prev,
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
+      }))
+    }
+
+    if (!opcoesCores.some((c) => c.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+      setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: nomeFormatado }])
+    }
+
+    setCorManualInput("")
+  }
+
+  const handleQtdCorChange = (cor: string, quantidade: number) => {
+    setFormEstoquePorCor((prev) => ({
+      ...prev,
+      [cor]: Math.max(0, quantidade),
+    }))
+  }
   
-  const totalEstoqueCalculado = formTamanhos.reduce(
-    (acc, tam) => acc + (formEstoquePorTamanho[tam] || 0),
-    0
-  )
+  const totalEstoqueCalculado = formTamanhos.length > 0 
+    ? formTamanhos.reduce((acc, tam) => acc + (formEstoquePorTamanho[tam] || 0), 0)
+    : formCores.length > 0
+    ? formCores.reduce((acc, cor) => acc + (formEstoquePorCor[cor] || 0), 0)
+    : 0
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -593,6 +773,7 @@ export default function PaginaDashboardAdmin() {
   useEffect(() => {
     carregarCategorias()
     carregarTamanhos()
+    carregarCores()
     if (abaAtiva === "produtos" || abaAtiva === "geral") carregarProdutos()
     if (abaAtiva === "clientes" || abaAtiva === "geral") carregarClientes()
     if (abaAtiva === "pedidos" || abaAtiva === "geral") carregarPedidos()
@@ -614,7 +795,10 @@ export default function PaginaDashboardAdmin() {
     setNovaUrlImagem("")
     setFormTamanhos([])
     setFormEstoquePorTamanho({})
+    setFormCores([])
+    setFormEstoquePorCor({})
     setTamanhoManualInput("")
+    setCorManualInput("")
     setFormGenero("masculino")
     setFormCategoria(categorias[0]?.value || "CONJUNTOS")
     setFormFaixaEtaria("0-1")
@@ -639,8 +823,10 @@ export default function PaginaDashboardAdmin() {
     setFormImagens(imgs)
     setNovaUrlImagem("")
     setTamanhoManualInput("")
+    setCorManualInput("")
 
     setFormTamanhos(prod.tamanhos || [])
+    setFormCores(prod.cores || [])
     setFormGenero(prod.genero || "masculino")
     
     let catValor = ""
@@ -672,6 +858,20 @@ export default function PaginaDashboardAdmin() {
       setFormEstoquePorTamanho({})
     }
 
+    if (prod.estoquePorCor && Object.keys(prod.estoquePorCor).length > 0) {
+      setFormEstoquePorCor({ ...prod.estoquePorCor })
+    } else if (prod.cores && prod.cores.length > 0) {
+      const base = Math.floor((prod.estoque || 0) / prod.cores.length)
+      const resto = (prod.estoque || 0) % prod.cores.length
+      const mapaEstoqueCor: Record<string, number> = {}
+      prod.cores.forEach((c, idx) => {
+        mapaEstoqueCor[c] = base + (idx < resto ? 1 : 0)
+      })
+      setFormEstoquePorCor(mapaEstoqueCor)
+    } else {
+      setFormEstoquePorCor({})
+    }
+
     setModalProduto(true)
   }
 
@@ -686,7 +886,7 @@ export default function PaginaDashboardAdmin() {
     const precoParsed = parseFloat(String(formPreco).replace(",", "."))
     const precoPromocionalParsed = formPrecoPromocional ? parseFloat(String(formPrecoPromocional).replace(",", ".")) : null
 
-    const estoqueFinal = formTamanhos.length > 0 
+    const estoqueFinal = (formTamanhos.length > 0 || formCores.length > 0) 
       ? totalEstoqueCalculado 
       : (parseInt(formEstoqueManual) || 0)
 
@@ -705,6 +905,8 @@ export default function PaginaDashboardAdmin() {
           estoque: estoqueFinal,
           tamanhos: formTamanhos,
           estoquePorTamanho: formEstoquePorTamanho,
+          cores: formCores,
+          estoquePorCor: formEstoquePorCor,
           genero: formGenero,
           categoriaId: formCategoria,
           faixaEtaria: formFaixaEtaria,
@@ -806,7 +1008,7 @@ export default function PaginaDashboardAdmin() {
       }
     } catch (err) {
       console.error("Erro ao alterar status:", err)
-    } finally {
+    } fontally {
       setAtualizandoStatus(null)
     }
   }
@@ -1050,7 +1252,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, imagens ou quantidades aos seus produtos.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, cores, imagens ou quantidades aos seus produtos.</p>
               </div>
               <button
                 type="button"
@@ -1091,7 +1293,7 @@ export default function PaginaDashboardAdmin() {
                         <th className="p-3">Preço</th>
                         <th className="p-3">Gênero / Categoria / Faixa Etária</th>
                         <th className="p-3">Local do Card</th>
-                        <th className="p-3">Estoque por Tamanho</th>
+                        <th className="p-3">Variações (Tamanhos & Cores)</th>
                         <th className="p-3">Estoque Total</th>
                         <th className="p-3 text-right">Ações</th>
                       </tr>
@@ -1153,35 +1355,67 @@ export default function PaginaDashboardAdmin() {
                                 {OPCOES_LOCAIS.find((loc) => loc.value === (prod.localCard || "HOME_DESTAQUE"))?.label || prod.localCard || "Vitrine Destaques"}
                               </span>
                             </td>
-                            <td className="p-3">
-                              <div className="flex flex-wrap gap-1.5 max-w-sm">
-                                {prod.tamanhos && prod.tamanhos.length > 0 ? (
-                                  prod.tamanhos.map((t, idx) => {
-                                    let qtdTam: number | string = "-"
-                                    
-                                    if (prod.estoquePorTamanho && prod.estoquePorTamanho[t] !== undefined) {
-                                      qtdTam = prod.estoquePorTamanho[t]
-                                    } else if (prod.estoque !== undefined) {
-                                      const base = Math.floor(prod.estoque / prod.tamanhos.length)
-                                      const resto = prod.estoque % prod.tamanhos.length
-                                      qtdTam = base + (idx < resto ? 1 : 0)
-                                    }
+                            <td className="p-3 space-y-2">
+                              {/* TAMANHOS */}
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-bold mb-1">Tamanhos:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {prod.tamanhos && prod.tamanhos.length > 0 ? (
+                                    prod.tamanhos.map((t, idx) => {
+                                      let qtdTam: number | string = "-"
+                                      if (prod.estoquePorTamanho && prod.estoquePorTamanho[t] !== undefined) {
+                                        qtdTam = prod.estoquePorTamanho[t]
+                                      } else if (prod.estoque !== undefined) {
+                                        const base = Math.floor(prod.estoque / prod.tamanhos.length)
+                                        const resto = prod.estoque % prod.tamanhos.length
+                                        qtdTam = base + (idx < resto ? 1 : 0)
+                                      }
 
-                                    return (
-                                      <span 
-                                        key={t} 
-                                        className="bg-slate-950 border border-slate-700/80 text-slate-200 px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-sm"
-                                      >
-                                        <span className="text-slate-400">{t}:</span>
-                                        <span className="text-emerald-400 text-sm font-black">
-                                          {qtdTam}
+                                      return (
+                                        <span 
+                                          key={t} 
+                                          className="bg-slate-950 border border-slate-700/80 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
+                                        >
+                                          <span className="text-slate-400">{t}:</span>
+                                          <span className="text-emerald-400 font-black">{qtdTam}</span>
                                         </span>
-                                      </span>
-                                    )
-                                  })
-                                ) : (
-                                  <span className="text-slate-500 text-xs italic">Sem tamanho</span>
-                                )}
+                                      )
+                                    })
+                                  ) : (
+                                    <span className="text-slate-500 text-[10px] italic">Sem tamanhos</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* CORES */}
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-bold mb-1">Cores:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {prod.cores && prod.cores.length > 0 ? (
+                                    prod.cores.map((c, idx) => {
+                                      let qtdCor: number | string = "-"
+                                      if (prod.estoquePorCor && prod.estoquePorCor[c] !== undefined) {
+                                        qtdCor = prod.estoquePorCor[c]
+                                      } else if (prod.estoque !== undefined) {
+                                        const base = Math.floor(prod.estoque / prod.cores.length)
+                                        const resto = prod.estoque % prod.cores.length
+                                        qtdCor = base + (idx < resto ? 1 : 0)
+                                      }
+
+                                      return (
+                                        <span 
+                                          key={c} 
+                                          className="bg-slate-950 border border-rose-900/60 text-rose-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
+                                        >
+                                          <span className="text-slate-400">{c}:</span>
+                                          <span className="text-emerald-400 font-black">{qtdCor}</span>
+                                        </span>
+                                      )
+                                    })
+                                  ) : (
+                                    <span className="text-slate-500 text-[10px] italic">Sem cores especificadas</span>
+                                  )}
+                                </div>
                               </div>
                             </td>
                             <td className="p-3">
@@ -1198,7 +1432,7 @@ export default function PaginaDashboardAdmin() {
                                     handleAbrirEditarProduto(prod)
                                   }}
                                   className="p-2 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
-                                  title="Editar Produto / Adicionar Tamanhos e Estoque"
+                                  title="Editar Produto / Adicionar Variações e Estoque"
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </button>
@@ -1636,6 +1870,55 @@ export default function PaginaDashboardAdmin() {
                 ))}
               </div>
             </div>
+
+            {/* SEÇÃO: GERENCIAMENTO DE CORES */}
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-rose-500" />
+                  <h2 className="text-sm font-bold text-white">Cores de Produtos</h2>
+                </div>
+                <span className="text-[10px] text-slate-400">{opcoesCores.length} cadastradas</span>
+              </div>
+
+              <form onSubmit={handleAdicionarCor} className="flex gap-2">
+                <input
+                  type="text"
+                  value={novaCor}
+                  onChange={(e) => setNovaCor(e.target.value)}
+                  placeholder="Nome da nova cor (ex: Rosa Bebê, Azul Marinho)..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+                >
+                  <Plus className="h-4 w-4" /> Adicionar
+                </button>
+              </form>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {opcoesCores.map((cor) => (
+                  <div
+                    key={cor.id}
+                    className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-semibold text-white">{cor.nome}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeletarCor(cor)
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      title="Excluir Cor"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1671,6 +1954,7 @@ export default function PaginaDashboardAdmin() {
                         <span className="text-[10px] text-slate-400">
                           {item.quantidade}x {formatarMoeda(item.precoUnitario)}
                           {item.tamanho && ` (Tamanho: ${item.tamanho})`}
+                          {item.cor && ` (Cor: ${item.cor})`}
                         </span>
                       </div>
                     </div>
@@ -1758,10 +2042,10 @@ export default function PaginaDashboardAdmin() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Estoque Total</label>
-                {formTamanhos.length > 0 ? (
+                {(formTamanhos.length > 0 || formCores.length > 0) ? (
                   <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-sm text-emerald-400 font-extrabold flex items-center justify-between">
                     <span>{totalEstoqueCalculado} unidades</span>
-                    <span className="text-[10px] text-slate-500 font-normal">(Somado dos Tamanhos)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">(Somado das Variações)</span>
                   </div>
                 ) : (
                   <input
@@ -2095,6 +2379,131 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
+              {/* CONTROLE DE CORES DO PRODUTO (OPCIONAL) */}
+              <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Palette className="h-3.5 w-3.5 text-rose-500" />
+                    Cores Selecionadas ({formCores.length}) <span className="text-[10px] text-slate-500 font-normal">(Opcional)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setModalGerenciarCores(true)}
+                    className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
+                  >
+                    <FolderPlus className="h-3 w-3" /> Gerenciar Banco
+                  </button>
+                </div>
+
+                {/* LISTA DE CORES ATIVAS NO PRODUTO COM BOTAO DE REMOVER */}
+                {formCores.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
+                    {formCores.map((cor) => (
+                      <span
+                        key={cor}
+                        className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
+                      >
+                        {cor}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverCorDoProduto(cor)}
+                          className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
+                          title={`Remover cor ${cor} do produto`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Nenhuma cor selecionada para este produto.
+                  </p>
+                )}
+
+                {/* SELETOR RÁPIDO COM AS CORES DO BANCO */}
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                    Puxar cores do banco de dados:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                    {opcoesCores.map((cor) => {
+                      const selecionado = formCores.includes(cor.nome)
+                      return (
+                        <button
+                          key={cor.id}
+                          type="button"
+                          onClick={() => toggleCor(cor.nome)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                            selecionado
+                              ? "bg-rose-600 text-white border-rose-500 shadow-sm"
+                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          {selecionado ? `✓ ${cor.nome}` : `+ ${cor.nome}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* ADICIONAR COR MANUALMENTE SE NÃO ESTIVER NA LISTA */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Ou insira outra cor manualmente:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={corManualInput}
+                      onChange={(e) => setCorManualInput(e.target.value)}
+                      placeholder="Ex: Verde Militar, Coral..."
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdicionarCorManualAoProduto}
+                      className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ESTOQUE POR COR (APENAS SE NÃO HOUVER TAMANHOS SELECIONADOS OU PARA AJUSTE INDIVIDUAL) */}
+              {formCores.length > 0 && formTamanhos.length === 0 && (
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                  <label className="block text-xs font-bold text-rose-400 uppercase tracking-wider">
+                    Ajustar Estoque de Cada Cor
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {formCores.map((cor) => (
+                      <div key={cor} className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-lg p-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverCorDoProduto(cor)}
+                            className="text-slate-500 hover:text-rose-400 transition-colors"
+                            title="Remover cor"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="text-sm font-bold text-white">{cor}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          value={formEstoquePorCor[cor] ?? 0}
+                          onChange={(e) => handleQtdCorChange(cor, parseInt(e.target.value) || 0)}
+                          className="w-16 bg-slate-950 border border-slate-700 rounded-lg text-center text-sm py-1 text-emerald-400 font-extrabold focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={salvandoProduto}
@@ -2118,68 +2527,41 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL DE GERENCIAMENTO DE CATEGORIAS */}
       {modalGerenciarCategorias && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Tag className="h-4 w-4 text-rose-500" />
-                <h3 className="text-sm font-bold text-white">Gerenciar Categorias</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalGerenciarCategorias(false)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="h-5 w-5" />
+              <h3 className="text-sm font-bold text-white">Gerenciar Categorias</h3>
+              <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
               </button>
             </div>
-
             <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
               <input
                 type="text"
-                required
                 value={novaCategoriaLabel}
                 onChange={(e) => setNovaCategoriaLabel(e.target.value)}
-                placeholder="Nome da categoria (ex: Pijamas)..."
+                placeholder="Nome da categoria..."
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
               />
               <button
                 type="submit"
-                className="flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors shrink-0"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
               >
-                <Plus className="h-4 w-4" /> Adicionar
+                Adicionar
               </button>
             </form>
-
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div className="max-h-60 overflow-y-auto space-y-2 pt-2">
               {categorias.map((cat) => (
-                <div
-                  key={cat.value}
-                  className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2 text-xs"
-                >
-                  <span className="font-semibold text-white">{cat.label}</span>
+                <div key={cat.value} className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs">
+                  <span className="text-white font-medium">{cat.label}</span>
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeletarCategoria(cat.value)
-                    }}
-                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                    title="Excluir Categoria"
+                    onClick={() => handleDeletarCategoria(cat.value)}
+                    className="text-slate-400 hover:text-rose-400 p-1"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setModalGerenciarCategorias(false)}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
-              >
-                Concluir
-              </button>
             </div>
           </div>
         </div>
@@ -2188,94 +2570,105 @@ export default function PaginaDashboardAdmin() {
       {/* MODAL DE GERENCIAMENTO DE TAMANHOS */}
       {modalGerenciarTamanhos && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-rose-500" />
-                <h3 className="text-sm font-bold text-white">Gerenciar Tamanhos</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalGerenciarTamanhos(false)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X className="h-5 w-5" />
+              <h3 className="text-sm font-bold text-white">Gerenciar Tamanhos no Banco</h3>
+              <button type="button" onClick={() => setModalGerenciarTamanhos(false)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
               </button>
             </div>
-
             <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
               <input
                 type="text"
-                required
                 value={novoTamanho}
                 onChange={(e) => setNovoTamanho(e.target.value)}
-                placeholder="Nome do tamanho (ex: 18, Extra G)..."
+                placeholder="Novo tamanho..."
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
               />
               <button
                 type="submit"
-                className="flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors shrink-0"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
               >
-                <Plus className="h-4 w-4" /> Adicionar
+                Adicionar
               </button>
             </form>
-
-            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
+            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pt-2">
               {opcoesTamanhos.map((tam) => (
-                <div
-                  key={tam.id}
-                  className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
-                >
-                  <span className="font-semibold text-white">{tam.nome}</span>
+                <div key={tam.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="text-white font-medium">{tam.nome}</span>
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeletarTamanho(tam)
-                    }}
-                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                    title="Excluir Tamanho"
+                    onClick={() => handleDeletarTamanho(tam)}
+                    className="text-slate-400 hover:text-rose-400 p-0.5"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setModalGerenciarTamanhos(false)}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
-              >
-                Concluir
+      {/* MODAL DE GERENCIAMENTO DE CORES */}
+      {modalGerenciarCores && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">Gerenciar Cores no Banco</h3>
+              <button type="button" onClick={() => setModalGerenciarCores(false)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
               </button>
+            </div>
+            <form onSubmit={handleAdicionarCor} className="flex gap-2">
+              <input
+                type="text"
+                value={novaCor}
+                onChange={(e) => setNovaCor(e.target.value)}
+                placeholder="Nova cor..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+              >
+                Adicionar
+              </button>
+            </form>
+            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pt-2">
+              {opcoesCores.map((cor) => (
+                <div key={cor.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="text-white font-medium">{cor.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarCor(cor)}
+                    className="text-slate-400 hover:text-rose-400 p-0.5"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL EXCLUSÃO PRODUTO */}
+      {/* MODAL CONFIRMAÇÃO EXCLUIR PRODUTO */}
       {produtoParaExcluir && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[100] animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="mx-auto h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center border border-rose-500/20">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
             <div>
               <h3 className="text-base font-bold text-white">Excluir Produto?</h3>
-              <p className="text-xs text-slate-400 mt-2">
-                Tem certeza que deseja excluir <span className="font-semibold text-slate-200">"{produtoParaExcluir.nome}"</span>? Esta ação não pode ser desfeita.
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja realmente remover o produto <strong className="text-white">{produtoParaExcluir.nome}</strong>?
               </p>
             </div>
-
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setProdutoParaExcluir(null)}
-                disabled={deletandoProduto}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
               >
                 Cancelar
               </button>
@@ -2283,36 +2676,31 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusao}
                 disabled={deletandoProduto}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
               >
-                {deletandoProduto ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, Excluir"}
+                {deletandoProduto ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL EXCLUSÃO CLIENTE */}
+      {/* MODAL CONFIRMAÇÃO EXCLUIR CLIENTE */}
       {clienteParaExcluir && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[100] animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="mx-auto h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center border border-rose-500/20">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
             <div>
-              <h3 className="text-base font-bold text-white">Excluir Conta do Cliente?</h3>
-              <p className="text-xs text-slate-400 mt-2">
-                Tem certeza que deseja excluir a conta de <span className="font-semibold text-slate-200">"{clienteParaExcluir.nome}"</span> ({clienteParaExcluir.email})?
+              <h3 className="text-base font-bold text-white">Excluir Cliente?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja remover a conta de <strong className="text-white">{clienteParaExcluir.nome}</strong>?
               </p>
             </div>
-
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setClienteParaExcluir(null)}
-                disabled={deletandoCliente}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
               >
                 Cancelar
               </button>
@@ -2320,39 +2708,31 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusaoCliente}
                 disabled={deletandoCliente}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
               >
-                {deletandoCliente ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, Excluir"}
+                {deletandoCliente ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL EXCLUSÃO PEDIDO */}
+      {/* MODAL CONFIRMAÇÃO EXCLUIR PEDIDO */}
       {pedidoParaExcluir && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[100] animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="mx-auto h-12 w-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center border border-rose-500/20">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto" />
             <div>
-              <h3 className="text-base font-bold text-white">Excluir Venda?</h3>
-              <p className="text-xs text-slate-400 mt-2">
-                Tem certeza que deseja excluir o pedido <span className="font-semibold text-rose-400 font-mono">#{pedidoParaExcluir.id.substring(0, 8)}</span>?
-              </p>
-              <p className="text-[11px] text-amber-400/90 mt-2 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl font-medium">
-                ⚠️ Os itens desta venda retornarão ao estoque dos produtos automaticamente.
+              <h3 className="text-base font-bold text-white">Excluir Pedido?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja cancelar e remover a venda <strong className="text-white font-mono">#{pedidoParaExcluir.id.substring(0, 8)}</strong>? O estoque dos itens será estornado.
               </p>
             </div>
-
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setPedidoParaExcluir(null)}
-                disabled={deletandoPedido}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl transition-colors"
               >
                 Cancelar
               </button>
@@ -2360,9 +2740,9 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusaoPedido}
                 disabled={deletandoPedido}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs py-2.5 rounded-xl transition-colors disabled:opacity-50"
               >
-                {deletandoPedido ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, Excluir"}
+                {deletandoPedido ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : "Sim, Excluir"}
               </button>
             </div>
           </div>
