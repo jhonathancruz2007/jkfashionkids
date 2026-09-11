@@ -5,33 +5,6 @@ import { Resend } from 'resend'
 // Inicializa a Resend com a chave de API
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// Função auxiliar para geração do link do WhatsApp (Opção 2)
-async function enviarMensagemWhatsApp(telefone: string, mensagem: string) {
-  if (!telefone) return
-
-  try {
-    // Remove qualquer caractere não numérico
-    const numerosLimpos = telefone.replace(/\D/g, '')
-
-    // Garante que o DDI 55 (Brasil) esteja presente se o número tiver 10 ou 11 dígitos
-    let telefoneFormatado = numerosLimpos
-    if (numerosLimpos.length === 10 || numerosLimpos.length === 11) {
-      telefoneFormatado = `55${numerosLimpos}`
-    }
-
-    // Codifica a mensagem para o padrão de URL (espaços viram %20, acentos, etc.)
-    const mensagemCodificada = encodeURIComponent(mensagem)
-    const linkWhatsApp = `https://wa.me/${telefoneFormatado}?text=${mensagemCodificada}`
-
-    console.log(`✅ [LINK WHATSAPP GERADO] Destino: ${telefoneFormatado}`)
-    console.log(`🔗 Link: ${linkWhatsApp}`)
-    
-    return linkWhatsApp
-  } catch (erro) {
-    console.error('❌ Erro ao gerar link do WhatsApp:', erro)
-  }
-}
-
 // ==========================================
 // 1. MÉTODO PUT: Atualizar o status e notificar
 // ==========================================
@@ -49,23 +22,27 @@ export async function PUT(
       return NextResponse.json({ error: 'ID ou status não informados.' }, { status: 400 })
     }
 
-    // Atualiza o pedido no banco
+    // Atualiza o pedido no banco buscando também os itens e os produtos relacionados
     const pedidoAtualizado = await db.pedido.update({
       where: { id },
       data: { status },
       include: {
         cliente: true,
-        itens: true,
+        itens: {
+          include: {
+            produto: true, // Traz os dados do produto para exibir nome/detalhes no e-mail da loja
+          },
+        },
       },
     })
 
-    // Se o status for PAGO, dispara as notificações
+    // Se o status for PAGO, dispara as notificações por e-mail
     if (status.toUpperCase() === 'PAGO') {
       const cliente = (pedidoAtualizado as any).cliente
       const primeiroNome = cliente?.nome ? cliente.nome.split(' ')[0] : 'Cliente'
       const idCurto = pedidoAtualizado.id.slice(0, 6)
 
-      // A) Enviar E-mail via Resend (API HTTP segura)
+      // A) Enviar E-mail de confirmação para o Cliente
       if (cliente?.email) {
         try {
           await resend.emails.send({
@@ -82,20 +59,57 @@ export async function PUT(
               </div>
             `,
           })
-          console.log(`✅ [E-MAIL ENVIADO VIA RESEND] Para: ${cliente.email}`)
+          console.log(`✅ [E-MAIL CLIENTE ENVIADO] Para: ${cliente.email}`)
         } catch (emailErr: any) {
-          console.error('❌ Erro ao enviar e-mail pela Resend:', emailErr)
+          console.error('❌ Erro ao enviar e-mail para o cliente:', emailErr)
         }
       }
 
-      // B) WhatsApp interno para a loja (551933010493)
-      const mensagemAdmin = `🔔 *NOVO PEDIDO PAGO!*\n\nO pedido *#${idCurto}* de ${primeiroNome} foi aprovado com sucesso! Já pode iniciar a separação dos produtos. 📦✨`
-      await enviarMensagemWhatsApp('551933010493', mensagemAdmin)
+      // B) Montar a lista de itens para o e-mail interno da loja
+      let itensHtml = ''
+      const itensPedido = (pedidoAtualizado as any).itens || []
+      
+      for (const item of itensPedido) {
+        const nomeProduto = item.produto?.nome || item.nome || 'Produto'
+        const tamanho = item.tamanho ? ` | Tamanho: <strong>${item.tamanho}</strong>` : ''
+        const qtd = item.quantidade || 1
+        const precoUnit = Number(item.precoUnitario || item.preco || 0).toFixed(2)
 
-      // C) WhatsApp para o cliente
-      if (cliente?.telefone) {
-        const mensagemCliente = `Olá ${primeiroNome}! 🌟 Passando para avisar que o pagamento do seu pedido #${idCurto} foi aprovado com sucesso! Agradecemos pela preferência! 💖`
-        await enviarMensagemWhatsApp(cliente.telefone, mensagemCliente)
+        itensHtml += `
+          <li style="margin-bottom: 8px;">
+            <strong>${qtd}x</strong> ${nomeProduto} ${tamanho} — R$ ${precoUnit} un.
+          </li>
+        `
+      }
+
+      // C) Enviar E-mail interno para a Loja (Aviso de Separação de Estoque)
+      // Substitua 'contato@jkfashionkids.com.br' pelo e-mail oficial onde vocês recebem os pedidos
+      const emailLoja = 'contato@jkfashionkids.com.br' 
+      try {
+        await resend.emails.send({
+          from: 'JK Fashion Kids <contato@jkfashionkids.com.br>',
+          to: [emailLoja],
+          subject: `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`,
+          html: `
+            <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
+              <h2 style="color: #2563eb;">Novo Pedido Aprovado! 📦</h2>
+              <p>O pagamento do pedido <strong>#${idCurto}</strong> foi confirmado. Hora de separar os itens no estoque (Físico / Virtual):</p>
+              
+              <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0;">
+                <p style="margin: 0 0 10px 0;"><strong>Cliente:</strong> ${cliente?.nome || 'Não informado'} (${cliente?.telefone || 'Sem tel'})</p>
+                <p style="margin: 0;"><strong>Itens Comprados:</strong></p>
+                <ul style="padding-left: 20px; margin-top: 5px;">
+                  ${itensHtml}
+                </ul>
+              </div>
+
+              <p style="font-size: 12px; color: #64748b;">Este é um aviso automático gerado pelo sistema integrado da sua loja.</p>
+            </div>
+          `,
+        })
+        console.log(`✅ [E-MAIL LOJA ENVIADO] Para: ${emailLoja}`)
+      } catch (lojaErr: any) {
+        console.error('❌ Erro ao enviar e-mail interno para a loja:', emailErr)
       }
     }
 
