@@ -89,7 +89,7 @@ export async function PUT(
 
       // B) WhatsApp interno para a loja (551933010493)
       const mensagemAdmin = `🔔 *NOVO PEDIDO PAGO!*\n\nO pedido *#${idCurto}* de ${primeiroNome} foi aprovado com sucesso! Já pode iniciar a separação dos produtos. 📦✨`
-      await enviarMensagemWhatsApp('551933010493', mensagemAdmin)
+      await enviarMensagemWhatsApp('1933010493', mensagemAdmin)
 
       // C) WhatsApp para o cliente
       if (cliente?.telefone) {
