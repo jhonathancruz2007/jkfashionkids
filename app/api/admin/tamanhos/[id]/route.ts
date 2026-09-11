@@ -1,23 +1,46 @@
 import { NextResponse } from "next/server"
-import { db } from "@/lib/db"
+import { prisma } from "@/lib/prisma"
 
+// DELETE: Excluir um tamanho por ID ou por Nome
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const { id } = await params
+    const resolvedParams = await params
+    const idOrName = decodeURIComponent(resolvedParams.id)
 
-    // Como o id no banco é text (UUID), passamos direto como string
-    await db.tamanho.delete({
-      where: { id: String(id) },
+    if (!idOrName) {
+      return NextResponse.json(
+        { erro: "ID ou nome do tamanho é obrigatório." },
+        { status: 400 }
+      )
+    }
+
+    // Identifica se o parâmetro recebido é um UUID ou o nome do tamanho
+    const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(idOrName)
+
+    const tamanhoExistente = await prisma.tamanho.findFirst({
+      where: isUUID ? { id: idOrName } : { nome: idOrName }
     })
 
-    return NextResponse.json({ sucesso: true }, { status: 200 })
+    if (!tamanhoExistente) {
+      return NextResponse.json(
+        { erro: "Tamanho não encontrado no banco de dados." },
+        { status: 404 }
+      )
+    }
+
+    // Exclui o tamanho pelo ID do registro encontrado
+    await prisma.tamanho.delete({
+      where: { id: tamanhoExistente.id },
+    })
+
+    return NextResponse.json({ mensagem: "Tamanho excluído com sucesso." })
   } catch (error: any) {
-    console.error("Erro ao deletar tamanho no banco:", error)
+    console.error("Erro ao excluir tamanho:", error)
     return NextResponse.json(
-      { erro: "Não foi possível excluir o tamanho no banco de dados." },
+      { erro: `Erro no banco de dados: ${error.message || error}` },
       { status: 500 }
     )
   }
