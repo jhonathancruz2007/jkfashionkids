@@ -5,29 +5,30 @@ import { Resend } from 'resend'
 // Inicializa a Resend com a chave de API
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// Função auxiliar para envio de WhatsApp
+// Função auxiliar para geração do link do WhatsApp (Opção 2)
 async function enviarMensagemWhatsApp(telefone: string, mensagem: string) {
   if (!telefone) return
 
   try {
-    /* 
-      Quando integrar com uma API de WhatsApp (Evolution API, Z-API, etc.), 
-      basta descomentar e ajustar abaixo:
-    */
-    /*
-    await fetch('SUA_URL_DA_API_WHATSAPP/send-message', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer SEU_TOKEN_DE_AUTORIZACAO'
-      },
-      body: JSON.stringify({ number: telefone, message: mensagem })
-    })
-    */
+    // Remove qualquer caractere não numérico
+    const numerosLimpos = telefone.replace(/\D/g, '')
 
-    console.log(`✅ [WHATSAPP ENVIADO] Destino: ${telefone} | Mensagem: "${mensagem}"`)
+    // Garante que o DDI 55 (Brasil) esteja presente se o número tiver 10 ou 11 dígitos
+    let telefoneFormatado = numerosLimpos
+    if (numerosLimpos.length === 10 || numerosLimpos.length === 11) {
+      telefoneFormatado = `55${numerosLimpos}`
+    }
+
+    // Codifica a mensagem para o padrão de URL (espaços viram %20, acentos, etc.)
+    const mensagemCodificada = encodeURIComponent(mensagem)
+    const linkWhatsApp = `https://wa.me/${telefoneFormatado}?text=${mensagemCodificada}`
+
+    console.log(`✅ [LINK WHATSAPP GERADO] Destino: ${telefoneFormatado}`)
+    console.log(`🔗 Link: ${linkWhatsApp}`)
+    
+    return linkWhatsApp
   } catch (erro) {
-    console.error('❌ Erro ao enviar WhatsApp:', erro)
+    console.error('❌ Erro ao gerar link do WhatsApp:', erro)
   }
 }
 
@@ -89,7 +90,7 @@ export async function PUT(
 
       // B) WhatsApp interno para a loja (551933010493)
       const mensagemAdmin = `🔔 *NOVO PEDIDO PAGO!*\n\nO pedido *#${idCurto}* de ${primeiroNome} foi aprovado com sucesso! Já pode iniciar a separação dos produtos. 📦✨`
-      await enviarMensagemWhatsApp('1933010493', mensagemAdmin)
+      await enviarMensagemWhatsApp('551933010493', mensagemAdmin)
 
       // C) WhatsApp para o cliente
       if (cliente?.telefone) {
