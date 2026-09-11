@@ -5,27 +5,28 @@ export async function GET() {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
   if (!TINY_TOKEN) {
-    return NextResponse.json({ error: "Token do Tiny não configurado nas variáveis de ambiente" }, { status: 500 });
+    return NextResponse.json({ error: "Variável TINY_API_TOKEN não encontrada no ambiente da Vercel." }, { status: 500 });
   }
 
   try {
-    // 1. Faz a requisição para a API V3 do Tiny (adicionando paginação básica se necessário)
+    // Tentativa na API V3 do Tiny
     const response = await fetch("https://api.tiny.com.br/public-api/v3/produtos?pagina=1", {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${TINY_TOKEN}`,
+        "Authorization": `Bearer ${TINY_TOKEN.trim()}`,
         "Accept": "application/json"
       }
     });
 
     const textResponse = await response.text();
-    
-    // Se a resposta estiver vazia
-    if (!textResponse) {
+
+    // Se a API recusar (401), retornamos o texto bruto que o Tiny mandou para entendermos o motivo
+    if (!response.ok) {
       return NextResponse.json({ 
-        error: "A API do Tiny retornou uma resposta vazia.", 
-        statusTiny: response.status 
-      }, { status: 400 });
+        error: "O Tiny recusou o token (Erro 401).",
+        statusHttp: response.status,
+        respostaBrutaDoTiny: textResponse || "Nenhuma resposta retornada pelo servidor do Tiny"
+      }, { status: 401 });
     }
 
     let data;
@@ -33,27 +34,16 @@ export async function GET() {
       data = JSON.parse(textResponse);
     } catch (e) {
       return NextResponse.json({ 
-        error: "A resposta do Tiny não é um JSON válido.", 
-        respostaRecebida: textResponse.substring(0, 200) 
+        error: "O Tiny retornou um formato que não é JSON.", 
+        recebido: textResponse 
       }, { status: 400 });
     }
 
-    if (!response.ok || (!data.itens && !Array.isArray(data))) {
-      return NextResponse.json({ 
-        error: "Erro retornado pela API do Tiny", 
-        details: data 
-      }, { status: 400 });
-    }
-
-    // Normaliza a lista de produtos dependendo de como o Tiny retorna (data.itens ou direto um array)
     const listaProdutos = data.itens || (Array.isArray(data) ? data : []);
-
     let importados = 0;
 
     for (const item of listaProdutos) {
-      // Ajusta caso o objeto venha encapsulado em .produto ou direto no item
       const p = item.produto || item;
-      
       const skuOuId = String(p.sku || p.id || "");
       if (!skuOuId) continue;
 
@@ -106,14 +96,13 @@ export async function GET() {
 
     return NextResponse.json({ 
       success: true, 
-      message: `${importados} produtos do Tiny foram sincronizados com sucesso para o seu site!` 
+      message: `${importados} produtos sincronizados com sucesso!` 
     });
 
   } catch (error: any) {
-    console.error("Erro crítico na sincronização:", error);
     return NextResponse.json({ 
-      error: "Erro interno ao processar a sincronização", 
-      message: error.message 
+      error: "Erro interno no servidor ao chamar o Tiny", 
+      details: error.message 
     }, { status: 500 });
   }
 }
