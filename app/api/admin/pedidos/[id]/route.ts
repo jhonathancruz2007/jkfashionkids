@@ -1,8 +1,38 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import nodemailer from 'nodemailer'
+
+// Configuração do transportador de e-mail (Certifique-se de configurar suas variáveis no .env)
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+})
+
+// Função auxiliar para envio de WhatsApp (Integre aqui com sua API de preferência: Evolution, Z-API, etc.)
+async function enviarMensagemWhatsApp(telefone: string, mensagem: string) {
+  if (!telefone) return
+  
+  try {
+    /* Exemplo com fetch para uma API de WhatsApp externa:
+    await fetch('https://sua-api-whatsapp.com/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer SEU_TOKEN' },
+      body: JSON.stringify({ phone: telefone, message: mensagem })
+    })
+    */
+    console.log(`[WHATSAPP DISPARADO] Para: ${telefone} | Mensagem: "${mensagem}"`)
+  } catch (erro) {
+    console.error('❌ Erro ao enviar WhatsApp:', erro)
+  }
+}
 
 // ==========================================
-// 1. MÉTODO PUT: Atualizar o status do pedido
+// 1. MÉTODO PUT: Atualizar o status do pedido e notificar
 // ==========================================
 export async function PUT(
   request: Request,
@@ -22,15 +52,58 @@ export async function PUT(
       return NextResponse.json({ error: 'O novo status é obrigatório.' }, { status: 400 })
     }
 
-    // Atualiza o status do pedido no banco de dados
+    // 1. Atualiza o status do pedido no banco de dados e traz os dados do cliente vinculado
     const pedidoAtualizado = await db.pedido.update({
       where: { id },
       data: { status },
+      include: {
+        cliente: true, // Traz os dados do cliente (nome, email, telefone)
+        itens: true,
+      },
     })
+
+    // 2. Verifica se o status foi alterado para "PAGO" (ou "Pago") para disparar as notificações
+    if (status.toUpperCase() === 'PAGO') {
+      const cliente = (pedidoAtualizado as any).cliente
+
+      if (cliente) {
+        const primeiroNome = cliente.nome ? cliente.nome.split(' ')[0] : 'Cliente'
+        const idCurto = pedidoAtualizado.id.slice(0, 6)
+
+        // A) Disparar E-mail
+        if (cliente.email) {
+          const mailOptions = {
+            from: `"JK Fashion Kids" <${process.env.EMAIL_USER}>`,
+            to: cliente.email,
+            subject: `Pagamento Aprovado! Pedido #${idCurto}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
+                <h2>Olá, ${primeiroNome}! 🎉</h2>
+                <p>Recebemos a confirmação do pagamento do seu pedido <strong>#${idCurto}</strong>.</p>
+                <p>Já estamos separando e preparando tudo com muito carinho para envio!</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+                <p>Obrigado por comprar conosco!</p>
+              </div>
+            `,
+          }
+
+          transporter.sendMail(mailOptions).catch((err) => {
+            console.error('❌ Erro ao enviar e-mail transacional:', err)
+          })
+        }
+
+        // B) Disparar WhatsApp
+        if (cliente.telefone) {
+          const textoWhatsapp = `Olá ${primeiroNome}! 🌟 Passando para avisar que o pagamento do seu pedido #${idCurto} foi aprovado com sucesso! Já estamos separando seus produtos. Agradecemos pela preferência! 📦✨`
+          
+          await enviarMensagemWhatsApp(cliente.telefone, textoWhatsapp)
+        }
+      }
+    }
 
     return NextResponse.json({
       sucesso: true,
-      mensagem: 'Status do pedido atualizado com sucesso!',
+      mensagem: 'Status do pedido atualizado e notificações processadas com sucesso!',
       pedido: pedidoAtualizado,
     })
   } catch (erro: any) {
