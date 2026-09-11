@@ -80,6 +80,7 @@ export async function PUT(
       ativo,
       localCard,
       categoriaId,
+      categoriaNome,
     } = body
 
     // Validações dos campos obrigatórios
@@ -131,35 +132,26 @@ export async function PUT(
     const precoNum = parseFloat(String(preco).replace(',', '.'))
     const precoPromoNum = precoPromocional ? parseFloat(String(precoPromocional).replace(',', '.')) : null
 
-    // Resolução segura de Categoria
-    let categoriaUUIDReal: string | null = null
+    // Resolução da Categoria (Modelo usa 'nome' como chave primária)
+    let categoriaNomeReal: string | null = null
+    const valorCategoria = categoriaNome || categoriaId
 
-    if (categoriaId) {
-      let valorBusca = ""
-      if (typeof categoriaId === "object") {
-        valorBusca = String(categoriaId.id || categoriaId.nome || "").trim()
+    if (valorCategoria) {
+      let nomeBusca = ""
+      if (typeof valorCategoria === "object") {
+        nomeBusca = String(valorCategoria.nome || valorCategoria.id || "").trim()
       } else {
-        valorBusca = String(categoriaId).trim()
+        nomeBusca = String(valorCategoria).trim()
       }
 
       const valoresNulos = ["null", "undefined", "none", "0", "sem-categoria", "selecione", ""]
-      if (valorBusca && !valoresNulos.includes(valorBusca.toLowerCase())) {
-        const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(valorBusca)
-
-        const condicoesOR: any[] = [
-          { nome: { equals: valorBusca, mode: "insensitive" } }
-        ]
-
-        if (isUUID) {
-          condicoesOR.push({ id: valorBusca })
-        }
-
+      if (nomeBusca && !valoresNulos.includes(nomeBusca.toLowerCase())) {
         let categoriaEncontrada = await prisma.categoria.findFirst({
-          where: { OR: condicoesOR }
+          where: { nome: { equals: nomeBusca, mode: "insensitive" } }
         })
 
         if (!categoriaEncontrada) {
-          const nomeFormatado = valorBusca
+          const nomeFormatado = nomeBusca
             .replace(/_/g, " ")
             .toLowerCase()
             .replace(/(^\w|\s\w)/g, (l) => l.toUpperCase())
@@ -176,7 +168,7 @@ export async function PUT(
         }
 
         if (categoriaEncontrada) {
-          categoriaUUIDReal = categoriaEncontrada.id
+          categoriaNomeReal = categoriaEncontrada.nome
         }
       }
     }
@@ -196,7 +188,7 @@ export async function PUT(
       faixaEtaria: faixaEtaria || "INFANTIL",
       ativo: ativo !== undefined ? Boolean(ativo) : true,
       localCard: localCard || "HOME_DESTAQUE",
-      categoriaId: categoriaUUIDReal,
+      categoriaNome: categoriaNomeReal,
     }
 
     const produtoAtualizado = await prisma.produto.update({
@@ -217,22 +209,65 @@ export async function PUT(
   }
 }
 
-// DELETE: Deletar produto pelo ID
+// DELETE: Deletar produto pelo ID (Trata relações e histórico de vendas)
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const resolvedParams = await params
-    await prisma.produto.delete({
-      where: { id: resolvedParams.id },
+    const { id } = resolvedParams
+
+    const produtoExistente = await prisma.produto.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { itensPedido: true }
+        }
+      }
     })
 
-    return NextResponse.json({ mensagem: "Produto excluído com sucesso." })
+    if (!produtoExistente) {
+      return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 })
+    }
+
+    // 1. Limpa relações descartáveis em transação
+    await prisma.$transaction([
+      prisma.itemCarrinho.deleteMany({ where: { produtoId: id } }),
+      prisma.favorito.deleteMany({ where: { produtoId: id } }),
+      prisma.avisoEstoque.deleteMany({ where: { produtoId: id } }),
+    ])
+
+    // 2. Se o produto possui histórico de vendas (ItemPedido), realiza Soft Delete (Inativa)
+    if (produtoExistente._count.itensPedido > 0) {
+      await prisma.produto.update({
+        where: { id },
+        data: {
+          ativo: false,
+          estoque: 0,
+        }
+      })
+
+      return NextResponse.json({
+        mensagem: "Produto desativado com sucesso. Ele foi ocultado da loja para preservar o histórico de pedidos existentes.",
+        softDelete: true
+      })
+    }
+
+    // 3. Se não tem histórico de pedidos, exclui permanentemente do Banco de Dados
+    await prisma.produto.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({
+      mensagem: "Produto excluído permanentemente com sucesso.",
+      softDelete: false
+    })
   } catch (error: any) {
     console.error("Erro ao deletar produto:", error)
+
     return NextResponse.json(
-      { error: "Erro interno ao deletar produto." },
+      { error: `Erro interno ao deletar produto: ${error.message || error}` },
       { status: 500 }
     )
   }
