@@ -3,9 +3,13 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Rota 2: Cadastrar ou adicionar uma nova cor/variante para o produto
 router.post('/api/produtos/:id/cores', async (req, res) => {
   const produtoId = req.params.id;
+  
+  // 🔍 ADICIONE ESTES LOGS PARA VERIFICAR NO TERMINAL DO NODE
+  console.log("ID recebido na URL:", produtoId);
+  console.log("Dados recebidos no body:", req.body);
+
   const { cor, hex, estoque } = req.body;
 
   if (!cor) {
@@ -21,49 +25,44 @@ router.post('/api/produtos/:id/cores', async (req, res) => {
   };
 
   try {
-    // 1. Buscamos o produto atual para pegar as cores que já existem
     const produtoAtual = await prisma.produto.findUnique({
       where: { id: produtoId },
-      select: { cores: true, coresDetalhes: true }
+      select: { id: true, cores: true, coresDetalhes: true }
     });
 
-    let listaCores = produtoAtual?.cores || [];
-    let listaDetalhes = Array.isArray(produtoAtual?.coresDetalhes) ? produtoAtual.coresDetalhes : [];
+    console.log("Produto encontrado no banco:", produtoAtual);
 
-    // 2. Evita duplicar o nome da cor no array text[]
+    if (!produtoAtual) {
+      return res.status(404).json({ sucesso: false, mensagem: "Produto não encontrado no banco com esse ID!" });
+    }
+
+    let listaCores = produtoAtual.cores || [];
+    let listaDetalhes = Array.isArray(produtoAtual.coresDetalhes) ? produtoAtual.coresDetalhes : [];
+
     if (!listaCores.includes(cor)) {
       listaCores.push(cor);
     }
-
-    // 3. Adiciona o objeto detalhado no array do jsonb
     listaDetalhes.push(novoDetalheCor);
 
-    // 4. Salva usando upsert (atualiza se existe, cria um registro básico se não existir)
-    const produtoAtualizado = await prisma.produto.upsert({
+    const produtoAtualizado = await prisma.produto.update({
       where: { id: produtoId },
-      update: {
+      data: {
         cores: listaCores,
         coresDetalhes: listaDetalhes
-      },
-      create: {
-        id: produtoId,
-        nome: "Produto " + produtoId, // Nome temporário caso o produto esteja sendo criado agora pela rota
-        descricao: "Descrição padrão",
-        preco: 0,
-        imagemUrl: "",
-        cores: [cor],
-        coresDetalhes: [novoDetalheCor]
       }
     });
 
+    console.log("Produto atualizado com sucesso:", produtoAtualizado);
+
     res.status(201).json({
       sucesso: true,
-      mensagem: "Cor salva com sucesso no banco!",
+      mensagem: "Cor salva com sucesso!",
       cores: produtoAtualizado.cores,
       coresDetalhes: produtoAtualizado.coresDetalhes
     });
+
   } catch (erro) {
-    console.error("Erro detalhado ao salvar cor:", erro);
-    res.status(500).json({ sucesso: false, mensagem: "Erro ao salvar a cor no banco de dados.", detalhe: erro.message });
+    console.error("Erro crítico ao salvar cor:", erro);
+    res.status(500).json({ sucesso: false, mensagem: "Erro interno", detalhe: erro.message });
   }
 });
