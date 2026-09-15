@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const TINY_BASE_URL = "https://api.tiny.com.br/api2";
 const MAX_PAGES = 1000;
-const STOCK_CONCURRENCY = 5;
+const DEFAULT_API_LIMIT_PER_MINUTE = 20;
 const PLACEHOLDER_IMAGE = "https://via.placeholder.com/300";
 
 type SyncType = "estoque" | "novos_produtos" | "geral";
@@ -22,6 +22,7 @@ type TinyVariation = {
   codigo?: string;
   preco?: string | number;
   preco_promocional?: string | number;
+  estoque_atual?: string | number;
   grade?: TinyGrade;
 };
 
@@ -38,6 +39,7 @@ type TinyProduct = {
   idProdutoPai?: string | number;
   situacao?: string;
   categoria?: string;
+  estoque_atual?: string | number;
   grade?: TinyGrade;
   variacoes?:
     | Array<{ variacao?: TinyVariation } | TinyVariation>
@@ -49,19 +51,22 @@ type TinyProduct = {
 type TinyResponse = {
   retorno?: {
     status?: string;
-    status_processamento?: number;
-    codigo_erro?: number;
+    status_processamento?: number | string;
+    codigo_erro?: number | string;
     erros?: Array<{ erro?: string }>;
-    pagina?: number;
-    numero_paginas?: number;
+    pagina?: number | string;
+    numero_paginas?: number | string;
     produtos?: Array<{ produto?: TinyProduct }>;
     produto?: TinyProduct;
   };
 };
 
-type StockResult = {
-  id: string;
-  saldo: number;
+type StockItem = {
+  grupoId: string;
+  produtoId: string;
+  tamanho: string;
+  cor: string;
+  saldoConhecido?: number;
 };
 
 type GroupedProduct = {
@@ -78,13 +83,29 @@ type GroupedProduct = {
   imagens: string[];
 };
 
+type SearchGroup = {
+  key: string;
+  parentId: string;
+  representative: TinyProduct;
+  members: TinyProduct[];
+};
+
 function numberOrZero(value: unknown): number {
-  const parsed = Number(value);
+  if (value === null || value === undefined || value === "") return 0;
+  const parsed = Number(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function stringOrEmpty(value: unknown): string {
-  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+  if (typeof value === "string") return value.trim();
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
 }
 
 function normalizeText(value: string): string {
@@ -101,6 +122,131 @@ function firstNonEmpty(...values: Array<unknown>): string {
     if (text) return text;
   }
   return "";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * O Tiny informa em x-limit-api quantas requisições/minuto a conta possui.
+ * Mantemos uma única fila de chamadas para não estourar o limite.
+ */
+class TinyRateLimiter {
+  private nextAllowedAt = 0;
+  private limitPerMinute = DEFAULT_API_LIMIT_PER_MINUTE;
+
+  updateFromHeader(header: string | null): void {
+    const parsed = header ? Number.parseInt(header, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      this.limitPerMinute = parsed;
+    }
+  }
+
+  getLimit(): number {
+    return this.limitPerMinute;
+  }
+
+  async wait(): Promise<void> {
+    // Usa um pequeno colchão para evitar ultrapassar o limite por arredondamento.
+    const safeLimit = Math.max(1, this.limitPerMinute - 1);
+    const interval = Math.ceil(60_000 / safeLimit);
+
+    const now = Date.now();
+    const waitMs = Math.max(0, this.nextAllowedAt - now);
+
+    if (waitMs > 0) {
+      await sleep(waitMs);
+    }
+
+    this.nextAllowedAt = Date.now() + interval;
+  }
+}
+
+const rateLimiter = new TinyRateLimiter();
+
+function tinyErrorMessage(data: TinyResponse, fallback = "O Tiny não retornou os dados solicitados."): string {
+  const errors = data.retorno?.erros
+    ?.map((item) => stringOrEmpty(item.erro))
+    .filter(Boolean);
+
+  return errors && errors.length > 0 ? errors.join(" | ") : fallback;
+}
+
+function looksLikeRateLimitError(message: string): boolean {
+  const normalized = normalizeText(message);
+  return (
+    normalized.includes("limite") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("muitas requisicoes") ||
+    normalized.includes("excesso de requisicoes") ||
+    normalized.includes("aguarde")
+  );
+}
+
+async function tinyPost<T>(
+  endpoint: string,
+  params: Record<string, string | number>,
+  retry = 0
+): Promise<T> {
+  const token = process.env.TINY_API_TOKEN?.trim();
+  if (!token) throw new Error("Variável TINY_API_TOKEN não encontrada.");
+
+  await rateLimiter.wait();
+
+  const body = new URLSearchParams();
+  body.set("token", token);
+  body.set("formato", "json");
+
+  for (const [key, value] of Object.entries(params)) {
+    body.set(key, String(value));
+  }
+
+  const response = await fetch(`${TINY_BASE_URL}/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: body.toString(),
+    cache: "no-store",
+  });
+
+  rateLimiter.updateFromHeader(response.headers.get("x-limit-api"));
+
+  const text = await response.text();
+  let data: T | null = null;
+
+  try {
+    data = JSON.parse(text) as T;
+  } catch {
+    if (response.status === 429 && retry < 3) {
+      const retryAfter = Number.parseInt(response.headers.get("retry-after") || "60", 10);
+      await sleep(Math.max(5, Number.isFinite(retryAfter) ? retryAfter : 60) * 1000);
+      return tinyPost<T>(endpoint, params, retry + 1);
+    }
+
+    throw new Error(
+      `Tiny retornou uma resposta inválida no endpoint ${endpoint}. HTTP ${response.status}.`
+    );
+  }
+
+  const tinyData = data as T & TinyResponse;
+  const tinyMessage = tinyErrorMessage(tinyData);
+
+  if (response.status === 429 || looksLikeRateLimitError(tinyMessage)) {
+    if (retry < 3) {
+      const retryAfter = Number.parseInt(response.headers.get("retry-after") || "60", 10);
+      await sleep(Math.max(5, Number.isFinite(retryAfter) ? retryAfter : 60) * 1000);
+      return tinyPost<T>(endpoint, params, retry + 1);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`Tiny respondeu HTTP ${response.status} no endpoint ${endpoint}: ${tinyMessage}`);
+  }
+
+  return data as T;
 }
 
 function extractImageUrls(product: TinyProduct): string[] {
@@ -131,11 +277,7 @@ function normalizeGrade(grade?: TinyGrade): { tamanho: string; cor: string } {
 
     if (
       !tamanho &&
-      (
-        key.includes("tamanho") ||
-        key === "tam" ||
-        key.includes("size")
-      )
+      (key.includes("tamanho") || key === "tam" || key.includes("size"))
     ) {
       tamanho = value;
       return;
@@ -143,20 +285,15 @@ function normalizeGrade(grade?: TinyGrade): { tamanho: string; cor: string } {
 
     if (
       !cor &&
-      (
-        key.includes("cor") ||
-        key.includes("color") ||
-        key.includes("colour")
-      )
+      (key.includes("cor") || key.includes("color") || key.includes("colour"))
     ) {
       cor = value;
     }
   };
 
-  if (grade && Array.isArray(grade)) {
+  if (Array.isArray(grade)) {
     for (const item of grade) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-
       for (const [key, value] of Object.entries(item)) {
         processarEntrada(key, value);
       }
@@ -170,12 +307,36 @@ function normalizeGrade(grade?: TinyGrade): { tamanho: string; cor: string } {
   return { tamanho, cor };
 }
 
-function getParentId(product: TinyProduct): string {
-  const id = stringOrEmpty(product.id);
-  const parentId = stringOrEmpty(product.idProdutoPai);
+function getProductNameBase(product: TinyProduct): string {
+  const nome = stringOrEmpty(product.nome);
+  if (!nome) return "Produto sem nome";
 
-  if (product.tipoVariacao === "V" && parentId) return parentId;
-  return id;
+  const parts = nome
+    .split(" - ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 3) {
+    return parts.slice(0, -2).join(" - ").trim();
+  }
+
+  return nome;
+}
+
+function getGradeFromName(nome: string): { tamanho: string; cor: string } {
+  const parts = nome
+    .split(" - ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 3) {
+    return { tamanho: "", cor: "" };
+  }
+
+  return {
+    tamanho: parts[parts.length - 2] || "",
+    cor: parts[parts.length - 1] || "",
+  };
 }
 
 function normalizeVariations(raw: TinyProduct["variacoes"]): TinyVariation[] {
@@ -183,103 +344,32 @@ function normalizeVariations(raw: TinyProduct["variacoes"]): TinyVariation[] {
 
   const result: TinyVariation[] = [];
 
+  const pushCandidate = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+
+    const objectValue = value as Record<string, unknown>;
+    const candidate = objectValue.variacao && typeof objectValue.variacao === "object"
+      ? objectValue.variacao
+      : value;
+
+    if (candidate && typeof candidate === "object" && stringOrEmpty((candidate as TinyVariation).id)) {
+      result.push(candidate as TinyVariation);
+    }
+  };
+
   if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== "object") continue;
-
-      const candidate = "variacao" in item
-        ? (item as { variacao?: TinyVariation }).variacao
-        : (item as TinyVariation);
-
-      if (candidate && stringOrEmpty(candidate.id)) {
-        result.push(candidate);
-      }
-    }
-
-    return result;
+    for (const item of raw) pushCandidate(item);
+  } else {
+    for (const value of Object.values(raw)) pushCandidate(value);
   }
 
-  // Algumas respostas/versões da API podem entregar as variações
-  // como objeto indexado, e não como array.
-  for (const value of Object.values(raw)) {
-    if (!value || typeof value !== "object") continue;
-
-    const candidate = "variacao" in value
-      ? (value as { variacao?: TinyVariation }).variacao
-      : (value as TinyVariation);
-
-    if (candidate && stringOrEmpty(candidate.id)) {
-      result.push(candidate);
-    }
+  const unique = new Map<string, TinyVariation>();
+  for (const item of result) {
+    const id = stringOrEmpty(item.id);
+    if (id) unique.set(id, item);
   }
 
-  return result;
-}
-
-function getProductNameBase(product: TinyProduct): string {
-  const nome = stringOrEmpty(product.nome);
-  if (!nome) return "Produto sem nome";
-
-  // Esta função é somente fallback para contas em que as variações foram
-  // cadastradas como nomes individuais. A fonte principal é a relação
-  // tipoVariacao/idProdutoPai + produto.obter.php.
-  const parts = nome.split(" - ").map((part) => part.trim()).filter(Boolean);
-  if (parts.length >= 3 && parts[parts.length - 1] && parts[parts.length - 2]) {
-    return parts.slice(0, -2).join(" - ").trim();
-  }
-  return nome;
-}
-
-async function tinyPost<T>(
-  endpoint: string,
-  params: Record<string, string | number>
-): Promise<T> {
-  const token = process.env.TINY_API_TOKEN?.trim();
-  if (!token) throw new Error("Variável TINY_API_TOKEN não encontrada.");
-
-  const body = new URLSearchParams();
-  body.set("token", token);
-  body.set("formato", "json");
-
-  for (const [key, value] of Object.entries(params)) {
-    body.set(key, String(value));
-  }
-
-  const response = await fetch(`${TINY_BASE_URL}/${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: body.toString(),
-    cache: "no-store",
-  });
-
-  const text = await response.text();
-  let data: T;
-
-  try {
-    data = JSON.parse(text) as T;
-  } catch {
-    throw new Error(
-      `Tiny retornou uma resposta inválida no endpoint ${endpoint}. HTTP ${response.status}.`
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(`Tiny respondeu HTTP ${response.status} no endpoint ${endpoint}.`);
-  }
-
-  return data;
-}
-
-function tinyErrorMessage(data: TinyResponse): string {
-  return (
-    data.retorno?.erros
-      ?.map((item) => stringOrEmpty(item.erro))
-      .filter(Boolean)
-      .join(" | ") || "O Tiny não retornou os dados solicitados."
-  );
+  return [...unique.values()];
 }
 
 async function pesquisarPagina(pagina: number): Promise<{
@@ -290,6 +380,7 @@ async function pesquisarPagina(pagina: number): Promise<{
     pesquisa: "",
     pagina,
   });
+
   const retorno = data.retorno;
 
   if (!retorno || retorno.status !== "OK") {
@@ -315,7 +406,7 @@ async function obterProduto(id: string): Promise<TinyProduct> {
   return retorno.produto;
 }
 
-async function obterEstoque(id: string): Promise<StockResult> {
+async function obterEstoque(id: string): Promise<number> {
   const data = await tinyPost<TinyResponse>("produto.obter.estoque.php", { id });
   const retorno = data.retorno;
 
@@ -323,9 +414,8 @@ async function obterEstoque(id: string): Promise<StockResult> {
     throw new Error(tinyErrorMessage(data));
   }
 
-  const produtoEstoque = retorno.produto as TinyProduct & {
+  const produto = retorno.produto as TinyProduct & {
     saldo?: string | number;
-    saldoReservado?: string | number;
     depositos?: Array<{
       deposito?: {
         saldo?: string | number;
@@ -334,65 +424,24 @@ async function obterEstoque(id: string): Promise<StockResult> {
     }>;
   };
 
-  // A API pode devolver o saldo consolidado diretamente no produto.
-  const saldoDireto = Number(produtoEstoque.saldo);
+  const saldoDireto = finiteNumber(produto.saldo);
+  if (saldoDireto !== null) return saldoDireto;
 
-  if (Number.isFinite(saldoDireto)) {
-    return {
-      id,
-      saldo: saldoDireto,
-    };
-  }
+  const depositos = Array.isArray(produto.depositos) ? produto.depositos : [];
 
-  // Fallback: soma somente depósitos que não estejam marcados como
-  // "desconsiderar" pelo Tiny.
-  const depositos = Array.isArray(produtoEstoque.depositos)
-    ? produtoEstoque.depositos
-    : [];
-
-  const saldoDosDepositos = depositos.reduce((total, item) => {
+  return depositos.reduce((total, item) => {
     const deposito = item?.deposito;
-
     if (!deposito) return total;
-    if (stringOrEmpty(deposito.desconsiderar).toUpperCase() === "S") {
-      return total;
-    }
-
+    if (normalizeText(stringOrEmpty(deposito.desconsiderar)) === "s") return total;
     return total + numberOrZero(deposito.saldo);
   }, 0);
-
-  return {
-    id,
-    saldo: saldoDosDepositos,
-  };
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, Math.max(items.length, 1)) },
-    async () => {
-      while (true) {
-        const index = nextIndex++;
-        if (index >= items.length) return;
-        results[index] = await worker(items[index], index);
-      }
-    }
-  );
-
-  await Promise.all(workers);
-  return results;
 }
 
 function mapToObject(map: Map<string, number>): Record<string, number> {
   return Object.fromEntries(
-    [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR", { numeric: true }))
+    [...map.entries()].sort(([a], [b]) =>
+      a.localeCompare(b, "pt-BR", { numeric: true })
+    )
   );
 }
 
@@ -402,12 +451,59 @@ function setAddAmount(map: Map<string, number>, key: string, amount: number) {
   map.set(normalized, (map.get(normalized) ?? 0) + amount);
 }
 
+function buildSearchGroups(produtosPesquisa: TinyProduct[]): SearchGroup[] {
+  const parentsByName = new Map<string, string>();
+
+  for (const product of produtosPesquisa) {
+    if (product.tipoVariacao !== "P") continue;
+    const id = stringOrEmpty(product.id);
+    if (!id) continue;
+    parentsByName.set(normalizeText(getProductNameBase(product)), id);
+  }
+
+  const groups = new Map<string, SearchGroup>();
+
+  for (const product of produtosPesquisa) {
+    const id = stringOrEmpty(product.id);
+    if (!id) continue;
+
+    let parentId = stringOrEmpty(product.idProdutoPai);
+
+    if (!parentId && product.tipoVariacao === "P") {
+      parentId = id;
+    }
+
+    if (!parentId && product.tipoVariacao === "V") {
+      parentId = parentsByName.get(normalizeText(getProductNameBase(product))) || "";
+    }
+
+    if (!parentId) {
+      parentId = id;
+    }
+
+    const key = parentId;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        parentId,
+        representative: product,
+        members: [],
+      });
+    }
+
+    groups.get(key)!.members.push(product);
+  }
+
+  return [...groups.values()];
+}
+
 export async function POST(req: Request) {
   const token = process.env.TINY_API_TOKEN?.trim();
 
   if (!token) {
     return NextResponse.json(
-      { error: "Variável TINY_API_TOKEN não encontrada." },
+      { success: false, error: "Variável TINY_API_TOKEN não encontrada." },
       { status: 500 }
     );
   }
@@ -415,89 +511,78 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const tipo: SyncType =
-      body?.tipo === "estoque" || body?.tipo === "novos_produtos" || body?.tipo === "geral"
+      body?.tipo === "estoque" ||
+      body?.tipo === "novos_produtos" ||
+      body?.tipo === "geral"
         ? body.tipo
         : "geral";
 
-    // 1. Busca TODAS as páginas retornadas pelo Tiny.
+    // 1. Pesquisa todo o catálogo. O Tiny retorna, por padrão, 100 registros por página.
     const produtosPesquisa: TinyProduct[] = [];
     let pagina = 1;
     let totalPaginas = 1;
 
-    while (pagina <= Math.max(totalPaginas, 1) && pagina <= MAX_PAGES) {
+    while (pagina <= totalPaginas && pagina <= MAX_PAGES) {
       const paginaAtual = await pesquisarPagina(pagina);
       produtosPesquisa.push(...paginaAtual.produtos);
-      const recebeuPaginaCompleta = paginaAtual.produtos.length >= 100;
-      totalPaginas = paginaAtual.numeroPaginas || (recebeuPaginaCompleta ? pagina + 1 : pagina);
-
+      totalPaginas = paginaAtual.numeroPaginas || pagina;
       if (pagina >= totalPaginas) break;
       pagina += 1;
     }
 
-    // 2. Descobre os produtos-pai/individuais únicos.
-    // Variações são ligadas ao produto pai por idProdutoPai.
-    const idsRaiz = [
-      ...new Set(
-        produtosPesquisa
-          .map(getParentId)
-          .map((id) => id.trim())
-          .filter(Boolean)
-      ),
-    ];
+    // 2. Agrupa pelos produtos pai quando o Tiny disponibiliza idProdutoPai.
+    //    Se o campo não vier na pesquisa, usamos o produto pai encontrado pelo nome
+    //    e, como último fallback, o próprio ID/nome-base.
+    const searchGroups = buildSearchGroups(produtosPesquisa);
 
-    const grupos = new Map<string, TinyProduct>();
+    const produtosAgrupados: Record<string, GroupedProduct> = {};
+    const stockItems: StockItem[] = [];
 
-    // 3. Obtém o cadastro completo de cada raiz.
-    const resultadosProdutosCompletos = await mapWithConcurrency(
-      idsRaiz,
-      STOCK_CONCURRENCY,
-      async (id) => {
+    let produtosPaiObtidos = 0;
+    let errosProdutosPai = 0;
+    const amostrasErros: string[] = [];
+
+    for (const group of searchGroups) {
+      let produtoCompleto: TinyProduct | null = null;
+
+      // Só consultamos produto.obter para produtos que podem possuir variações.
+      // Isso elimina centenas de chamadas desnecessárias que estavam causando
+      // o limite da API.
+      const podeTerVariacoes =
+        group.representative.tipoVariacao === "P" ||
+        group.members.some((item) => item.tipoVariacao === "V") ||
+        group.members.length > 1;
+
+      if (podeTerVariacoes) {
         try {
-          return { id, produto: await obterProduto(id), erro: "" };
+          produtoCompleto = await obterProduto(group.parentId);
+          produtosPaiObtidos += 1;
         } catch (error) {
-          return {
-            id,
-            produto: null,
-            erro: error instanceof Error ? error.message : "Erro desconhecido",
-          };
+          errosProdutosPai += 1;
+          const message = error instanceof Error ? error.message : "Erro desconhecido";
+          if (amostrasErros.length < 10) {
+            amostrasErros.push(`Produto ${group.parentId}: ${message}`);
+          }
         }
       }
-    );
 
-    const errosProdutos = resultadosProdutosCompletos.filter((item) => item.erro);
-
-    for (const resultado of resultadosProdutosCompletos) {
-      if (!resultado.produto) continue;
-
-      const id = getParentId(resultado.produto);
-      if (id) grupos.set(id, resultado.produto);
-    }
-
-    if (grupos.size === 0 && resultadosProdutosCompletos.length > 0) {
-      throw new Error(
-        `Não foi possível obter nenhum produto completo do Tiny. ${
-          errosProdutos[0]?.erro || "Verifique o token e as permissões da API."
-        }`
-      );
-    }
-
-    // 4. Monta a estrutura final de estoque por tamanho/cor.
-    const produtosAgrupados: Record<string, GroupedProduct> = {};
-    const idsParaEstoque: Array<{ grupoId: string; variacaoId: string; tamanho: string; cor: string }> = [];
-
-    for (const [grupoId, product] of grupos.entries()) {
-      const nome = firstNonEmpty(product.nome, getProductNameBase(product));
-      const imagemUrls = extractImageUrls(product);
-      const preco = numberOrZero(product.preco);
+      const base = produtoCompleto ?? group.representative;
+      const nome = firstNonEmpty(base.nome, group.representative.nome, `Produto ${group.parentId}`);
+      const nomeBase = getProductNameBase(base);
+      const imagens = extractImageUrls(base);
+      const preco = numberOrZero(base.preco ?? group.representative.preco);
+      const precoPromocionalValue = base.preco_promocional ?? group.representative.preco_promocional;
       const precoPromocional =
-        product.preco_promocional !== undefined && product.preco_promocional !== ""
-          ? numberOrZero(product.preco_promocional)
-          : null;
+        precoPromocionalValue === undefined || precoPromocionalValue === ""
+          ? null
+          : numberOrZero(precoPromocionalValue);
 
-      produtosAgrupados[grupoId] = {
-        id: grupoId,
-        nome: product.tipoVariacao === "P" ? nome : getProductNameBase(product),
-        descricao: firstNonEmpty(product.descricao_complementar, product.obs, nome),
+      const groupId = group.parentId;
+
+      produtosAgrupados[groupId] = {
+        id: groupId,
+        nome: nomeBase || nome,
+        descricao: firstNonEmpty(base.descricao_complementar, base.obs, nomeBase || nome),
         preco,
         precoPromocional,
         estoqueTotal: 0,
@@ -505,117 +590,153 @@ export async function POST(req: Request) {
         cores: new Set<string>(),
         estoquePorTamanho: new Map<string, number>(),
         estoquePorCor: new Map<string, number>(),
-        imagens: imagemUrls.length > 0 ? imagemUrls : [PLACEHOLDER_IMAGE],
+        imagens: imagens.length > 0 ? imagens : [PLACEHOLDER_IMAGE],
       };
 
-      const variacoes = normalizeVariations(product.variacoes);
+      const stockIds = new Map<string, { tamanho: string; cor: string; saldoConhecido?: number }>();
 
-      if (variacoes.length > 0) {
-        for (const variation of variacoes) {
-          const grade = normalizeGrade(variation.grade);
-          idsParaEstoque.push({
-            grupoId,
-            variacaoId: stringOrEmpty(variation.id),
+      const variacoesCompletas = produtoCompleto
+        ? normalizeVariations(produtoCompleto.variacoes)
+        : [];
+
+      if (variacoesCompletas.length > 0) {
+        for (const variation of variacoesCompletas) {
+          const variationId = stringOrEmpty(variation.id);
+          if (!variationId) continue;
+
+          let grade = normalizeGrade(variation.grade);
+          if (!grade.tamanho && !grade.cor) {
+            const member = group.members.find(
+              (item) => stringOrEmpty(item.id) === variationId
+            );
+            if (member?.nome) {
+              grade = getGradeFromName(member.nome);
+            }
+          }
+
+          stockIds.set(variationId, {
             tamanho: grade.tamanho,
             cor: grade.cor,
+            saldoConhecido: finiteNumber(variation.estoque_atual) ?? undefined,
           });
         }
       } else {
-        // Produto normal, sem variações.
-        idsParaEstoque.push({
-          grupoId,
-          variacaoId: stringOrEmpty(product.id),
-          tamanho: normalizeGrade(product.grade).tamanho,
-          cor: normalizeGrade(product.grade).cor,
+        // Fallback para contas em que o produto pai não pôde ser obtido.
+        // Continua possível sincronizar usando os registros da pesquisa.
+        for (const member of group.members) {
+          if (member.tipoVariacao === "P") continue;
+
+          const variationId = stringOrEmpty(member.id);
+          if (!variationId) continue;
+
+          const grade = normalizeGrade(member.grade);
+          const gradeFinal =
+            grade.tamanho || grade.cor
+              ? grade
+              : getGradeFromName(stringOrEmpty(member.nome));
+
+          stockIds.set(variationId, {
+            tamanho: gradeFinal.tamanho,
+            cor: gradeFinal.cor,
+            saldoConhecido: finiteNumber(member.estoque_atual) ?? undefined,
+          });
+        }
+      }
+
+      // Produto normal sem variações.
+      if (stockIds.size === 0) {
+        const simpleId = stringOrEmpty(base.id) || groupId;
+        const grade = normalizeGrade(base.grade);
+        stockIds.set(simpleId, {
+          tamanho: grade.tamanho,
+          cor: grade.cor,
+          saldoConhecido: finiteNumber(base.estoque_atual) ?? undefined,
+        });
+      }
+
+      for (const [produtoId, info] of stockIds.entries()) {
+        // Se a API já trouxe estoque_atual, não gastamos mais uma chamada.
+        stockItems.push({
+          grupoId: groupId,
+          produtoId,
+          tamanho: info.tamanho,
+          cor: info.cor,
+          ...(info.saldoConhecido !== undefined
+            ? { saldoConhecido: info.saldoConhecido }
+            : {}),
         });
       }
     }
 
-    // 5. Consulta o saldo real de cada SKU/variação no Tiny.
-    const estoques = await mapWithConcurrency(
-      idsParaEstoque,
-      STOCK_CONCURRENCY,
-      async (item) => {
+    // 3. Consulta estoque somente onde não temos estoque_atual.
+    //    As chamadas são sequenciais e limitadas pelo x-limit-api para não
+    //    reproduzir o erro anterior de centenas de requisições simultâneas.
+    let estoquesConsultados = 0;
+    let estoquesComErro = 0;
+    const gruposComErroEstoque = new Set<string>();
+
+    for (const item of stockItems) {
+      let saldo = item.saldoConhecido;
+
+      if (saldo === undefined) {
         try {
-          const stock = await obterEstoque(item.variacaoId);
-          return { ...item, saldo: stock.saldo, erro: "" };
+          saldo = await obterEstoque(item.produtoId);
+          estoquesConsultados += 1;
         } catch (error) {
-          return {
-            ...item,
-            saldo: 0,
-            erro: error instanceof Error ? error.message : "Erro desconhecido ao consultar estoque",
-          };
+          estoquesComErro += 1;
+          gruposComErroEstoque.add(item.grupoId);
+          const message = error instanceof Error ? error.message : "Erro desconhecido";
+          if (amostrasErros.length < 10) {
+            amostrasErros.push(`Estoque ${item.produtoId}: ${message}`);
+          }
+          continue;
         }
       }
-    );
 
-    const errosEstoque = estoques.filter((item) => item.erro);
-    const gruposComErroEstoque = new Set(
-      errosEstoque.map((item) => item.grupoId)
-    );
-
-    for (const item of estoques) {
       const grupo = produtosAgrupados[item.grupoId];
       if (!grupo) continue;
 
-      grupo.estoqueTotal += item.saldo;
-      setAddAmount(grupo.estoquePorTamanho, item.tamanho, item.saldo);
-      setAddAmount(grupo.estoquePorCor, item.cor, item.saldo);
-
-      if (item.tamanho) grupo.tamanhos.add(item.tamanho);
-      if (item.cor) grupo.cores.add(item.cor);
+      grupo.estoqueTotal += saldo;
+      if (item.tamanho) {
+        grupo.tamanhos.add(item.tamanho);
+        setAddAmount(grupo.estoquePorTamanho, item.tamanho, saldo);
+      }
+      if (item.cor) {
+        grupo.cores.add(item.cor);
+        setAddAmount(grupo.estoquePorCor, item.cor, saldo);
+      }
     }
 
-    // 6. Persiste sem distribuir estoque artificialmente.
-    let alterados = 0;
+    // 4. Persiste sem inventar distribuição de estoque.
     let criados = 0;
     let atualizados = 0;
+    let ignoradosPorErro = 0;
 
     for (const prod of Object.values(produtosAgrupados)) {
-      // Nunca sobrescreva o estoque de um produto com dados parciais.
-      // Se qualquer SKU/variação falhar, o grupo inteiro é preservado no banco.
       if (gruposComErroEstoque.has(prod.id)) {
-        console.warn(
-          `Produto ${prod.id} não sincronizado porque uma ou mais variações falharam no estoque.`
-        );
+        ignoradosPorErro += 1;
         continue;
       }
 
       const tamanhos = [...prod.tamanhos].sort((a, b) =>
         a.localeCompare(b, "pt-BR", { numeric: true })
       );
-      const cores = [...prod.cores].sort((a, b) => a.localeCompare(b, "pt-BR"));
+      const cores = [...prod.cores].sort((a, b) =>
+        a.localeCompare(b, "pt-BR")
+      );
       const estoquePorTamanho = mapToObject(prod.estoquePorTamanho);
       const estoquePorCor = mapToObject(prod.estoquePorCor);
       const imagens = [...new Set(prod.imagens.filter(Boolean))];
 
-      if (tipo === "estoque") {
-        const existente =
-          (await prisma.produto.findUnique({ where: { id: prod.id } })) ??
-          (await prisma.produto.findFirst({ where: { nome: prod.nome } }));
+      const existentePorId = await prisma.produto.findUnique({
+        where: { id: prod.id },
+      });
 
-        if (existente) {
-          await prisma.produto.update({
-            where: { id: existente.id },
-            data: {
-              estoque: prod.estoqueTotal,
-              tamanhos,
-              cores,
-              estoquePorTamanho,
-              estoquePorCor,
-            },
-          });
-          alterados += 1;
-        }
-
-        continue;
-      }
+      const existente =
+        existentePorId ??
+        (await prisma.produto.findFirst({ where: { nome: prod.nome } }));
 
       if (tipo === "novos_produtos") {
-        const existente =
-          (await prisma.produto.findUnique({ where: { id: prod.id } })) ??
-          (await prisma.produto.findFirst({ where: { nome: prod.nome } }));
-
         if (existente) continue;
 
         await prisma.produto.create({
@@ -624,6 +745,7 @@ export async function POST(req: Request) {
             nome: prod.nome,
             descricao: prod.descricao,
             preco: prod.preco,
+            precoPromocional: prod.precoPromocional,
             estoque: prod.estoqueTotal,
             tamanhos,
             cores,
@@ -638,16 +760,31 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const existente =
-        (await prisma.produto.findUnique({ where: { id: prod.id } })) ??
-        (await prisma.produto.findFirst({ where: { nome: prod.nome } }));
+      if (tipo === "estoque") {
+        if (!existente) continue;
+
+        await prisma.produto.update({
+          where: { id: existente.id },
+          data: {
+            estoque: prod.estoqueTotal,
+            tamanhos,
+            cores,
+            estoquePorTamanho,
+            estoquePorCor,
+          },
+        });
+        atualizados += 1;
+        continue;
+      }
 
       if (existente) {
         await prisma.produto.update({
           where: { id: existente.id },
           data: {
             nome: prod.nome,
+            descricao: prod.descricao,
             preco: prod.preco,
+            precoPromocional: prod.precoPromocional,
             estoque: prod.estoqueTotal,
             tamanhos,
             cores,
@@ -671,6 +808,7 @@ export async function POST(req: Request) {
             nome: prod.nome,
             descricao: prod.descricao,
             preco: prod.preco,
+            precoPromocional: prod.precoPromocional,
             estoque: prod.estoqueTotal,
             tamanhos,
             cores,
@@ -683,38 +821,46 @@ export async function POST(req: Request) {
         });
         criados += 1;
       }
-
-      alterados += 1;
     }
 
-    const mensagens: Record<SyncType, string> = {
-      estoque: `Estoque de ${alterados} produtos atualizado com sucesso!`,
-      novos_produtos: `${criados} novos produtos importados do Tiny!`,
-      geral: `Sincronização concluída! ${criados} novos e ${atualizados} produtos atualizados.`,
-    };
+    const parcialmenteConcluida =
+      errosProdutosPai > 0 || estoquesComErro > 0 || ignoradosPorErro > 0;
+
+    const message = parcialmenteConcluida
+      ? `Sincronização parcial: ${criados} novos e ${atualizados} atualizados. ${ignoradosPorErro} produtos foram preservados sem alteração por falha de consulta.`
+      : `Sincronização concluída! ${criados} novos e ${atualizados} produtos atualizados.`;
 
     return NextResponse.json({
       success: true,
-      message: mensagens[tipo],
-      details:
-        [
-          errosProdutos.length > 0
-            ? `${errosProdutos.length} produtos-base não puderam ser obtidos do Tiny.`
-            : "",
-          errosEstoque.length > 0
-            ? `${errosEstoque.length} variações não puderam ter o estoque consultado.`
-            : "",
-        ].filter(Boolean).join(" ") || undefined,
+      message,
+      details: parcialmenteConcluida
+        ? [
+            errosProdutosPai > 0
+              ? `${errosProdutosPai} produtos-pai não puderam ser obtidos.`
+              : "",
+            estoquesComErro > 0
+              ? `${estoquesComErro} estoques individuais não puderam ser consultados.`
+              : "",
+            amostrasErros.length > 0
+              ? `Amostras: ${amostrasErros.join(" || ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : undefined,
       estatisticas: {
+        limiteApiPorMinuto: rateLimiter.getLimit(),
         paginas: totalPaginas,
         produtosPesquisa: produtosPesquisa.length,
-        produtosAgrupados: Object.keys(produtosAgrupados).length,
-        produtosComErroAoObter: errosProdutos.length,
-        variacoesConsultadas: idsParaEstoque.length,
-        estoquesComErro: errosEstoque.length,
+        grupos: searchGroups.length,
+        produtosPaiObtidos,
+        errosProdutosPai,
+        variacoesOuProdutosParaEstoque: stockItems.length,
+        estoquesConsultados,
+        estoquesComErro,
+        ignoradosPorErro,
         criados,
         atualizados,
-        alterados,
       },
     });
   } catch (error) {
@@ -724,7 +870,8 @@ export async function POST(req: Request) {
       {
         success: false,
         error: "Erro interno ao processar sincronização com o Tiny.",
-        details: error instanceof Error ? error.message : "Erro desconhecido.",
+        details:
+          error instanceof Error ? error.message : "Erro desconhecido.",
       },
       { status: 500 }
     );
