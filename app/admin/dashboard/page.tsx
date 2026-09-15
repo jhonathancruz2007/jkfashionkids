@@ -747,7 +747,7 @@ export default function PaginaDashboardAdmin() {
       if (res.ok) setClientes(await res.json())
     } catch (err) {
       console.error("Erro ao carregar clientes:", err)
-    } fontally {
+    } finally {
       setCarregandoClientes(false)
     }
   }
