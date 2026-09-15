@@ -265,13 +265,14 @@ export default function PaginaDashboardAdmin() {
         body: JSON.stringify({ tipo }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
 
       if (res.ok && data.success) {
         exibirToast(data.message || "Sincronização com o Tiny concluída!")
-        carregarProdutos()
+        await carregarProdutos()
       } else {
-        exibirToast(data.error || "Erro ao sincronizar com o Tiny.", "error")
+        const detalhes = data.details ? ` ${data.details}` : ""
+        exibirToast((data.error || "Erro ao sincronizar com o Tiny.") + detalhes, "error")
       }
     } catch (error) {
       console.error("Erro na requisição de sincronização Tiny:", error)
@@ -823,33 +824,14 @@ export default function PaginaDashboardAdmin() {
     setFormFaixaEtaria(prod.faixaEtaria || "0-1") 
     setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
 
-    if (prod.estoquePorTamanho && Object.keys(prod.estoquePorTamanho).length > 0) {
-      setFormEstoquePorTamanho({ ...prod.estoquePorTamanho })
-    } else if (prod.tamanhos && prod.tamanhos.length > 0) {
-      const base = Math.floor((prod.estoque || 0) / prod.tamanhos.length)
-      const resto = (prod.estoque || 0) % prod.tamanhos.length
-      const mapaEstoque: Record<string, number> = {}
-      prod.tamanhos.forEach((t, idx) => {
-        mapaEstoque[t] = base + (idx < resto ? 1 : 0)
-      })
-      setFormEstoquePorTamanho(mapaEstoque)
-    } else {
-      setFormEstoquePorTamanho({})
-    }
-
-    if (prod.estoquePorCor && Object.keys(prod.estoquePorCor).length > 0) {
-      setFormEstoquePorCor({ ...prod.estoquePorCor })
-    } else if (prod.cores && prod.cores.length > 0) {
-      const base = Math.floor((prod.estoque || 0) / prod.cores.length)
-      const resto = (prod.estoque || 0) % prod.cores.length
-      const mapaEstoqueCor: Record<string, number> = {}
-      prod.cores.forEach((c, idx) => {
-        mapaEstoqueCor[c] = base + (idx < resto ? 1 : 0)
-      })
-      setFormEstoquePorCor(mapaEstoqueCor)
-    } else {
-      setFormEstoquePorCor({})
-    }
+    // Nunca distribua o estoque total artificialmente.
+    // Os valores abaixo devem vir diretamente do Tiny ou do cadastro manual.
+    setFormEstoquePorTamanho(
+      prod.estoquePorTamanho ? { ...prod.estoquePorTamanho } : {}
+    )
+    setFormEstoquePorCor(
+      prod.estoquePorCor ? { ...prod.estoquePorCor } : {}
+    )
 
     setModalProduto(true)
   }
@@ -1238,7 +1220,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e sincronize variações de estoque em tempo real via API Tiny.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e sincronize estoque, tamanhos e cores diretamente com o Tiny.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1360,15 +1342,9 @@ export default function PaginaDashboardAdmin() {
                                 <span className="text-[10px] text-slate-400 block font-bold mb-1">Tamanhos:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {prod.tamanhos && prod.tamanhos.length > 0 ? (
-                                    prod.tamanhos.map((t, idx) => {
-                                      let qtdTam: number | string = "-"
-                                      if (prod.estoquePorTamanho && prod.estoquePorTamanho[t] !== undefined) {
-                                        qtdTam = prod.estoquePorTamanho[t]
-                                      } else if (prod.estoque !== undefined) {
-                                        const base = Math.floor(prod.estoque / prod.tamanhos.length)
-                                        const resto = prod.estoque % prod.tamanhos.length
-                                        qtdTam = base + (idx < resto ? 1 : 0)
-                                      }
+                                    prod.tamanhos.map((t) => {
+                                      const qtdTam: number | string =
+                                        prod.estoquePorTamanho?.[t] ?? "-"
 
                                       return (
                                         <span 
@@ -1391,15 +1367,9 @@ export default function PaginaDashboardAdmin() {
                                 <span className="text-[10px] text-slate-400 block font-bold mb-1">Cores:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {prod.cores && prod.cores.length > 0 ? (
-                                    prod.cores.map((c, idx) => {
-                                      let qtdCor: number | string = "-"
-                                      if (prod.estoquePorCor && prod.estoquePorCor[c] !== undefined) {
-                                        qtdCor = prod.estoquePorCor[c]
-                                      } else if (prod.estoque !== undefined) {
-                                        const base = Math.floor(prod.estoque / prod.cores.length)
-                                        const resto = prod.estoque % prod.cores.length
-                                        qtdCor = base + (idx < resto ? 1 : 0)
-                                      }
+                                    prod.cores.map((c) => {
+                                      const qtdCor: number | string =
+                                        prod.estoquePorCor?.[c] ?? "-"
 
                                       return (
                                         <span 
