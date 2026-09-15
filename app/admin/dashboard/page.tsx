@@ -1263,6 +1263,69 @@ export default function PaginaDashboardAdmin() {
               </button>
             </div>
 
+            export function BotaoSincronizarTiny() {
+  const [carregando, setCarregando] = useState(false);
+  const [tipoOpcao, setTipoOpcao] = useState<"estoque" | "novos_produtos" | "geral">("estoque");
+
+  const handleSincronizar = async () => {
+    setCarregando(true);
+    try {
+      const response = await fetch("/api/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: tipoOpcao }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(data.message);
+        window.location.reload();
+      } else {
+        alert(`Erro: ${data.error || "Falha na sincronização."}`);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Ocorreu um erro ao tentar sincronizar.");
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Seletor do Tipo de Sincronização */}
+      <select
+        value={tipoOpcao}
+        onChange={(e) => setTipoOpcao(e.target.value as any)}
+        disabled={carregando}
+        className="bg-slate-800 text-white border border-slate-700 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-pink-500"
+      >
+        <option value="estoque">Apenas Estoque</option>
+        <option value="novos_produtos">Apenas Novos Produtos</option>
+        <option value="geral">Sincronização Geral (Todos)</option>
+      </select>
+
+      {/* Botão de Disparo */}
+      <button
+        onClick={handleSincronizar}
+        disabled={carregando}
+        className="flex items-center gap-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-all disabled:opacity-50"
+      >
+        {carregando ? (
+          <>
+            <span className="animate-spin text-base">⏳</span> Sincronizando...
+          </>
+        ) : (
+          <>
+            <span>🔄</span> Sincronizar Tiny
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
