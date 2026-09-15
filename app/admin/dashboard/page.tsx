@@ -265,7 +265,7 @@ export default function PaginaDashboardAdmin() {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY ===")
       console.log("Tipo:", tipo)
 
-      const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
+      const res = await fetch("app/api/admin/produtos/sincronizar-tiny/route.ts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
