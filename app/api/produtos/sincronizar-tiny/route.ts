@@ -39,7 +39,9 @@ type TinyProduct = {
   situacao?: string;
   categoria?: string;
   grade?: TinyGrade;
-  variacoes?: Array<{ variacao?: TinyVariation }>;
+  variacoes?:
+    | Array<{ variacao?: TinyVariation } | TinyVariation>
+    | { [key: string]: unknown };
   anexos?: Array<{ anexo?: string }>;
   imagens_externas?: Array<{ imagem_externa?: { url?: string } }>;
 };
@@ -174,6 +176,44 @@ function getParentId(product: TinyProduct): string {
 
   if (product.tipoVariacao === "V" && parentId) return parentId;
   return id;
+}
+
+function normalizeVariations(raw: TinyProduct["variacoes"]): TinyVariation[] {
+  if (!raw) return [];
+
+  const result: TinyVariation[] = [];
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+
+      const candidate = "variacao" in item
+        ? (item as { variacao?: TinyVariation }).variacao
+        : (item as TinyVariation);
+
+      if (candidate && stringOrEmpty(candidate.id)) {
+        result.push(candidate);
+      }
+    }
+
+    return result;
+  }
+
+  // Algumas respostas/versões da API podem entregar as variações
+  // como objeto indexado, e não como array.
+  for (const value of Object.values(raw)) {
+    if (!value || typeof value !== "object") continue;
+
+    const candidate = "variacao" in value
+      ? (value as { variacao?: TinyVariation }).variacao
+      : (value as TinyVariation);
+
+    if (candidate && stringOrEmpty(candidate.id)) {
+      result.push(candidate);
+    }
+  }
+
+  return result;
 }
 
 function getProductNameBase(product: TinyProduct): string {
@@ -468,9 +508,7 @@ export async function POST(req: Request) {
         imagens: imagemUrls.length > 0 ? imagemUrls : [PLACEHOLDER_IMAGE],
       };
 
-      const variacoes = product.variacoes
-        ?.map((entry) => entry.variacao)
-        .filter((variation): variation is TinyVariation => Boolean(variation?.id)) ?? [];
+      const variacoes = normalizeVariations(product.variacoes);
 
       if (variacoes.length > 0) {
         for (const variation of variacoes) {
