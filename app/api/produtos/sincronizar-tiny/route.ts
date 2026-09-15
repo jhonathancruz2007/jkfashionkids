@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function POST(req: Request) {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
   if (!TINY_TOKEN) {
@@ -9,10 +9,13 @@ export async function GET() {
   }
 
   try {
+    const { tipo } = await req.json(); // "estoque" | "novos_produtos" | "geral"
+
     let pagina = 1;
     let continuarBuscando = true;
     const produtosEncontrados: any[] = [];
 
+    // Busca os produtos no Tiny
     while (continuarBuscando && pagina <= 20) {
       const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
 
@@ -44,6 +47,7 @@ export async function GET() {
       }
     }
 
+    // Agrupa os produtos e calcula variações/estoques
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
@@ -67,7 +71,6 @@ export async function GET() {
       }
 
       const preco = Number(p.preco) || 0;
-      // Captura o estoque real vindo do Tiny (saldo ou estoque)
       const estoqueItem = Number(p.saldo ?? p.estoque ?? 0);
 
       if (!produtosAgrupados[nomeBase]) {
@@ -77,13 +80,12 @@ export async function GET() {
           descricao: nomeBase,
           preco: preco,
           estoqueTotal: 0,
-          tamanhosMap: new Map<string, number>(), // Armazena tamanho -> estoque
+          tamanhosMap: new Map<string, number>(),
           cores: new Set<string>(),
           imagemUrl: "https://via.placeholder.com/300"
         };
       }
 
-      // Soma no estoque total do produto pai
       produtosAgrupados[nomeBase].estoqueTotal += estoqueItem;
 
       if (tamanhoEncontrado) {
@@ -96,45 +98,88 @@ export async function GET() {
       }
     }
 
-    let importados = 0;
+    let alterados = 0;
 
     for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
-      // Converte o mapa de tamanhos para o formato que seu banco espera (ex: ["1: 5", "10: 2"])
       const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(([tam, qtd]) => `${tam}: ${qtd}`);
       const arrayCores = Array.from(prod.cores);
 
-      await db.produto.upsert({
-        where: { id: prod.id },
-        update: {
-          nome: prod.nome,
-          preco: prod.preco,
-          estoque: prod.estoqueTotal, // Atualiza o estoque total somado corretamente
-          tamanhos: arrayTamanhos,
-          cores: arrayCores,
-        },
-        create: {
-          id: prod.id,
-          nome: prod.nome,
-          descricao: prod.descricao,
-          preco: prod.preco,
-          estoque: prod.estoqueTotal,
-          tamanhos: arrayTamanhos,
-          cores: arrayCores,
-          imagemUrl: prod.imagemUrl,
-          imagens: [],
-          ativo: true,
-        }
+      const produtoExistente = await prisma.produto.findUnique({
+        where: { id: prod.id }
       });
 
-      importados++;
+      if (tipo === "estoque") {
+        // Apenas atualiza o estoque dos produtos que já existem
+        if (produtoExistente) {
+          await prisma.produto.update({
+            where: { id: prod.id },
+            data: {
+              estoque: prod.estoqueTotal,
+              tamanhos: arrayTamanhos,
+            }
+          });
+          alterados++;
+        }
+      } else if (tipo === "novos_produtos") {
+        // Apenas cadastra produtos que ainda não existem no banco
+        if (!produtoExistente) {
+          await prisma.produto.create({
+            data: {
+              id: prod.id,
+              nome: prod.nome,
+              descricao: prod.descricao,
+              preco: prod.preco,
+              estoque: prod.estoqueTotal,
+              tamanhos: arrayTamanhos,
+              cores: arrayCores,
+              imagemUrl: prod.imagemUrl,
+              imagens: [],
+              ativo: true,
+            }
+          });
+          alterados++;
+        }
+      } else {
+        // Modo "geral" ou "todos": Cadastra novos e atualiza existentes por completo
+        await prisma.produto.upsert({
+          where: { id: prod.id },
+          update: {
+            nome: prod.nome,
+            preco: prod.preco,
+            estoque: prod.estoqueTotal,
+            tamanhos: arrayTamanhos,
+            cores: arrayCores,
+          },
+          create: {
+            id: prod.id,
+            nome: prod.nome,
+            descricao: prod.descricao,
+            preco: prod.preco,
+            estoque: prod.estoqueTotal,
+            tamanhos: arrayTamanhos,
+            cores: arrayCores,
+            imagemUrl: prod.imagemUrl,
+            imagens: [],
+            ativo: true,
+          }
+        });
+        alterados++;
+      }
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: `Sincronização de estoque e produtos concluída! ${importados} produtos atualizados.` 
+    const mensagens: Record<string, string> = {
+      estoque: `Estoque de ${alterados} produtos atualizado com sucesso!`,
+      novos_produtos: `${alterados} novos produtos importados do Tiny!`,
+      geral: `Sincronização geral concluída! ${alterados} produtos sincronizados.`,
+    };
+
+    return NextResponse.json({
+      success: true,
+      message: mensagens[tipo] || mensagens.geral,
     });
 
   } catch (error: any) {
+    console.error("Erro na sincronização:", error);
     return NextResponse.json({ error: "Erro interno ao processar sincronização", details: error.message }, { status: 500 });
   }
 }
