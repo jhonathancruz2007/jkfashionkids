@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -25,14 +24,14 @@ model Cliente {
   nome        String
   email       String     @unique
   senha       String
-  telefone    String?    // Telefone / WhatsApp
-  cep         String?    // CEP
-  rua         String?    // Logradouro / Rua
-  numero      String?    // Número da residência
-  complemento String?    // Complemento
-  bairro      String?    // Bairro
-  cidade      String?    // Cidade
-  estado      String?    // Estado (UF)
+  telefone    String?
+  cep         String?
+  rua         String?
+  numero      String?
+  complemento String?
+  bairro      String?
+  cidade      String?
+  estado      String?
   role        Role       @default(CLIENTE)
   pedidos     Pedido[]
   carrinho    Carrinho?
@@ -42,7 +41,7 @@ model Cliente {
 }
 
 model Categoria {
-  nome      String    @id // O nome passa a ser a chave primária
+  nome      String    @id
   produtos  Produto[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -58,52 +57,56 @@ model Tamanho {
 model Cor {
   id        String   @id @default(uuid())
   nome      String   @unique
-  hex       String?  // Código de cor (ex: #FF0000)
+  hex       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Produto {
-  id               String         @id @default(uuid())
+  id               String   @id @default(uuid())
   nome             String
   descricao        String
   preco            Float
   precoPromocional Float?
   imagemUrl        String
   imagens          String[]
-  estoque          Int            @default(0)
-  
-  // 🟢 Tratamento de Tamanhos
-  tamanhos         String[]       @default([])
-  estoquePorTamanho Json?         // Armazena o estoque detalhado por cada tamanho em formato JSON
-  
-  // 🟢 Tratamento de Cores
-  cores            String[]       @default([]) // Nomes das cores atreladas ao produto
-  coresDetalhes    Json?          // Opcional: Armazena array de objetos com [{ nome: "Azul", hex: "#0000FF" }]
+  estoque          Int      @default(0)
 
-  genero           String?        @default("masculino")
-  faixaEtaria      String?        @default("INFANTIL")
-  ativo            Boolean        @default(true)
-  localCard        String?        @default("HOME_DESTAQUE")
-  categoriaNome    String?
-  categoria        Categoria?     @relation(fields: [categoriaNome], references: [nome], onDelete: SetNull, onUpdate: Cascade)
-  itensPedido      ItemPedido[]
-  itensCarrinho    ItemCarrinho[]
-  favoritos        Favorito[]
-  avisosEstoque    AvisoEstoque[]
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  tamanhos          String[] @default([])
+  estoquePorTamanho Json?
+
+  cores         String[] @default([])
+  estoquePorCor Json?
+  coresDetalhes Json?
+
+  genero      String? @default("masculino")
+  faixaEtaria String? @default("INFANTIL")
+  ativo       Boolean @default(true)
+  localCard   String? @default("HOME_DESTAQUE")
+
+  categoriaNome String?
+  categoria     Categoria? @relation(fields: [categoriaNome], references: [nome], onDelete: SetNull, onUpdate: Cascade)
+
+  itensPedido   ItemPedido[]
+  itensCarrinho ItemCarrinho[]
+  favoritos     Favorito[]
+  avisosEstoque AvisoEstoque[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AvisoEstoque {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   produtoId String
-  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-  tamanho   String
-  cor       String?  // 🟢 Cor vinculada ao alerta
-  email     String
-  telefone  String?
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  tamanho    String
+  cor        String?
+  email      String
+  telefone   String?
   notificado Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -115,55 +118,72 @@ model Pedido {
   total           Float
   status          StatusPedido @default(PENDENTE)
   metodoPagamento String?
-  clienteId       String
-  cliente         Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  itens           ItemPedido[]
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  itens ItemPedido[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ItemPedido {
-  id            String   @id @default(uuid())
+  id            String  @id @default(uuid())
   quantidade    Int
   precoUnitario Float
   tamanho       String?
-  cor           String?  // 🟢 Cor do produto no momento do pedido
-  pedidoId      String
-  pedido        Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  produtoId     String
-  produto       Produto  @relation(fields: [produtoId], references: [id], onDelete: Restrict)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  cor           String?
+
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Carrinho {
-  id        String         @id @default(uuid())
-  clienteId String         @unique
-  cliente   Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  itens     ItemCarrinho[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id        String @id @default(uuid())
+  clienteId String @unique
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  itens ItemCarrinho[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ItemCarrinho {
-  id         String   @id @default(uuid())
+  id         String @id @default(uuid())
   carrinhoId String
-  carrinho   Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
-  produtoId  String
-  produto    Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  carrinho Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
   tamanho    String
-  cor        String?  // 🟢 Cor selecionada no carrinho
-  quantidade Int      @default(1)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  cor        String?
+  quantidade Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Favorito {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
+
   clienteId String
   produtoId String
-  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
 
   @@unique([clienteId, produtoId])
