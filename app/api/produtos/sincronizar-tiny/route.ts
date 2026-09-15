@@ -122,7 +122,7 @@ async function tinyPost<T>(
     body.set(key, String(value));
   }
 
-  const response = await fetch(`${TINY_BASE_URL}/${endpoint}`, {
+  let response = await fetch(`${TINY_BASE_URL}/${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -131,6 +131,18 @@ async function tinyPost<T>(
     body: body.toString(),
     cache: "no-store",
   });
+
+  // A API 2.0 documenta POST para este serviço. Algumas contas/rotas
+  // antigas, porém, podem responder 405 para a chamada POST do estoque.
+  // Nessa situação fazemos fallback para GET somente no endpoint de estoque.
+  if (response.status === 405 && endpoint === "produto.obter.estoque.php") {
+    const query = new URLSearchParams(body.toString());
+    response = await fetch(`${TINY_BASE_URL}/${endpoint}?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+  }
 
   const raw = await response.text();
   let data: T;
