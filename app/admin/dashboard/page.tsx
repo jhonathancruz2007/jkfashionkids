@@ -1,2758 +1,2755 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import {
-LogOut,
-LayoutDashboard,
-ShoppingBag,
-Users,
-Settings,
-Loader2,
-Package,
-UserCheck,
-Plus,
-Search,
-Key,
-ShieldCheck,
-Trash2,
-X,
-Image as ImageIcon,
-AlertTriangle,
-Eye,
-Pencil,
-MapPin,
-Camera,
-Upload,
-Tag,
-Baby,
-FolderPlus,
-FileSpreadsheet,
-CheckCircle,
-Menu,
-Star,
-RefreshCw,
-Palette
+import { 
+  LogOut, 
+  LayoutDashboard, 
+  ShoppingBag, 
+  Users, 
+  Settings, 
+  Loader2, 
+  Package, 
+  UserCheck, 
+  Plus, 
+  Search,
+  Key,
+  ShieldCheck,
+  Trash2,
+  X,
+  Image as ImageIcon,
+  AlertTriangle,
+  Eye,
+  Pencil,
+  MapPin,
+  Camera,
+  Upload,
+  Tag,
+  Baby,
+  FolderPlus,
+  FileSpreadsheet,
+  CheckCircle,
+  Menu,
+  Star,
+  RefreshCw,
+  Palette
 } from "lucide-react"
 
 interface CategoriaItem {
-id?: string
-value: string
-label: string
+  id?: string
+  value: string
+  label: string
 }
 
 interface TamanhoItem {
-id: string
-nome: string
+  id: string
+  nome: string
 }
 
 interface CorItem {
-id: string
-nome: string
+  id: string
+  nome: string
 }
 
 interface Produto {
-id: string
-nome: string
-descricao: string
-preco: number
-precoPromocional?: number | null
-imagemUrl: string
-imagens?: string[]
-estoque: number
-tamanhos: string[]
-cores?: string[]
-estoquePorTamanho?: Record<string, number>
-estoquePorCor?: Record<string, number>
-genero?: string
-localCard?: string
-categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
-categoriaId?: string
-faixaEtaria?: string
+  id: string
+  nome: string
+  descricao: string
+  preco: number
+  precoPromocional?: number | null
+  imagemUrl: string
+  imagens?: string[]
+  estoque: number
+  tamanhos: string[]
+  cores?: string[]
+  estoquePorTamanho?: Record<string, number>
+  estoquePorCor?: Record<string, number>
+  genero?: string
+  localCard?: string
+  categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
+  categoriaId?: string
+  faixaEtaria?: string
 }
 
 interface Cliente {
-id: string
-nome: string
-email: string
-role: "CLIENTE" | "ADMIN"
-createdAt: string
+  id: string
+  nome: string
+  email: string
+  role: "CLIENTE" | "ADMIN"
+  createdAt: string
 }
 
 interface ItemPedido {
-id: string
-quantidade: number
-precoUnitario: number
-tamanho?: string
-cor?: string
-produto: {
-nome: string
-imagemUrl: string
-}
+  id: string
+  quantidade: number
+  precoUnitario: number
+  tamanho?: string
+  cor?: string
+  produto: {
+    nome: string
+    imagemUrl: string
+  }
 }
 
 interface Pedido {
-id: string
-total: number
-status: "PENDENTE" | "PAGO" | "ENVIADO" | "ENTREGUE" | "CANCELADO" | string
-createdAt: string
-cliente: {
-nome: string
-email: string
-}
-itens: ItemPedido[]
+  id: string
+  total: number
+  status: "PENDENTE" | "PAGO" | "ENVIADO" | "ENTREGUE" | "CANCELADO" | string
+  createdAt: string
+  cliente: {
+    nome: string
+    email: string
+  }
+  itens: ItemPedido[]
 }
 
 interface ApiCategoria {
-id?: string
-value?: string
-label?: string
-nome?: string
+  id?: string
+  value?: string
+  label?: string
+  nome?: string
 }
 
 interface ApiTamanho {
-id: string
-nome?: string
-value?: string
+  id: string
+  nome?: string
+  value?: string
 }
 
 interface ApiCor {
-id: string
-nome?: string
-value?: string
+  id: string
+  nome?: string
+  value?: string
 }
 
 const TAMANHOS_INICIAIS: string[] = [
-"RN", "P", "M", "G", "GG", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16", "Unico", "Animais", "Normais"
+  "RN", "P", "M", "G", "GG", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16", "Unico", "Animais", "Normais"
 ]
 
 const CORES_INICIAIS: string[] = [
-"Preto", "Branco", "Azul", "Rosa", "Vermelho", "Amarelo", "Verde", "Cinza", "Bege", "Marrom", "Roxo", "Laranja", "Estampado"
+  "Preto", "Branco", "Azul", "Rosa", "Vermelho", "Amarelo", "Verde", "Cinza", "Bege", "Marrom", "Roxo", "Laranja", "Estampado"
 ]
 
 const CATEGORIAS_INICIAIS: CategoriaItem[] = [
-{ value: "CONJUNTOS", label: "Conjuntos" },
-{ value: "VESTIDOS", label: "Vestidos" },
-{ value: "BLUSAS", label: "Blusas e Camisetas" },
-{ value: "CALCAS_SHORTS", label: "Calças e Shorts" },
-{ value: "CALCADOS", label: "Calçados" },
-{ value: "ACESSORIOS", label: "Acessórios" },
+  { value: "CONJUNTOS", label: "Conjuntos" },
+  { value: "VESTIDOS", label: "Vestidos" },
+  { value: "BLUSAS", label: "Blusas e Camisetas" },
+  { value: "CALCAS_SHORTS", label: "Calças e Shorts" },
+  { value: "CALCADOS", label: "Calçados" },
+  { value: "ACESSORIOS", label: "Acessórios" },
 ]
 
 const OPCOES_FAIXA_ETARIA = [
-{ value: "0-1", label: "até 1 ano" },
-{ value: "1-2", label: "1 a 2 anos" },
-{ value: "3-5", label: "3 a 5 anos" },
-{ value: "6-8", label: "6 a 8 anos" },
-{ value: "9-plus", label: "+9 anos" },
+  { value: "0-1", label: "até 1 ano" },
+  { value: "1-2", label: "1 a 2 anos" },
+  { value: "3-5", label: "3 a 5 anos" },
+  { value: "6-8", label: "6 a 8 anos" },
+  { value: "9-plus", label: "+9 anos" },
 ]
 
 const OPCOES_LOCAIS = [
-{ value: "HOME_DESTAQUE", label: "Vitrine Destaques (Home)" },
-{ value: "HOME_NOVIDADES", label: "Lançamentos / Novidades (Home)" },
-{ value: "HOME_PROMOCOES", label: "Seção Promoções (Home)" },
-{ value: "CATALOGO_GERAL", label: "Apenas no Catálogo Geral" },
+  { value: "HOME_DESTAQUE", label: "Vitrine Destaques (Home)" },
+  { value: "HOME_NOVIDADES", label: "Lançamentos / Novidades (Home)" },
+  { value: "HOME_PROMOCOES", label: "Seção Promoções (Home)" },
+  { value: "CATALOGO_GERAL", label: "Apenas no Catálogo Geral" },
 ]
 
 const formatarMoeda = (valor: number): string => {
-return new Intl.NumberFormat("pt-BR", {
-style: "currency",
-currency: "BRL",
-}).format(valor || 0)
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(valor || 0)
 }
 
 export default function PaginaDashboardAdmin() {
-const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config" | "tiny">("geral")
-const [saindo, setSaindo] = useState(false)
-const [sidebarAberta, setSidebarAberta] = useState(false)
+  const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config" | "tiny">("geral")
+  const [saindo, setSaindo] = useState<boolean>(false)
+  const [sidebarAberta, setSidebarAberta] = useState<boolean>(false)
 
-// ESTADO DINÂMICO DE CATEGORIAS
-const [categorias, setCategorias] = useState<CategoriaItem[]>(CATEGORIAS_INICIAIS)
-const [novaCategoriaLabel, setNovaCategoriaLabel] = useState("")
-const [modalGerenciarCategorias, setModalGerenciarCategorias] = useState(false)
+  // ESTADO DINÂMICO DE CATEGORIAS
+  const [categorias, setCategorias] = useState<CategoriaItem[]>(CATEGORIAS_INICIAIS)
+  const [novaCategoriaLabel, setNovaCategoriaLabel] = useState<string>("")
+  const [modalGerenciarCategorias, setModalGerenciarCategorias] = useState<boolean>(false)
 
-// ESTADO DINÂMICO DE TAMANHOS
-const [opcoesTamanhos, setOpcoesTamanhos] = useState<TamanhoItem[]>(
-  TAMANHOS_INICIAIS.map((t, index) => ({ id: `temp-${index}`, nome: t }))
-)
-const [novoTamanho, setNovoTamanho] = useState("")
-const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState(false)
+  // ESTADO DINÂMICO DE TAMANHOS
+  const [opcoesTamanhos, setOpcoesTamanhos] = useState<TamanhoItem[]>(
+    TAMANHOS_INICIAIS.map((t, index) => ({ id: `temp-${index}`, nome: t }))
+  )
+  const [novoTamanho, setNovoTamanho] = useState<string>("")
+  const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState<boolean>(false)
 
-// ESTADO DINÂMICO DE CORES
-const [opcoesCores, setOpcoesCores] = useState<CorItem[]>(
-CORES_INICIAIS.map((c, index) => ({ id: temp-cor-${index}, nome: c }))
-)
-const [novaCor, setNovaCor] = useState("")
-const [modalGerenciarCores, setModalGerenciarCores] = useState(false)
+  // ESTADO DINÂMICO DE CORES
+  const [opcoesCores, setOpcoesCores] = useState<CorItem[]>(
+    CORES_INICIAIS.map((c, index) => ({ id: `temp-cor-${index}`, nome: c }))
+  )
+  const [novaCor, setNovaCor] = useState<string>("")
+  const [modalGerenciarCores, setModalGerenciarCores] = useState<boolean>(false)
 
-// INPUT MANUAL DE TAMANHO E COR NO MODAL DO PRODUTO
-const [tamanhoManualInput, setTamanhoManualInput] = useState("")
-const [corManualInput, setCorManualInput] = useState("")
+  // INPUT MANUAL DE TAMANHO E COR NO MODAL DO PRODUTO
+  const [tamanhoManualInput, setTamanhoManualInput] = useState<string>("")
+  const [corManualInput, setCorManualInput] = useState<string>("")
 
-// ESTADOS DE PRODUTOS
-const [produtos, setProdutos] = useState<Produto[]>([])
-const [carregandoProdutos, setCarregandoProdutos] = useState(false)
-const [buscaProduto, setBuscaProduto] = useState("")
-const [modalProduto, setModalProduto] = useState(false)
-const [produtoEditando, setProdutoEditando] = useState<Produto null |>(null)
-const [salvandoProduto, setSalvandoProduto] = useState(false)
-const [produtoParaExcluir, setProdutoParaExcluir] = useState<Produto null |>(null)
-const [deletandoProduto, setDeletandoProduto] = useState(false)
+  // ESTADOS DE PRODUTOS
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [carregandoProdutos, setCarregandoProdutos] = useState<boolean>(false)
+  const [buscaProduto, setBuscaProduto] = useState<string>("")
+  const [modalProduto, setModalProduto] = useState<boolean>(false)
+  const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null)
+  const [salvandoProduto, setSalvandoProduto] = useState<boolean>(false)
+  const [produtoParaExcluir, setProdutoParaExcluir] = useState<Produto | null>(null)
+  const [deletandoProduto, setDeletandoProduto] = useState<boolean>(false)
 
-// Form Produto
-const [formNome, setFormNome] = useState("")
-const [formDesc, setFormDesc] = useState("")
-const [formPreco, setFormPreco] = useState("")
-const [formPrecoPromocional, setFormPrecoPromocional] = useState("")
-const [formEstoqueManual, setFormEstoqueManual] = useState("0")
+  // Form Produto
+  const [formNome, setFormNome] = useState<string>("")
+  const [formDesc, setFormDesc] = useState<string>("")
+  const [formPreco, setFormPreco] = useState<string>("")
+  const [formPrecoPromocional, setFormPrecoPromocional] = useState<string>("")
+  const [formEstoqueManual, setFormEstoqueManual] = useState<string>("0")
+  
+  // Múltiplas imagens
+  const [formImagens, setFormImagens] = useState<string[]>([])
+  const [novaUrlImagem, setNovaUrlImagem] = useState<string>("")
 
-// Múltiplas imagens
-const [formImagens, setFormImagens] = useState<string[]>([])
-const [novaUrlImagem, setNovaUrlImagem] = useState("")
+  const [formTamanhos, setFormTamanhos] = useState<string[]>([])
+  const [formEstoquePorTamanho, setFormEstoquePorTamanho] = useState<Record<string, number>>({})
+  
+  const [formCores, setFormCores] = useState<string[]>([])
+  const [formEstoquePorCor, setFormEstoquePorCor] = useState<Record<string, number>>({})
 
-const [formTamanhos, setFormTamanhos] = useState<string[]>([])
-const [formEstoquePorTamanho, setFormEstoquePorTamanho] = useState<Record<string, number>>({})
+  const [formGenero, setFormGenero] = useState<string>("masculino")
+  const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
+  const [formFaixaEtaria, setFormFaixaEtaria] = useState<string>("0-1") 
+  const [formLocalCard, setFormLocalCard] = useState<string>("HOME_DESTAQUE")
 
-const [formCores, setFormCores] = useState<string[]>([])
-const [formEstoquePorCor, setFormEstoquePorCor] = useState<Record<string, number>>({})
+  // Refs para inputs de arquivo e câmera
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
-const [formGenero, setFormGenero] = useState("masculino")
-const [formCategoria, setFormCategoria] = useState("CONJUNTOS")
-const [formFaixaEtaria, setFormFaixaEtaria] = useState("0-1")
-const [formLocalCard, setFormLocalCard] = useState("HOME_DESTAQUE")
+  // ESTADOS DE CLIENTES
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [carregandoClientes, setCarregandoClientes] = useState<boolean>(false)
+  const [buscaCliente, setBuscaCliente] = useState<string>("")
+  const [clienteParaExcluir, setClienteParaExcluir] = useState<Cliente | null>(null)
+  const [deletandoCliente, setDeletandoCliente] = useState<boolean>(false)
 
-// Refs para inputs de arquivo e câmera
-const fileInputRef = useRef(null)
-const cameraInputRef = useRef(null)
+  // ESTADOS DE PEDIDOS
+  const [pedidos, setPedidos] = useState<Pedido[]>([])
+  const [carregandoPedidos, setCarregandoPedidos] = useState<boolean>(false)
+  const [buscaPedido, setBuscaPedido] = useState<string>("")
+  const [pedidoDetalhes, setPedidoDetalhes] = useState<Pedido | null>(null)
+  const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null)
+  const [pedidoParaExcluir, setPedidoParaExcluir] = useState<Pedido | null>(null)
+  const [deletandoPedido, setDeletandoPedido] = useState<boolean>(false)
 
-// ESTADOS DE CLIENTES
-const [clientes, setClientes] = useState<Cliente[]>([])
-const [carregandoClientes, setCarregandoClientes] = useState(false)
-const [buscaCliente, setBuscaCliente] = useState("")
-const [clienteParaExcluir, setClienteParaExcluir] = useState<Cliente null |>(null)
-const [deletandoCliente, setDeletandoCliente] = useState(false)
+  // ESTADOS MINHA CONTA & CONFIG
+  const [nomeAdmin, setNomeAdmin] = useState<string>("Administrador")
+  const [emailAdmin, setEmailAdmin] = useState<string>("admin@seusite.com")
+  const [nomeLoja, setNomeLoja] = useState<string>("JKfashion Kids")
 
-// ESTADOS DE PEDIDOS
-const [pedidos, setPedidos] = useState<Pedido[]>([])
-const [carregandoPedidos, setCarregandoPedidos] = useState(false)
-const [buscaPedido, setBuscaPedido] = useState("")
-const [pedidoDetalhes, setPedidoDetalhes] = useState<Pedido null |>(null)
-const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null)
-const [pedidoParaExcluir, setPedidoParaExcluir] = useState<Pedido null |>(null)
-const [deletandoPedido, setDeletandoPedido] = useState(false)
+  // ESTADOS PARA IMPORTAÇÃO DO TINY ERP
+  const [loadingTiny, setLoadingTiny] = useState<boolean>(false)
+  const [tinyMessage, setTinyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-// ESTADOS MINHA CONTA & CONFIG
-const [nomeAdmin, setNomeAdmin] = useState("Administrador")
-const [emailAdmin, setEmailAdmin] = useState("admin@seusite.com")
-const [nomeLoja, setNomeLoja] = useState("JKfashion Kids")
+  // NOTIFICAÇÕES TOAST LOCAIS
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-// ESTADOS PARA IMPORTAÇÃO DO TINY ERP
-const [loadingTiny, setLoadingTiny] = useState(false)
-const [tinyMessage, setTinyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-// NOTIFICAÇÕES TOAST LOCAIS
-const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-const exibirToast = (text: string, type: 'success' | 'error' = 'success') => {
-setToastMessage({ text, type })
-setTimeout(() => setToastMessage(null), 4000)
-}
-
-// BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
-const carregarCategorias = async () => {
-try {
-const res = await fetch("/api/admin/categorias")
-if (res.ok) {
-const data: ApiCategoria[] = await res.json()
-if (Array.isArray(data) && data.length > 0) {
-const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
-id: cat.id,
-value: cat.id || cat.value || cat.nome || "",
-label: cat.nome || cat.label || cat.value || ""
-}))
-setCategorias(catsFormatadas)
-}
-}
-} catch (error) {
-console.error("Erro ao carregar categorias da API:", error)
-}
-}
-
-// BUSCAR TAMANHOS DO BANCO DE DADOS (API)
-const carregarTamanhos = async () => {
-try {
-const res = await fetch("/api/admin/tamanhos")
-if (res.ok) {
-const data: ApiTamanho[] = await res.json()
-if (Array.isArray(data) && data.length > 0) {
-const tamanhosFormatados: TamanhoItem[] = data.map((t) => ({
-id: t.id,
-nome: t.nome || t.value || ""
-}))
-setOpcoesTamanhos(tamanhosFormatados)
-}
-}
-} catch (error) {
-console.error("Erro ao carregar tamanhos da API:", error)
-}
-}
-
-// BUSCAR CORES DO BANCO DE DADOS (API)
-const carregarCores = async () => {
-try {
-const res = await fetch("/api/admin/cores")
-if (res.ok) {
-const data: ApiCor[] = await res.json()
-if (Array.isArray(data) && data.length > 0) {
-const coresFormatadas: CorItem[] = data.map((c) => ({
-id: c.id,
-nome: c.nome || c.value || ""
-}))
-setOpcoesCores(coresFormatadas)
-}
-}
-} catch (error) {
-console.error("Erro ao carregar cores da API:", error)
-}
-}
-
-const handleImportTiny = async (e: React.ChangeEvent) => {
-const file = e.target.files?.[0]
-if (!file) return
-
-setLoadingTiny(true)
-setTinyMessage(null)
-
-const formData = new FormData()
-formData.append('file', file)
-
-try {
-  const response = await fetch('/api/admin/produtos/importar', { 
-    method: 'POST', 
-    body: formData 
-  })
-
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    setTinyMessage({ 
-      type: 'error', 
-      text: data.error || data.erro || 'Erro ao processar o arquivo do Tiny.' 
-    })
-    return
+  const exibirToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ text, type })
+    setTimeout(() => setToastMessage(null), 4000)
   }
 
-  setTinyMessage({ 
-    type: 'success', 
-    text: data.message || `Arquivo "${file.name}" importado com sucesso!` 
-  })
-  exibirToast("Importação do Tiny concluída com sucesso!")
-  carregarProdutos()
-  carregarCategorias()
-} catch (error) {
-  console.error('Erro na importação:', error)
-  setTinyMessage({ 
-    type: 'error', 
-    text: 'Erro de conexão ao enviar o arquivo do Tiny.' 
-  })
-} fontally {
-  setLoadingTiny(false)
-  e.target.value = ''
-}
-}
+  // BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
+  const carregarCategorias = async () => {
+    try {
+      const res = await fetch("/api/admin/categorias")
+      if (res.ok) {
+        const data: ApiCategoria[] = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
+            id: cat.id,
+            value: cat.id || cat.value || cat.nome || "",
+            label: cat.nome || cat.label || cat.value || ""
+          }))
+          setCategorias(catsFormatadas)
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar categorias da API:", error)
+    }
+  }
 
-// HANDLERS DE CATEGORIAS
-const handleAdicionarCategoria = async (e: React.FormEvent) => {
-e.preventDefault()
-const nomeFormatado = novaCategoriaLabel.trim()
-if (!nomeFormatado) return
+  // BUSCAR TAMANHOS DO BANCO DE DADOS (API)
+  const carregarTamanhos = async () => {
+    try {
+      const res = await fetch("/api/admin/tamanhos")
+      if (res.ok) {
+        const data: ApiTamanho[] = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          const tamanhosFormatados: TamanhoItem[] = data.map((t) => ({
+            id: t.id,
+            nome: t.nome || t.value || ""
+          }))
+          setOpcoesTamanhos(tamanhosFormatados)
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar tamanhos da API:", error)
+    }
+  }
 
-try {
-  const res = await fetch("/api/admin/categorias", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nome: nomeFormatado }),
-  })
+  // BUSCAR CORES DO BANCO DE DADOS (API)
+  const carregarCores = async () => {
+    try {
+      const res = await fetch("/api/admin/cores")
+      if (res.ok) {
+        const data: ApiCor[] = await res.json()
+        if (Array.isArray(data) && data.length > 0) {
+          const coresFormatadas: CorItem[] = data.map((c) => ({
+            id: c.id,
+            nome: c.nome || c.value || ""
+          }))
+          setOpcoesCores(coresFormatadas)
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar cores da API:", error)
+    }
+  }
 
-  if (res.ok) {
-    const novaCatBanco: ApiCategoria = await res.json()
-    const catItem: CategoriaItem = {
-      id: novaCatBanco.id,
-      value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
-      label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
+  const handleImportTiny = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLoadingTiny(true)
+    setTinyMessage(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const response = await fetch('/api/admin/produtos/importar', { 
+        method: 'POST', 
+        body: formData 
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        setTinyMessage({ 
+          type: 'error', 
+          text: data.error || data.erro || 'Erro ao processar o arquivo do Tiny.' 
+        })
+        return
+      }
+
+      setTinyMessage({ 
+        type: 'success', 
+        text: data.message || `Arquivo "${file.name}" importado com sucesso!` 
+      })
+      exibirToast("Importação do Tiny concluída com sucesso!")
+      carregarProdutos()
+      carregarCategorias()
+    } catch (error) {
+      console.error('Erro na importação:', error)
+      setTinyMessage({ 
+        type: 'error', 
+        text: 'Erro de conexão ao enviar o arquivo do Tiny.' 
+      })
+    } fontally {
+      setLoadingTiny(false)
+      e.target.value = ''
+    }
+  }
+
+  // HANDLERS DE CATEGORIAS
+  const handleAdicionarCategoria = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const nomeFormatado = novaCategoriaLabel.trim()
+    if (!nomeFormatado) return
+
+    try {
+      const res = await fetch("/api/admin/categorias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: nomeFormatado }),
+      })
+
+      if (res.ok) {
+        const novaCatBanco: ApiCategoria = await res.json()
+        const catItem: CategoriaItem = {
+          id: novaCatBanco.id,
+          value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
+          label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
+        }
+
+        setCategorias((prev) => {
+          if (prev.some((c) => c.value === catItem.value)) return prev
+          return [...prev, catItem]
+        })
+        setFormCategoria(catItem.value)
+        setNovaCategoriaLabel("")
+        exibirToast(`Categoria "${nomeFormatado}" adicionada!`)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.erro || data.error || "Erro ao adicionar categoria.")
+      }
+    } catch (error) {
+      console.error("Erro ao salvar categoria:", error)
+      alert("Erro de conexão ao salvar categoria.")
+    }
+  }
+
+  const handleDeletarCategoria = async (valueParaRemover: string) => {
+    if (categorias.length <= 1) {
+      alert("A loja precisa ter pelo menos uma categoria cadastrada.")
+      return
     }
 
-    setCategorias((prev) => {
-      if (prev.some((c) => c.value === catItem.value)) return prev
-      return [...prev, catItem]
-    })
-    setFormCategoria(catItem.value)
-    setNovaCategoriaLabel("")
-    exibirToast(`Categoria "${nomeFormatado}" adicionada!`)
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.erro || data.error || "Erro ao adicionar categoria.")
+    try {
+      const res = await fetch(`/api/admin/categorias/${encodeURIComponent(valueParaRemover)}`, {
+        method: "DELETE",
+      })
+
+      if (res.ok) {
+        const novasCategorias = categorias.filter((c) => c.value !== valueParaRemover)
+        setCategorias(novasCategorias)
+
+        if (formCategoria === valueParaRemover && novasCategorias.length > 0) {
+          setFormCategoria(novasCategorias[0].value)
+        }
+
+        await carregarCategorias()
+        exibirToast("Categoria removida com sucesso!")
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.erro || data.error || "Não foi possível excluir a categoria.")
+      }
+    } catch (error) {
+      console.error("Erro ao excluir categoria:", error)
+      alert("Erro de conexão ao excluir categoria.")
+    }
   }
-} catch (error) {
-  console.error("Erro ao salvar categoria:", error)
-  alert("Erro de conexão ao salvar categoria.")
-}
-}
 
-const handleDeletarCategoria = async (valueParaRemover: string) => {
-if (categorias.length <= 1) {
-alert("A loja precisa ter pelo menos uma categoria cadastrada.")
-return
-}
+  // HANDLERS DE TAMANHOS GLOBAIS
+  const handleAdicionarTamanho = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const tamFormatado = novoTamanho.trim()
+    if (!tamFormatado) return
 
-try {
-  const res = await fetch(`/api/admin/categorias/${encodeURIComponent(valueParaRemover)}`, {
-    method: "DELETE",
-  })
-
-  if (res.ok) {
-    const novasCategorias = categorias.filter((c) => c.value !== valueParaRemover)
-    setCategorias(novasCategorias)
-
-    if (formCategoria === valueParaRemover && novasCategorias.length > 0) {
-      setFormCategoria(novasCategorias[0].value)
+    if (opcoesTamanhos.some((t) => t.nome.toLowerCase() === tamFormatado.toLowerCase())) {
+      alert("Este tamanho já existe no banco!")
+      return
     }
 
-    await carregarCategorias()
-    exibirToast("Categoria removida com sucesso!")
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.erro || data.error || "Não foi possível excluir a categoria.")
-  }
-} catch (error) {
-  console.error("Erro ao excluir categoria:", error)
-  alert("Erro de conexão ao excluir categoria.")
-}
-}
+    try {
+      const res = await fetch("/api/admin/tamanhos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: tamFormatado }),
+      })
 
-// HANDLERS DE TAMANHOS GLOBAIS
-const handleAdicionarTamanho = async (e: React.FormEvent) => {
-e.preventDefault()
-const tamFormatado = novoTamanho.trim()
-if (!tamFormatado) return
-
-if (opcoesTamanhos.some((t) => t.nome.toLowerCase() === tamFormatado.toLowerCase())) {
-  alert("Este tamanho já existe no banco!")
-  return
-}
-
-try {
-  const res = await fetch("/api/admin/tamanhos", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nome: tamFormatado }),
-  })
-
-  if (res.ok) {
-    const novoTamBanco: ApiTamanho = await res.json()
-    setOpcoesTamanhos((prev) => [
-      ...prev, 
-      { id: novoTamBanco.id || String(Date.now()), nome: novoTamBanco.nome || tamFormatado }
-    ])
-    setNovoTamanho("")
-    exibirToast(`Tamanho "${tamFormatado}" adicionado!`)
-  } else {
-    setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: tamFormatado }])
-    setNovoTamanho("")
-  }
-} catch (error) {
-  console.error("Erro ao salvar tamanho:", error)
-  setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: tamFormatado }])
-  setNovoTamanho("")
-}
-}
-
-const handleDeletarTamanho = async (tamanhoItem: string | { id: string; nome: string }) => {
-const idParaDeletar = typeof tamanhoItem === 'object' ? tamanhoItem.id : tamanhoItem
-const nomeParaFiltro = typeof tamanhoItem === 'object' ? tamanhoItem.nome : tamanhoItem
-
-if (idParaDeletar.startsWith("temp-") || idParaDeletar.startsWith("local-")) {
-  setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
-  if (formTamanhos.includes(nomeParaFiltro)) {
-    handleRemoverTamanhoDoProduto(nomeParaFiltro)
-  }
-  exibirToast("Tamanho removido!")
-  return
-}
-
-try {
-  const res = await fetch(`/api/admin/tamanhos/${idParaDeletar}`, {
-    method: "DELETE",
-  })
-
-  if (!res.ok) {
-    const erroData = await res.json().catch(() => null)
-    throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      if (res.ok) {
+        const novoTamBanco: ApiTamanho = await res.json()
+        setOpcoesTamanhos((prev) => [
+          ...prev, 
+          { id: novoTamBanco.id || String(Date.now()), nome: novoTamBanco.nome || tamFormatado }
+        ])
+        setNovoTamanho("")
+        exibirToast(`Tamanho "${tamFormatado}" adicionado!`)
+      } else {
+        setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: tamFormatado }])
+        setNovoTamanho("")
+      }
+    } catch (error) {
+      console.error("Erro ao salvar tamanho:", error)
+      setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: tamFormatado }])
+      setNovoTamanho("")
+    }
   }
 
-  setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+  const handleDeletarTamanho = async (tamanhoItem: string | { id: string; nome: string }) => {
+    const idParaDeletar = typeof tamanhoItem === 'object' ? tamanhoItem.id : tamanhoItem
+    const nomeParaFiltro = typeof tamanhoItem === 'object' ? tamanhoItem.nome : tamanhoItem
 
-  if (formTamanhos.includes(nomeParaFiltro)) {
-    handleRemoverTamanhoDoProduto(nomeParaFiltro)
-  }
-  exibirToast("Tamanho excluído do banco!")
-} catch (error: any) {
-  console.error("Detalhe do erro ao deletar tamanho:", error)
-  setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
-  if (formTamanhos.includes(nomeParaFiltro)) {
-    handleRemoverTamanhoDoProduto(nomeParaFiltro)
-  }
-}
-}
+    if (idParaDeletar.startsWith("temp-") || idParaDeletar.startsWith("local-")) {
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Tamanho removido!")
+      return
+    }
 
-// HANDLERS DE CORES GLOBAIS
-const handleAdicionarCor = async (e: React.FormEvent) => {
-e.preventDefault()
-const corFormatada = novaCor.trim()
-if (!corFormatada) return
+    try {
+      const res = await fetch(`/api/admin/tamanhos/${idParaDeletar}`, {
+        method: "DELETE",
+      })
 
-if (opcoesCores.some((c) => c.nome.toLowerCase() === corFormatada.toLowerCase())) {
-  alert("Esta cor já existe no banco!")
-  return
-}
+      if (!res.ok) {
+        const erroData = await res.json().catch(() => null)
+        throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      }
 
-try {
-  const res = await fetch("/api/admin/cores", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nome: corFormatada }),
-  })
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
 
-  if (res.ok) {
-    const novaCorBanco: ApiCor = await res.json()
-    setOpcoesCores((prev) => [
-      ...prev, 
-      { id: novaCorBanco.id || String(Date.now()), nome: novaCorBanco.nome || corFormatada }
-    ])
-    setNovaCor("")
-    exibirToast(`Cor "${corFormatada}" adicionada!`)
-  } else {
-    setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
-    setNovaCor("")
-  }
-} catch (error) {
-  console.error("Erro ao salvar cor:", error)
-  setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
-  setNovaCor("")
-}
-}
-
-const handleDeletarCor = async (corItem: string | { id: string; nome: string }) => {
-const idParaDeletar = typeof corItem === 'object' ? corItem.id : corItem
-const nomeParaFiltro = typeof corItem === 'object' ? corItem.nome : corItem
-
-if (idParaDeletar.startsWith("temp-cor-") || idParaDeletar.startsWith("local-cor-")) {
-  setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
-  if (formCores.includes(nomeParaFiltro)) {
-    handleRemoverCorDoProduto(nomeParaFiltro)
-  }
-  exibirToast("Cor removida!")
-  return
-}
-
-try {
-  const res = await fetch(`/api/admin/cores/${idParaDeletar}`, {
-    method: "DELETE",
-  })
-
-  if (!res.ok) {
-    const erroData = await res.json().catch(() => null)
-    throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Tamanho excluído do banco!")
+    } catch (error: any) {
+      console.error("Detalhe do erro ao deletar tamanho:", error)
+      setOpcoesTamanhos((prev) => prev.filter((t) => t.id !== idParaDeletar && t.nome !== nomeParaFiltro))
+      if (formTamanhos.includes(nomeParaFiltro)) {
+        handleRemoverTamanhoDoProduto(nomeParaFiltro)
+      }
+    }
   }
 
-  setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+  // HANDLERS DE CORES GLOBAIS
+  const handleAdicionarCor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const corFormatada = novaCor.trim()
+    if (!corFormatada) return
 
-  if (formCores.includes(nomeParaFiltro)) {
-    handleRemoverCorDoProduto(nomeParaFiltro)
+    if (opcoesCores.some((c) => c.nome.toLowerCase() === corFormatada.toLowerCase())) {
+      alert("Esta cor já existe no banco!")
+      return
+    }
+
+    try {
+      const res = await fetch("/api/admin/cores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: corFormatada }),
+      })
+
+      if (res.ok) {
+        const novaCorBanco: ApiCor = await res.json()
+        setOpcoesCores((prev) => [
+          ...prev, 
+          { id: novaCorBanco.id || String(Date.now()), nome: novaCorBanco.nome || corFormatada }
+        ])
+        setNovaCor("")
+        exibirToast(`Cor "${corFormatada}" adicionada!`)
+      } else {
+        setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
+        setNovaCor("")
+      }
+    } catch (error) {
+      console.error("Erro ao salvar cor:", error)
+      setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: corFormatada }])
+      setNovaCor("")
+    }
   }
-  exibirToast("Cor excluída do banco!")
-} catch (error: any) {
-  console.error("Detalhe do erro ao deletar cor:", error)
-  setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
-  if (formCores.includes(nomeParaFiltro)) {
-    handleRemoverCorDoProduto(nomeParaFiltro)
+
+  const handleDeletarCor = async (corItem: string | { id: string; nome: string }) => {
+    const idParaDeletar = typeof corItem === 'object' ? corItem.id : corItem
+    const nomeParaFiltro = typeof corItem === 'object' ? corItem.nome : corItem
+
+    if (idParaDeletar.startsWith("temp-cor-") || idParaDeletar.startsWith("local-cor-")) {
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Cor removida!")
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/admin/cores/${idParaDeletar}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const erroData = await res.json().catch(() => null)
+        throw new Error(erroData?.erro || `Erro HTTP: ${res.status}`)
+      }
+
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+      exibirToast("Cor excluída do banco!")
+    } catch (error: any) {
+      console.error("Detalhe do erro ao deletar cor:", error)
+      setOpcoesCores((prev) => prev.filter((c) => c.id !== idParaDeletar && c.nome !== nomeParaFiltro))
+      if (formCores.includes(nomeParaFiltro)) {
+        handleRemoverCorDoProduto(nomeParaFiltro)
+      }
+    }
   }
-}
-}
 
-// GERENCIAMENTO DE TAMANHOS NO PRODUTO ATUAL
-const toggleTamanho = (tam: string) => {
-setFormTamanhos((prev) => {
-const existe = prev.includes(tam)
-if (existe) {
-const novosTamanhos = prev.filter((t) => t !== tam)
-const novoEstoque = { ...formEstoquePorTamanho }
-delete novoEstoque[tam]
-setFormEstoquePorTamanho(novoEstoque)
-return novosTamanhos
-} else {
-setFormEstoquePorTamanho((prevEstoque) => ({
-...prevEstoque,
-[tam]: prevEstoque[tam] ?? 1,
-}))
-return [...prev, tam]
-}
-})
-}
+  // GERENCIAMENTO DE TAMANHOS NO PRODUTO ATUAL
+  const toggleTamanho = (tam: string) => {
+    setFormTamanhos((prev) => {
+      const existe = prev.includes(tam)
+      if (existe) {
+        const novosTamanhos = prev.filter((t) => t !== tam)
+        const novoEstoque = { ...formEstoquePorTamanho }
+        delete novoEstoque[tam]
+        setFormEstoquePorTamanho(novoEstoque)
+        return novosTamanhos
+      } else {
+        setFormEstoquePorTamanho((prevEstoque) => ({
+          ...prevEstoque,
+          [tam]: prevEstoque[tam] ?? 1,
+        }))
+        return [...prev, tam]
+      }
+    })
+  }
 
-const handleRemoverTamanhoDoProduto = (tamNome: string) => {
-setFormTamanhos((prev) => prev.filter((t) => t !== tamNome))
-setFormEstoquePorTamanho((prev) => {
-const novo = { ...prev }
-delete novo[tamNome]
-return novo
-})
-}
+  const handleRemoverTamanhoDoProduto = (tamNome: string) => {
+    setFormTamanhos((prev) => prev.filter((t) => t !== tamNome))
+    setFormEstoquePorTamanho((prev) => {
+      const novo = { ...prev }
+      delete novo[tamNome]
+      return novo
+    })
+  }
 
-const handleAdicionarTamanhoManualAoProduto = () => {
-const nomeFormatado = tamanhoManualInput.trim()
-if (!nomeFormatado) return
+  const handleAdicionarTamanhoManualAoProduto = () => {
+    const nomeFormatado = tamanhoManualInput.trim()
+    if (!nomeFormatado) return
 
-if (!formTamanhos.includes(nomeFormatado)) {
-  setFormTamanhos((prev) => [...prev, nomeFormatado])
-  setFormEstoquePorTamanho((prev) => ({
-    ...prev,
-    [nomeFormatado]: prev[nomeFormatado] ?? 1,
-  }))
-}
+    if (!formTamanhos.includes(nomeFormatado)) {
+      setFormTamanhos((prev) => [...prev, nomeFormatado])
+      setFormEstoquePorTamanho((prev) => ({
+        ...prev,
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
+      }))
+    }
 
-if (!opcoesTamanhos.some((t) => t.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
-  setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: nomeFormatado }])
-}
+    if (!opcoesTamanhos.some((t) => t.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+      setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: nomeFormatado }])
+    }
 
-setTamanhoManualInput("")
-}
+    setTamanhoManualInput("")
+  }
 
-const handleQtdTamanhoChange = (tamanho: string, quantidade: number) => {
-setFormEstoquePorTamanho((prev) => ({
-...prev,
-[tamanho]: Math.max(0, quantidade),
-}))
-}
+  const handleQtdTamanhoChange = (tamanho: string, quantidade: number) => {
+    setFormEstoquePorTamanho((prev) => ({
+      ...prev,
+      [tamanho]: Math.max(0, quantidade),
+    }))
+  }
 
-// GERENCIAMENTO DE CORES NO PRODUTO ATUAL
-const toggleCor = (cor: string) => {
-setFormCores((prev) => {
-const existe = prev.includes(cor)
-if (existe) {
-const novasCores = prev.filter((c) => c !== cor)
-const novoEstoque = { ...formEstoquePorCor }
-delete novoEstoque[cor]
-setFormEstoquePorCor(novoEstoque)
-return novasCores
-} else {
-setFormEstoquePorCor((prevEstoque) => ({
-...prevEstoque,
-[cor]: prevEstoque[cor] ?? 1,
-}))
-return [...prev, cor]
-}
-})
-}
+  // GERENCIAMENTO DE CORES NO PRODUTO ATUAL
+  const toggleCor = (cor: string) => {
+    setFormCores((prev) => {
+      const existe = prev.includes(cor)
+      if (existe) {
+        const novasCores = prev.filter((c) => c !== cor)
+        const novoEstoque = { ...formEstoquePorCor }
+        delete novoEstoque[cor]
+        setFormEstoquePorCor(novoEstoque)
+        return novasCores
+      } else {
+        setFormEstoquePorCor((prevEstoque) => ({
+          ...prevEstoque,
+          [cor]: prevEstoque[cor] ?? 1,
+        }))
+        return [...prev, cor]
+      }
+    })
+  }
 
-const handleRemoverCorDoProduto = (corNome: string) => {
-setFormCores((prev) => prev.filter((c) => c !== corNome))
-setFormEstoquePorCor((prev) => {
-const novo = { ...prev }
-delete novo[corNome]
-return novo
-})
-}
+  const handleRemoverCorDoProduto = (corNome: string) => {
+    setFormCores((prev) => prev.filter((c) => c !== corNome))
+    setFormEstoquePorCor((prev) => {
+      const novo = { ...prev }
+      delete novo[corNome]
+      return novo
+    })
+  }
 
-const handleAdicionarCorManualAoProduto = () => {
-const nomeFormatado = corManualInput.trim()
-if (!nomeFormatado) return
+  const handleAdicionarCorManualAoProduto = () => {
+    const nomeFormatado = corManualInput.trim()
+    if (!nomeFormatado) return
 
-if (!formCores.includes(nomeFormatado)) {
-  setFormCores((prev) => [...prev, nomeFormatado])
-  setFormEstoquePorCor((prev) => ({
-    ...prev,
-    [nomeFormatado]: prev[nomeFormatado] ?? 1,
-  }))
-}
+    if (!formCores.includes(nomeFormatado)) {
+      setFormCores((prev) => [...prev, nomeFormatado])
+      setFormEstoquePorCor((prev) => ({
+        ...prev,
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
+      }))
+    }
 
-if (!opcoesCores.some((c) => c.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
-  setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: nomeFormatado }])
-}
+    if (!opcoesCores.some((c) => c.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+      setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: nomeFormatado }])
+    }
 
-setCorManualInput("")
-}
+    setCorManualInput("")
+  }
 
-const handleQtdCorChange = (cor: string, quantidade: number) => {
-setFormEstoquePorCor((prev) => ({
-...prev,
-[cor]: Math.max(0, quantidade),
-}))
-}
+  const handleQtdCorChange = (cor: string, quantidade: number) => {
+    setFormEstoquePorCor((prev) => ({
+      ...prev,
+      [cor]: Math.max(0, quantidade),
+    }))
+  }
+  
+  const totalEstoqueCalculado = formTamanhos.length > 0 
+    ? formTamanhos.reduce((acc, tam) => acc + (formEstoquePorTamanho[tam] || 0), 0)
+    : formCores.length > 0
+    ? formCores.reduce((acc, cor) => acc + (formEstoquePorCor[cor] || 0), 0)
+    : 0
 
-const totalEstoqueCalculado = formTamanhos.length > 0
-? formTamanhos.reduce((acc, tam) => acc + (formEstoquePorTamanho[tam] || 0), 0)
-: formCores.length > 0
-? formCores.reduce((acc, cor) => acc + (formEstoquePorCor[cor] || 0), 0)
-: 0
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        if (result) {
+          setFormImagens((prev) => [...prev, result])
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+    e.target.value = ""
+  }
 
-const handleFileChange = (e: React.ChangeEvent) => {
-const file = e.target.files?.[0]
-if (file) {
-const reader = new FileReader()
-reader.onloadend = () => {
-const result = reader.result as string
-if (result) {
-setFormImagens((prev) => [...prev, result])
-}
-}
-reader.readAsDataURL(file)
-}
-e.target.value = ""
-}
+  const handleAdicionarUrlImagem = () => {
+    if (!novaUrlImagem.trim()) return
+    setFormImagens((prev) => [...prev, novaUrlImagem.trim()])
+    setNovaUrlImagem("")
+  }
 
-const handleAdicionarUrlImagem = () => {
-if (!novaUrlImagem.trim()) return
-setFormImagens((prev) => [...prev, novaUrlImagem.trim()])
-setNovaUrlImagem("")
-}
+  const handleDefinirCapaImagem = (index: number) => {
+    if (index === 0) return
+    setFormImagens((prev) => {
+      const novas = [...prev]
+      const [item] = novas.splice(index, 1)
+      novas.unshift(item)
+      return novas
+    })
+    exibirToast("Imagem definida como capa principal!")
+  }
 
-const handleDefinirCapaImagem = (index: number) => {
-if (index === 0) return
-setFormImagens((prev) => {
-const novas = [...prev]
-const [item] = novas.splice(index, 1)
-novas.unshift(item)
-return novas
-})
-exibirToast("Imagem definida como capa principal!")
-}
+  const handleRemoverImagem = (index: number) => {
+    setFormImagens((prev) => prev.filter((_, i) => i !== index))
+  }
 
-const handleRemoverImagem = (index: number) => {
-setFormImagens((prev) => prev.filter((_, i) => i !== index))
-}
+  const carregarProdutos = async () => {
+    setCarregandoProdutos(true)
+    try {
+      const res = await fetch("/api/admin/produtos")
+      if (res.ok) {
+        const data: Produto[] = await res.json()
+        setProdutos(data)
+      }
+    } catch (err) {
+      console.error("Erro ao carregar produtos:", err)
+    } finally {
+      setCarregandoProdutos(false)
+    }
+  }
 
-const carregarProdutos = async () => {
-setCarregandoProdutos(true)
-try {
-const res = await fetch("/api/admin/produtos")
-if (res.ok) {
-const data: Produto[] = await res.json()
-setProdutos(data)
-}
-} catch (err) {
-console.error("Erro ao carregar produtos:", err)
-} finally {
-setCarregandoProdutos(false)
-}
-}
+  const carregarClientes = async () => {
+    setCarregandoClientes(true)
+    try {
+      const res = await fetch("/api/admin/clientes")
+      if (res.ok) setClientes(await res.json())
+    } catch (err) {
+      console.error("Erro ao carregar clientes:", err)
+    } finally {
+      setCarregandoClientes(false)
+    }
+  }
 
-const carregarClientes = async () => {
-setCarregandoClientes(true)
-try {
-const res = await fetch("/api/admin/clientes")
-if (res.ok) setClientes(await res.json())
-} catch (err) {
-console.error("Erro ao carregar clientes:", err)
-} finally {
-setCarregandoClientes(false)
-}
-}
+  const carregarPedidos = async () => {
+    setCarregandoPedidos(true)
+    try {
+      const res = await fetch("/api/admin/pedidos")
+      if (res.ok) setPedidos(await res.json())
+    } catch (err) {
+      console.error("Erro ao carregar pedidos:", err)
+    } finally {
+      setCarregandoPedidos(false)
+    }
+  }
 
-const carregarPedidos = async () => {
-setCarregandoPedidos(true)
-try {
-const res = await fetch("/api/admin/pedidos")
-if (res.ok) setPedidos(await res.json())
-} catch (err) {
-console.error("Erro ao carregar pedidos:", err)
-} finally {
-setCarregandoPedidos(false)
-}
-}
+  useEffect(() => {
+    carregarCategorias()
+    carregarTamanhos()
+    carregarCores()
+    if (abaAtiva === "produtos" || abaAtiva === "geral") carregarProdutos()
+    if (abaAtiva === "clientes" || abaAtiva === "geral") carregarClientes()
+    if (abaAtiva === "pedidos" || abaAtiva === "geral") carregarPedidos()
+  }, [abaAtiva])
 
-useEffect(() => {
-carregarCategorias()
-carregarTamanhos()
-carregarCores()
-if (abaAtiva === "produtos" || abaAtiva === "geral") carregarProdutos()
-if (abaAtiva === "clientes" || abaAtiva === "geral") carregarClientes()
-if (abaAtiva === "pedidos" || abaAtiva === "geral") carregarPedidos()
-}, [abaAtiva])
+  const handleMudarAba = (aba: typeof abaAtiva) => {
+    setAbaAtiva(aba)
+    setSidebarAberta(false)
+  }
 
-const handleMudarAba = (aba: typeof abaAtiva) => {
-setAbaAtiva(aba)
-setSidebarAberta(false)
-}
-
-const handleAbrirNovoProduto = () => {
-setProdutoEditando(null)
-setFormNome("")
-setFormDesc("")
-setFormPreco("")
-setFormPrecoPromocional("")
-setFormEstoqueManual("0")
-setFormImagens([])
-setNovaUrlImagem("")
-setFormTamanhos([])
-setFormEstoquePorTamanho({})
-setFormCores([])
-setFormEstoquePorCor({})
-setTamanhoManualInput("")
-setCorManualInput("")
-setFormGenero("masculino")
-setFormCategoria(categorias[0]?.value || "CONJUNTOS")
-setFormFaixaEtaria("0-1")
-setFormLocalCard("HOME_DESTAQUE")
-setModalProduto(true)
-}
-
-const handleAbrirEditarProduto = (prod: Produto) => {
-setProdutoEditando(prod)
-setFormNome(prod.nome || "")
-setFormDesc(prod.descricao || "")
-setFormPreco(prod.preco !== undefined && prod.preco !== null ? prod.preco.toString() : "")
-setFormPrecoPromocional(prod.precoPromocional !== undefined && prod.precoPromocional !== null ? prod.precoPromocional.toString() : "")
-setFormEstoqueManual(prod.estoque !== undefined && prod.estoque !== null ? prod.estoque.toString() : "0")
-
-let imgs: string[] = []
-if (prod.imagens && prod.imagens.length > 0) {
-  imgs = [...prod.imagens]
-} else if (prod.imagemUrl) {
-  imgs = [prod.imagemUrl]
-}
-setFormImagens(imgs)
-setNovaUrlImagem("")
-setTamanhoManualInput("")
-setCorManualInput("")
-
-setFormTamanhos(prod.tamanhos || [])
-setFormCores(prod.cores || [])
-setFormGenero(prod.genero || "masculino")
-
-let catValor = ""
-if (typeof prod.categoria === "object" && prod.categoria !== null) {
-  catValor = prod.categoria.id || prod.categoria.value || prod.categoria.nome || ""
-} else if (typeof prod.categoria === "string") {
-  catValor = prod.categoria
-} else if (prod.categoriaId) {
-  catValor = prod.categoriaId
-}
-
-const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
-setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
-
-setFormFaixaEtaria(prod.faixaEtaria || "0-1") 
-setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
-
-if (prod.estoquePorTamanho && Object.keys(prod.estoquePorTamanho).length > 0) {
-  setFormEstoquePorTamanho({ ...prod.estoquePorTamanho })
-} else if (prod.tamanhos && prod.tamanhos.length > 0) {
-  const base = Math.floor((prod.estoque || 0) / prod.tamanhos.length)
-  const resto = (prod.estoque || 0) % prod.tamanhos.length
-  const mapaEstoque: Record<string, number> = {}
-  prod.tamanhos.forEach((t, idx) => {
-    mapaEstoque[t] = base + (idx < resto ? 1 : 0)
-  })
-  setFormEstoquePorTamanho(mapaEstoque)
-} else {
-  setFormEstoquePorTamanho({})
-}
-
-if (prod.estoquePorCor && Object.keys(prod.estoquePorCor).length > 0) {
-  setFormEstoquePorCor({ ...prod.estoquePorCor })
-} else if (prod.cores && prod.cores.length > 0) {
-  const base = Math.floor((prod.estoque || 0) / prod.cores.length)
-  const resto = (prod.estoque || 0) % prod.cores.length
-  const mapaEstoqueCor: Record<string, number> = {}
-  prod.cores.forEach((c, idx) => {
-    mapaEstoqueCor[c] = base + (idx < resto ? 1 : 0)
-  })
-  setFormEstoquePorCor(mapaEstoqueCor)
-} else {
-  setFormEstoquePorCor({})
-}
-
-setModalProduto(true)
-}
-
-const handleSalvarProduto = async (e: React.FormEvent) => {
-e.preventDefault()
-setSalvandoProduto(true)
-
-const url = produtoEditando ? `/api/admin/produtos/${produtoEditando.id}` : "/api/admin/produtos"
-const method = produtoEditando ? "PUT" : "POST"
-
-const imagemPrincipal = formImagens.length > 0 ? formImagens[0] : ""
-const precoParsed = parseFloat(String(formPreco).replace(",", "."))
-const precoPromocionalParsed = formPrecoPromocional ? parseFloat(String(formPrecoPromocional).replace(",", ".")) : null
-
-const estoqueFinal = (formTamanhos.length > 0 || formCores.length > 0) 
-  ? totalEstoqueCalculado 
-  : (parseInt(formEstoqueManual) || 0)
-
-try {
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...(produtoEditando?.id ? { id: produtoEditando.id } : {}),
-      nome: formNome,
-      descricao: formDesc,
-      preco: isNaN(precoParsed) ? 0 : precoParsed,
-      precoPromocional: precoPromocionalParsed !== null && !isNaN(precoPromocionalParsed) ? precoPromocionalParsed : null,
-      imagemUrl: imagemPrincipal,
-      imagens: formImagens,
-      estoque: estoqueFinal,
-      tamanhos: formTamanhos,
-      estoquePorTamanho: formEstoquePorTamanho,
-      cores: formCores,
-      estoquePorCor: formEstoquePorCor,
-      genero: formGenero,
-      categoriaId: formCategoria,
-      faixaEtaria: formFaixaEtaria,
-      localCard: formLocalCard,
-    }),
-  })
-
-  if (res.ok) {
-    setModalProduto(false)
+  const handleAbrirNovoProduto = () => {
     setProdutoEditando(null)
-    exibirToast(produtoEditando ? "Produto atualizado com sucesso!" : "Produto cadastrado com sucesso!")
-    carregarProdutos()
-  } else {
-    const data = await res.json().catch(() => ({}))
-    alert(data.error || data.message || "Erro ao salvar produto.")
+    setFormNome("")
+    setFormDesc("")
+    setFormPreco("")
+    setFormPrecoPromocional("")
+    setFormEstoqueManual("0")
+    setFormImagens([])
+    setNovaUrlImagem("")
+    setFormTamanhos([])
+    setFormEstoquePorTamanho({})
+    setFormCores([])
+    setFormEstoquePorCor({})
+    setTamanhoManualInput("")
+    setCorManualInput("")
+    setFormGenero("masculino")
+    setFormCategoria(categorias[0]?.value || "CONJUNTOS")
+    setFormFaixaEtaria("0-1")
+    setFormLocalCard("HOME_DESTAQUE")
+    setModalProduto(true)
   }
-} catch (err) {
-  console.error("Erro de conexão ao salvar produto:", err)
-  alert("Erro de conexão ao salvar produto.")
-} finally {
-  setSalvandoProduto(false)
-}
-}
 
-const handleConfirmarExclusao = async () => {
-if (!produtoParaExcluir) return
-setDeletandoProduto(true)
-try {
-const res = await fetch(/api/admin/produtos/${produtoParaExcluir.id}, { method: "DELETE" })
-if (res.ok) {
-setProdutoParaExcluir(null)
-exibirToast("Produto excluído com sucesso!")
-carregarProdutos()
-} else {
-alert("Erro ao excluir produto.")
-}
-} catch (err) {
-console.error(err)
-} finally {
-setDeletandoProduto(false)
-}
-}
+  const handleAbrirEditarProduto = (prod: Produto) => {
+    setProdutoEditando(prod)
+    setFormNome(prod.nome || "")
+    setFormDesc(prod.descricao || "")
+    setFormPreco(prod.preco !== undefined && prod.preco !== null ? prod.preco.toString() : "")
+    setFormPrecoPromocional(prod.precoPromocional !== undefined && prod.precoPromocional !== null ? prod.precoPromocional.toString() : "")
+    setFormEstoqueManual(prod.estoque !== undefined && prod.estoque !== null ? prod.estoque.toString() : "0")
+    
+    let imgs: string[] = []
+    if (prod.imagens && prod.imagens.length > 0) {
+      imgs = [...prod.imagens]
+    } else if (prod.imagemUrl) {
+      imgs = [prod.imagemUrl]
+    }
+    setFormImagens(imgs)
+    setNovaUrlImagem("")
+    setTamanhoManualInput("")
+    setCorManualInput("")
 
-const handleConfirmarExclusaoCliente = async () => {
-if (!clienteParaExcluir) return
-setDeletandoCliente(true)
-try {
-const res = await fetch(/api/admin/clientes/${clienteParaExcluir.id}, { method: "DELETE" })
-if (res.ok) {
-setClienteParaExcluir(null)
-exibirToast("Conta de cliente excluída!")
-carregarClientes()
-} else {
-alert("Erro ao excluir cliente.")
-}
-} catch (err) {
-console.error(err)
-} finally {
-setDeletandoCliente(false)
-}
-}
+    setFormTamanhos(prod.tamanhos || [])
+    setFormCores(prod.cores || [])
+    setFormGenero(prod.genero || "masculino")
+    
+    let catValor = ""
+    if (typeof prod.categoria === "object" && prod.categoria !== null) {
+      catValor = prod.categoria.id || prod.categoria.value || prod.categoria.nome || ""
+    } else if (typeof prod.categoria === "string") {
+      catValor = prod.categoria
+    } else if (prod.categoriaId) {
+      catValor = prod.categoriaId
+    }
 
-const handleConfirmarExclusaoPedido = async () => {
-if (!pedidoParaExcluir) return
-setDeletandoPedido(true)
-try {
-const res = await fetch(/api/admin/pedidos/${pedidoParaExcluir.id}, { method: "DELETE" })
-if (res.ok) {
-setPedidoParaExcluir(null)
-exibirToast("Venda excluída e estoque estornado!")
-carregarPedidos()
-carregarProdutos()
-} else {
-const data = await res.json().catch(() => ({}))
-alert(data.error || "Erro ao excluir o pedido.")
-}
-} catch (err) {
-console.error("Erro ao excluir venda:", err)
-alert("Erro ao tentar excluir a venda.")
-} finally {
-setDeletandoPedido(false)
-}
-}
+    const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
+    setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
 
-const handleMudarStatusPedido = async (id: string, novoStatus: string) => {
-setAtualizandoStatus(id)
-try {
-const res = await fetch(/api/admin/pedidos/${id}, {
-method: "PUT",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ status: novoStatus }),
-})
+    setFormFaixaEtaria(prod.faixaEtaria || "0-1") 
+    setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
 
-  if (res.ok) {
-    exibirToast(`Status do pedido alterado para ${novoStatus}!`)
-    carregarPedidos()
-  } else {
-    alert("Erro ao alterar status do pedido.")
+    if (prod.estoquePorTamanho && Object.keys(prod.estoquePorTamanho).length > 0) {
+      setFormEstoquePorTamanho({ ...prod.estoquePorTamanho })
+    } else if (prod.tamanhos && prod.tamanhos.length > 0) {
+      const base = Math.floor((prod.estoque || 0) / prod.tamanhos.length)
+      const resto = (prod.estoque || 0) % prod.tamanhos.length
+      const mapaEstoque: Record<string, number> = {}
+      prod.tamanhos.forEach((t, idx) => {
+        mapaEstoque[t] = base + (idx < resto ? 1 : 0)
+      })
+      setFormEstoquePorTamanho(mapaEstoque)
+    } else {
+      setFormEstoquePorTamanho({})
+    }
+
+    if (prod.estoquePorCor && Object.keys(prod.estoquePorCor).length > 0) {
+      setFormEstoquePorCor({ ...prod.estoquePorCor })
+    } else if (prod.cores && prod.cores.length > 0) {
+      const base = Math.floor((prod.estoque || 0) / prod.cores.length)
+      const resto = (prod.estoque || 0) % prod.cores.length
+      const mapaEstoqueCor: Record<string, number> = {}
+      prod.cores.forEach((c, idx) => {
+        mapaEstoqueCor[c] = base + (idx < resto ? 1 : 0)
+      })
+      setFormEstoquePorCor(mapaEstoqueCor)
+    } else {
+      setFormEstoquePorCor({})
+    }
+
+    setModalProduto(true)
   }
-} catch (err) {
-  console.error("Erro ao alterar status:", err)
-} finally {
-  setAtualizandoStatus(null)
-}
-}
 
-const handleLogout = async () => {
-setSaindo(true)
-try {
-await fetch("/api/admin/auth/logout", { method: "POST" })
-window.location.href = "/admin/login"
-} catch (error) {
-console.error("Erro ao deslogar admin:", error)
-setSaindo(false)
-}
-}
+  const handleSalvarProduto = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSalvandoProduto(true)
 
-const produtosFiltrados = produtos.filter((p) => p.nome.toLowerCase().includes(buscaProduto.toLowerCase()))
-const clientesFiltrados = clientes.filter(
-(c) => c.nome.toLowerCase().includes(buscaCliente.toLowerCase()) || c.email.toLowerCase().includes(buscaCliente.toLowerCase())
-)
-const pedidosFiltrados = pedidos.filter(
-(p) =>
-p.id.toLowerCase().includes(buscaPedido.toLowerCase()) ||
-(p.cliente?.nome || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
-(p.cliente?.email || "").toLowerCase().includes(buscaPedido.toLowerCase())
-)
+    const url = produtoEditando ? `/api/admin/produtos/${produtoEditando.id}` : "/api/admin/produtos"
+    const method = produtoEditando ? "PUT" : "POST"
 
-const totalVendas = pedidos.reduce((acc, p) => acc + (p.total || 0), 0)
+    const imagemPrincipal = formImagens.length > 0 ? formImagens[0] : ""
+    const precoParsed = parseFloat(String(formPreco).replace(",", "."))
+    const precoPromocionalParsed = formPrecoPromocional ? parseFloat(String(formPrecoPromocional).replace(",", ".")) : null
 
-const obterLabelCategoria = (prod: Produto) => {
-let catVal = ""
-let catLabel = ""
+    const estoqueFinal = (formTamanhos.length > 0 || formCores.length > 0) 
+      ? totalEstoqueCalculado 
+      : (parseInt(formEstoqueManual) || 0)
 
-if (typeof prod.categoria === "object" && prod.categoria !== null) {
-  catVal = prod.categoria.id || prod.categoria.value || ""
-  catLabel = prod.categoria.nome || prod.categoria.label || catVal
-} else if (typeof prod.categoria === "string") {
-  catVal = prod.categoria
-  catLabel = prod.categoria
-} else if (prod.categoriaId) {
-  catVal = prod.categoriaId
-  catLabel = prod.categoriaId
-}
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(produtoEditando?.id ? { id: produtoEditando.id } : {}),
+          nome: formNome,
+          descricao: formDesc,
+          preco: isNaN(precoParsed) ? 0 : precoParsed,
+          precoPromocional: precoPromocionalParsed !== null && !isNaN(precoPromocionalParsed) ? precoPromocionalParsed : null,
+          imagemUrl: imagemPrincipal,
+          imagens: formImagens,
+          estoque: estoqueFinal,
+          tamanhos: formTamanhos,
+          estoquePorTamanho: formEstoquePorTamanho,
+          cores: formCores,
+          estoquePorCor: formEstoquePorCor,
+          genero: formGenero,
+          categoriaId: formCategoria,
+          faixaEtaria: formFaixaEtaria,
+          localCard: formLocalCard,
+        }),
+      })
 
-const enc = categorias.find((c) => c.value === catVal || c.label === catLabel || c.value === prod.categoriaId)
-return enc ? enc.label : catLabel || catVal || "Sem Categoria"
-}
+      if (res.ok) {
+        setModalProduto(false)
+        setProdutoEditando(null)
+        exibirToast(produtoEditando ? "Produto atualizado com sucesso!" : "Produto cadastrado com sucesso!")
+        carregarProdutos()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || data.message || "Erro ao salvar produto.")
+      }
+    } catch (err) {
+      console.error("Erro de conexão ao salvar produto:", err)
+      alert("Erro de conexão ao salvar produto.")
+    } finally {
+      setSalvandoProduto(false)
+    }
+  }
 
-return (
+  const handleConfirmarExclusao = async () => {
+    if (!produtoParaExcluir) return
+    setDeletandoProduto(true)
+    try {
+      const res = await fetch(`/api/admin/produtos/${produtoParaExcluir.id}`, { method: "DELETE" })
+      if (res.ok) {
+        setProdutoParaExcluir(null)
+        exibirToast("Produto excluído com sucesso!")
+        carregarProdutos()
+      } else {
+        alert("Erro ao excluir produto.")
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletandoProduto(false)
+    }
+  }
 
-  {/* TOAST FEEDBACK NOTIFICATION */}
-  {toastMessage && (
-    <div className="fixed top-5 right-5 z-[200] flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/30 text-emerald-400 shadow-2xl animate-in slide-in-from-top-3 duration-200 text-xs font-bold">
-      <CheckCircle className="h-4 w-4"/>
-      <span>{toastMessage.text}</span>
-    </div>
-  )}
+  const handleConfirmarExclusaoCliente = async () => {
+    if (!clienteParaExcluir) return
+    setDeletandoCliente(true)
+    try {
+      const res = await fetch(`/api/admin/clientes/${clienteParaExcluir.id}`, { method: "DELETE" })
+      if (res.ok) {
+        setClienteParaExcluir(null)
+        exibirToast("Conta de cliente excluída!")
+        carregarClientes()
+      } else {
+        alert("Erro ao excluir cliente.")
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletandoCliente(false)
+    }
+  }
 
-  {/* HEADER MOBILE */}
-  <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 shrink-0 z-30">
-    <div className="flex items-center gap-2">
-      <div className="h-8 w-8 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
-        <ShieldCheck className="h-4 w-4"/>
-      </div>
-      <div>
-        <span className="font-bold text-sm text-white block leading-none">Admin Hub</span>
-        <span className="text-[9px] text-slate-400 font-medium">Gestão Interna</span>
-      </div>
-    </div>
-    <button
-      type="button"
-      onClick={() => setSidebarAberta(!sidebarAberta)}
-      className="p-2 text-slate-400 hover:text-white rounded-lg bg-slate-950 border border-slate-800"
-    >
-      {sidebarAberta ? <X className="h-5 w-5"/> : <Menu className="h-5 w-5"/>}
-    </button>
-  </header>
+  const handleConfirmarExclusaoPedido = async () => {
+    if (!pedidoParaExcluir) return
+    setDeletandoPedido(true)
+    try {
+      const res = await fetch(`/api/admin/pedidos/${pedidoParaExcluir.id}`, { method: "DELETE" })
+      if (res.ok) {
+        setPedidoParaExcluir(null)
+        exibirToast("Venda excluída e estoque estornado!")
+        carregarPedidos()
+        carregarProdutos()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Erro ao excluir o pedido.")
+      }
+    } catch (err) {
+      console.error("Erro ao excluir venda:", err)
+      alert("Erro ao tentar excluir a venda.")
+    } finally {
+      setDeletandoPedido(false)
+    }
+  }
 
-  {/* BACKDROP MOBILE DA SIDEBAR */}
-  {sidebarAberta && (
-    <div 
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
-      onClick={() => setSidebarAberta(false)}
-    />
-  )}
+  const handleMudarStatusPedido = async (id: string, novoStatus: string) => {
+    setAtualizandoStatus(id)
+    try {
+      const res = await fetch(`/api/admin/pedidos/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: novoStatus }),
+      })
 
-  {/* SIDEBAR RESPONSIVA */}
-  <aside className={`
-    fixed md:relative inset-y-0 left-0 z-50 md:z-auto
-    w-64 border-r border-slate-800 bg-slate-900 p-6 flex flex-col justify-between shrink-0 h-full overflow-y-auto
-    transition-transform duration-300 ease-in-out
-    ${sidebarAberta ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-  `}>
-    <div className="space-y-8">
-      <div className="hidden md:flex items-center gap-3">
-        <div className="h-9 w-9 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
-          <ShieldCheck className="h-5 w-5"/>
+      if (res.ok) {
+        exibirToast(`Status do pedido alterado para ${novoStatus}!`)
+        carregarPedidos()
+      } else {
+        alert("Erro ao alterar status do pedido.")
+      }
+    } catch (err) {
+      console.error("Erro ao alterar status:", err)
+    } finally {
+      setAtualizandoStatus(null)
+    }
+  }
+
+  const handleLogout = async () => {
+    setSaindo(true)
+    try {
+      await fetch("/api/admin/auth/logout", { method: "POST" })
+      window.location.href = "/admin/login"
+    } catch (error) {
+      console.error("Erro ao deslogar admin:", error)
+      setSaindo(false)
+    }
+  }
+
+  const produtosFiltrados = produtos.filter((p) => p.nome.toLowerCase().includes(buscaProduto.toLowerCase()))
+  const clientesFiltrados = clientes.filter(
+    (c) => c.nome.toLowerCase().includes(buscaCliente.toLowerCase()) || c.email.toLowerCase().includes(buscaCliente.toLowerCase())
+  )
+  const pedidosFiltrados = pedidos.filter(
+    (p) =>
+      p.id.toLowerCase().includes(buscaPedido.toLowerCase()) ||
+      (p.cliente?.nome || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
+      (p.cliente?.email || "").toLowerCase().includes(buscaPedido.toLowerCase())
+  )
+
+  const totalVendas = pedidos.reduce((acc, p) => acc + (p.total || 0), 0)
+
+  const obterLabelCategoria = (prod: Produto) => {
+    let catVal = ""
+    let catLabel = ""
+
+    if (typeof prod.categoria === "object" && prod.categoria !== null) {
+      catVal = prod.categoria.id || prod.categoria.value || ""
+      catLabel = prod.categoria.nome || prod.categoria.label || catVal
+    } else if (typeof prod.categoria === "string") {
+      catVal = prod.categoria
+      catLabel = prod.categoria
+    } else if (prod.categoriaId) {
+      catVal = prod.categoriaId
+      catLabel = prod.categoriaId
+    }
+
+    const enc = categorias.find((c) => c.value === catVal || c.label === catLabel || c.value === prod.categoriaId)
+    return enc ? enc.label : catLabel || catVal || "Sem Categoria"
+  }
+
+  return (
+    <div className="fixed inset-0 z-[999] flex flex-col md:flex-row bg-slate-950 text-slate-100 font-sans w-screen h-screen overflow-hidden">
+      
+      {/* TOAST FEEDBACK NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-[200] flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/30 text-emerald-400 shadow-2xl animate-in slide-in-from-top-3 duration-200 text-xs font-bold">
+          <CheckCircle className="h-4 w-4" />
+          <span>{toastMessage.text}</span>
         </div>
-        <div>
-          <span className="font-bold text-base text-white block leading-none">Admin Hub</span>
-          <span className="text-[10px] text-slate-400 font-medium">Gestão Interna</span>
-        </div>
-      </div>
+      )}
 
-      <nav className="space-y-1.5">
-        <button
-          type="button"
-          onClick={() => handleMudarAba("geral")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "geral" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <LayoutDashboard className="h-4 w-4"/> Visão Geral
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("produtos")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "produtos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <Package className="h-4 w-4"/> Produtos
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("pedidos")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "pedidos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <ShoppingBag className="h-4 w-4"/> Pedidos
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("clientes")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "clientes" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <Users className="h-4 w-4"/> Clientes
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("tiny")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "tiny" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <FileSpreadsheet className="h-4 w-4"/> Importar Tiny ERP
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("conta")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "conta" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <UserCheck className="h-4 w-4"/> Minha Conta
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleMudarAba("config")}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-            abaAtiva === "config" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-          }`}
-        >
-          <Settings className="h-4 w-4"/> Configurações
-        </button>
-      </nav>
-    </div>
-
-    <button
-      type="button"
-      onClick={handleLogout}
-      disabled={saindo}
-      className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-600 hover:text-white transition-all text-sm font-bold disabled:opacity-50 mt-6"
-    >
-      {saindo ? <Loader2 className="h-4 w-4 animate-spin"/> : <LogOut className="h-4 w-4"/>}
-      Sair do Admin
-    </button>
-  </aside>
-
-  {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-  <main className="flex-1 p-4 md:p-8 overflow-y-auto h-full">
-
-    {/* ABA: VISÃO GERAL */}
-    {abaAtiva === "geral" && (
-      <div className="space-y-6 md:space-y-8 max-w-6xl">
-        <div className="flex items-center justify-between">
+      {/* HEADER MOBILE */}
+      <header className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 shrink-0 z-30">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
-            <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              carregarProdutos()
-              carregarClientes()
-              carregarPedidos()
-              exibirToast("Dados atualizados!")
-            }}
-            className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold"
-            title="Atualizar dados"
-          >
-            <RefreshCw className="h-3.5 w-3.5"/> Atualizar
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-          <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Vendas Totais</span>
-            <p className="text-xl md:text-2xl font-bold text-emerald-400 mt-2">
-              {formatarMoeda(totalVendas)}
-            </p>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Total de Pedidos</span>
-            <p className="text-xl md:text-2xl font-bold text-white mt-2">{pedidos.length}</p>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Produtos Cadastrados</span>
-            <p className="text-xl md:text-2xl font-bold text-white mt-2">{produtos.length}</p>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Clientes</span>
-            <p className="text-xl md:text-2xl font-bold text-white mt-2">{clientes.length}</p>
+            <span className="font-bold text-sm text-white block leading-none">Admin Hub</span>
+            <span className="text-[9px] text-slate-400 font-medium">Gestão Interna</span>
           </div>
         </div>
-      </div>
-    )}
+        <button
+          type="button"
+          onClick={() => setSidebarAberta(!sidebarAberta)}
+          className="p-2 text-slate-400 hover:text-white rounded-lg bg-slate-950 border border-slate-800"
+        >
+          {sidebarAberta ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </header>
 
-    {/* ABA: PRODUTOS */}
-    {abaAtiva === "produtos" && (
-      <div className="space-y-6 max-w-6xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-            <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, cores, imagens ou quantidades aos seus produtos.</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleAbrirNovoProduto}
-            className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
-          >
-            <Plus className="h-4 w-4"/> Cadastrar Produto
-          </button>
-        </div>
+      {/* BACKDROP MOBILE DA SIDEBAR */}
+      {sidebarAberta && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setSidebarAberta(false)}
+        />
+      )}
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500"/>
-            <input
-              type="text"
-              value={buscaProduto}
-              onChange={(e) => setBuscaProduto(e.target.value)}
-              placeholder="Buscar produtos pelo nome..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
-            />
-          </div>
-
-          {carregandoProdutos ? (
-            <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
-              <Loader2 className="h-4 w-4 animate-spin"/> Carregando produtos...
+      {/* SIDEBAR RESPONSIVA */}
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50 md:z-auto
+        w-64 border-r border-slate-800 bg-slate-900 p-6 flex flex-col justify-between shrink-0 h-full overflow-y-auto
+        transition-transform duration-300 ease-in-out
+        ${sidebarAberta ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+      `}>
+        <div className="space-y-8">
+          <div className="hidden md:flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-600/20">
+              <ShieldCheck className="h-5 w-5" />
             </div>
-          ) : produtosFiltrados.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs font-medium">
-              Nenhum produto encontrado.
+            <div>
+              <span className="font-bold text-base text-white block leading-none">Admin Hub</span>
+              <span className="text-[10px] text-slate-400 font-medium">Gestão Interna</span>
             </div>
-          ) : (
-            <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
-              <table className="w-full text-left text-xs text-slate-300 min-w-[700px]">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
-                  <tr>
-                    <th className="p-3">Imagens</th>
-                    <th className="p-3">Nome</th>
-                    <th className="p-3">Preço</th>
-                    <th className="p-3">Gênero / Categoria / Faixa Etária</th>
-                    <th className="p-3">Local do Card</th>
-                    <th className="p-3">Variações (Tamanhos & Cores)</th>
-                    <th className="p-3">Estoque Total</th>
-                    <th className="p-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {produtosFiltrados.map((prod) => {
-                    const listaImgs = prod.imagens && prod.imagens.length > 0 ? prod.imagens : prod.imagemUrl ? [prod.imagemUrl] : []
-                    return (
-                      <tr key={prod.id} className="hover:bg-slate-800/30 transition-colors">
-                        <td className="p-3">
-                          <div className="flex items-center gap-1 overflow-x-auto max-w-[120px]">
-                            {listaImgs.length > 0 ? (
-                              listaImgs.map((img, idx) => (
-                                <img
-                                  key={idx}
-                                  src={img}
-                                  alt={`${prod.nome} ${idx}`}
-                                  className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shrink-0"
-                                  title={`Imagem ${idx + 1}`}
-                                />
-                              ))
-                            ) : (
-                              <div className="h-10 w-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500">
-                                <ImageIcon className="h-5 w-5"/>
+          </div>
+
+          <nav className="space-y-1.5">
+            <button
+              type="button"
+              onClick={() => handleMudarAba("geral")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "geral" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4" /> Visão Geral
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("produtos")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "produtos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <Package className="h-4 w-4" /> Produtos
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("pedidos")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "pedidos" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <ShoppingBag className="h-4 w-4" /> Pedidos
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("clientes")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "clientes" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <Users className="h-4 w-4" /> Clientes
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("tiny")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "tiny" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Importar Tiny ERP
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("conta")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "conta" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <UserCheck className="h-4 w-4" /> Minha Conta
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleMudarAba("config")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+                abaAtiva === "config" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              }`}
+            >
+              <Settings className="h-4 w-4" /> Configurações
+            </button>
+          </nav>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={saindo}
+          className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-600 hover:text-white transition-all text-sm font-bold disabled:opacity-50 mt-6"
+        >
+          {saindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+          Sair do Admin
+        </button>
+      </aside>
+
+      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-full">
+
+        {/* ABA: VISÃO GERAL */}
+        {abaAtiva === "geral" && (
+          <div className="space-y-6 md:space-y-8 max-w-6xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
+                <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  carregarProdutos()
+                  carregarClientes()
+                  carregarPedidos()
+                  exibirToast("Dados atualizados!")
+                }}
+                className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold"
+                title="Atualizar dados"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Atualizar
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
+                <span className="text-xs font-semibold text-slate-400 uppercase">Vendas Totais</span>
+                <p className="text-xl md:text-2xl font-bold text-emerald-400 mt-2">
+                  {formatarMoeda(totalVendas)}
+                </p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
+                <span className="text-xs font-semibold text-slate-400 uppercase">Total de Pedidos</span>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{pedidos.length}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
+                <span className="text-xs font-semibold text-slate-400 uppercase">Produtos Cadastrados</span>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{produtos.length}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl">
+                <span className="text-xs font-semibold text-slate-400 uppercase">Clientes</span>
+                <p className="text-xl md:text-2xl font-bold text-white mt-2">{clientes.length}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ABA: PRODUTOS */}
+        {abaAtiva === "produtos" && (
+          <div className="space-y-6 max-w-6xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, cores, imagens ou quantidades aos seus produtos.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAbrirNovoProduto}
+                className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
+              >
+                <Plus className="h-4 w-4" /> Cadastrar Produto
+              </button>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                <input
+                  type="text"
+                  value={buscaProduto}
+                  onChange={(e) => setBuscaProduto(e.target.value)}
+                  placeholder="Buscar produtos pelo nome..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              {carregandoProdutos ? (
+                <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando produtos...
+                </div>
+              ) : produtosFiltrados.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 text-xs font-medium">
+                  Nenhum produto encontrado.
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[700px]">
+                    <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+                      <tr>
+                        <th className="p-3">Imagens</th>
+                        <th className="p-3">Nome</th>
+                        <th className="p-3">Preço</th>
+                        <th className="p-3">Gênero / Categoria / Faixa Etária</th>
+                        <th className="p-3">Local do Card</th>
+                        <th className="p-3">Variações (Tamanhos & Cores)</th>
+                        <th className="p-3">Estoque Total</th>
+                        <th className="p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {produtosFiltrados.map((prod) => {
+                        const listaImgs = prod.imagens && prod.imagens.length > 0 ? prod.imagens : prod.imagemUrl ? [prod.imagemUrl] : []
+                        return (
+                          <tr key={prod.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="p-3">
+                              <div className="flex items-center gap-1 overflow-x-auto max-w-[120px]">
+                                {listaImgs.length > 0 ? (
+                                  listaImgs.map((img, idx) => (
+                                    <img
+                                      key={idx}
+                                      src={img}
+                                      alt={`${prod.nome} ${idx}`}
+                                      className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shrink-0"
+                                      title={`Imagem ${idx + 1}`}
+                                    />
+                                  ))
+                                ) : (
+                                  <div className="h-10 w-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500">
+                                    <ImageIcon className="h-5 w-5" />
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-3 font-semibold text-white">
-                          <div>{prod.nome}</div>
-                          <div className="text-[10px] text-slate-500 line-clamp-1">{prod.descricao}</div>
-                        </td>
-                        <td className="p-3">
-                          <div className="font-bold text-rose-400">
-                            {formatarMoeda(prod.preco)}
-                          </div>
-                          {prod.precoPromocional ? (
-                            <div className="text-[10px] text-emerald-400 font-semibold">
-                              Promo: {formatarMoeda(prod.precoPromocional)}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="p-3 space-y-1">
-                          <div className="flex flex-wrap gap-1">
-                            <span className="capitalize text-slate-300 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800 text-[10px] font-semibold">
-                              {prod.genero || "masculino"}
-                            </span>
-                            <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20 text-[10px] font-semibold">
-                              {obterLabelCategoria(prod)}
-                            </span>
-                            <span className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 text-[10px] font-semibold">
-                              {OPCOES_FAIXA_ETARIA.find(f => f.value === prod.faixaEtaria)?.label || prod.faixaEtaria || "até 1 ano"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                            <MapPin className="h-3 w-3"/>
-                            {OPCOES_LOCAIS.find((loc) => loc.value === (prod.localCard || "HOME_DESTAQUE"))?.label || prod.localCard || "Vitrine Destaques"}
-                          </span>
-                        </td>
-                        <td className="p-3 space-y-2">
-                          {/* TAMANHOS */}
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold mb-1">Tamanhos:</span>
-                            <div className="flex flex-wrap gap-1">
-                              {prod.tamanhos && prod.tamanhos.length > 0 ? (
-                                prod.tamanhos.map((t, idx) => {
-                                  let qtdTam: number | string = "-"
-                                  if (prod.estoquePorTamanho && prod.estoquePorTamanho[t] !== undefined) {
-                                    qtdTam = prod.estoquePorTamanho[t]
-                                  } else if (prod.estoque !== undefined) {
-                                    const base = Math.floor(prod.estoque / prod.tamanhos.length)
-                                    const resto = prod.estoque % prod.tamanhos.length
-                                    qtdTam = base + (idx < resto ? 1 : 0)
-                                  }
+                            </td>
+                            <td className="p-3 font-semibold text-white">
+                              <div>{prod.nome}</div>
+                              <div className="text-[10px] text-slate-500 line-clamp-1">{prod.descricao}</div>
+                            </td>
+                            <td className="p-3">
+                              <div className="font-bold text-rose-400">
+                                {formatarMoeda(prod.preco)}
+                              </div>
+                              {prod.precoPromocional ? (
+                                <div className="text-[10px] text-emerald-400 font-semibold">
+                                  Promo: {formatarMoeda(prod.precoPromocional)}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="p-3 space-y-1">
+                              <div className="flex flex-wrap gap-1">
+                                <span className="capitalize text-slate-300 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-800 text-[10px] font-semibold">
+                                  {prod.genero || "masculino"}
+                                </span>
+                                <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20 text-[10px] font-semibold">
+                                  {obterLabelCategoria(prod)}
+                                </span>
+                                <span className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 text-[10px] font-semibold">
+                                  {OPCOES_FAIXA_ETARIA.find(f => f.value === prod.faixaEtaria)?.label || prod.faixaEtaria || "até 1 ano"}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                <MapPin className="h-3 w-3" />
+                                {OPCOES_LOCAIS.find((loc) => loc.value === (prod.localCard || "HOME_DESTAQUE"))?.label || prod.localCard || "Vitrine Destaques"}
+                              </span>
+                            </td>
+                            <td className="p-3 space-y-2">
+                              {/* TAMANHOS */}
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-bold mb-1">Tamanhos:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {prod.tamanhos && prod.tamanhos.length > 0 ? (
+                                    prod.tamanhos.map((t, idx) => {
+                                      let qtdTam: number | string = "-"
+                                      if (prod.estoquePorTamanho && prod.estoquePorTamanho[t] !== undefined) {
+                                        qtdTam = prod.estoquePorTamanho[t]
+                                      } else if (prod.estoque !== undefined) {
+                                        const base = Math.floor(prod.estoque / prod.tamanhos.length)
+                                        const resto = prod.estoque % prod.tamanhos.length
+                                        qtdTam = base + (idx < resto ? 1 : 0)
+                                      }
 
-                                  return (
-                                    <span 
-                                      key={t} 
-                                      className="bg-slate-950 border border-slate-700/80 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
-                                    >
-                                      <span className="text-slate-400">{t}:</span>
-                                      <span className="text-emerald-400 font-black">{qtdTam}</span>
-                                    </span>
-                                  )
-                                })
-                              ) : (
-                                <span className="text-slate-500 text-[10px] italic">Sem tamanhos</span>
+                                      return (
+                                        <span 
+                                          key={t} 
+                                          className="bg-slate-950 border border-slate-700/80 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
+                                        >
+                                          <span className="text-slate-400">{t}:</span>
+                                          <span className="text-emerald-400 font-black">{qtdTam}</span>
+                                        </span>
+                                      )
+                                    })
+                                  ) : (
+                                    <span className="text-slate-500 text-[10px] italic">Sem tamanhos</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* CORES */}
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-bold mb-1">Cores:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {prod.cores && prod.cores.length > 0 ? (
+                                    prod.cores.map((c, idx) => {
+                                      let qtdCor: number | string = "-"
+                                      if (prod.estoquePorCor && prod.estoquePorCor[c] !== undefined) {
+                                        qtdCor = prod.estoquePorCor[c]
+                                      } else if (prod.estoque !== undefined) {
+                                        const base = Math.floor(prod.estoque / prod.cores.length)
+                                        const resto = prod.estoque % prod.cores.length
+                                        qtdCor = base + (idx < resto ? 1 : 0)
+                                      }
+
+                                      return (
+                                        <span 
+                                          key={c} 
+                                          className="bg-slate-950 border border-rose-900/60 text-rose-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
+                                        >
+                                          <span className="text-slate-400">{c}:</span>
+                                          <span className="text-emerald-400 font-black">{qtdCor}</span>
+                                        </span>
+                                      )
+                                    })
+                                  ) : (
+                                    <span className="text-slate-500 text-[10px] italic">Sem cores especificadas</span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-black">
+                                {prod.estoque} un.
+                              </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAbrirEditarProduto(prod)
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
+                                  title="Editar Produto / Adicionar Variações e Estoque"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setProdutoParaExcluir(prod)
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                  title="Excluir Produto"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ABA: PEDIDOS */}
+        {abaAtiva === "pedidos" && (
+          <div className="space-y-6 max-w-6xl">
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Pedidos</h1>
+              <p className="text-xs text-slate-400 mt-1">Acompanhe as vendas e altere os status dos pedidos.</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                <input
+                  type="text"
+                  value={buscaPedido}
+                  onChange={(e) => setBuscaPedido(e.target.value)}
+                  placeholder="Buscar pedido por ID, cliente ou e-mail..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              {carregandoPedidos ? (
+                <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando pedidos...
+                </div>
+              ) : pedidosFiltrados.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 text-xs font-medium">
+                  Nenhum pedido encontrado.
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[600px]">
+                    <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+                      <tr>
+                        <th className="p-3">ID do Pedido</th>
+                        <th className="p-3">Cliente</th>
+                        <th className="p-3">Data</th>
+                        <th className="p-3">Total</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {pedidosFiltrados.map((ped) => (
+                        <tr key={ped.id} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="p-3 font-mono text-[11px] text-rose-400 font-bold">
+                            #{ped.id.substring(0, 8)}
+                          </td>
+                          <td className="p-3">
+                            <div className="font-semibold text-white">{ped.cliente?.nome || "Cliente Removido"}</div>
+                            <div className="text-[10px] text-slate-500">{ped.cliente?.email || "-"}</div>
+                          </td>
+                          <td className="p-3 text-slate-400">
+                            {new Date(ped.createdAt).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="p-3 font-bold text-white">
+                            {formatarMoeda(ped.total)}
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              {atualizandoStatus === ped.id && (
+                                <Loader2 className="h-3 w-3 animate-spin text-rose-400" />
                               )}
+                              <select
+                                value={ped.status}
+                                onChange={(e) => handleMudarStatusPedido(ped.id, e.target.value)}
+                                className={`bg-slate-950 border rounded-lg px-2 py-1 text-[11px] font-bold focus:outline-none cursor-pointer ${
+                                  ped.status === "PAGO" || ped.status === "ENTREGUE"
+                                    ? "text-emerald-400 border-emerald-500/30"
+                                    : ped.status === "CANCELADO"
+                                    ? "text-rose-400 border-rose-500/30"
+                                    : "text-amber-400 border-amber-500/30"
+                                }`}
+                              >
+                                <option value="PENDENTE">PENDENTE</option>
+                                <option value="PAGO">PAGO</option>
+                                <option value="ENVIADO">ENVIADO</option>
+                                <option value="ENTREGUE">ENTREGUE</option>
+                                <option value="CANCELADO">CANCELADO</option>
+                              </select>
                             </div>
-                          </div>
-
-                          {/* CORES */}
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold mb-1">Cores:</span>
-                            <div className="flex flex-wrap gap-1">
-                              {prod.cores && prod.cores.length > 0 ? (
-                                prod.cores.map((c, idx) => {
-                                  let qtdCor: number | string = "-"
-                                  if (prod.estoquePorCor && prod.estoquePorCor[c] !== undefined) {
-                                    qtdCor = prod.estoquePorCor[c]
-                                  } else if (prod.estoque !== undefined) {
-                                    const base = Math.floor(prod.estoque / prod.cores.length)
-                                    const resto = prod.estoque % prod.cores.length
-                                    qtdCor = base + (idx < resto ? 1 : 0)
-                                  }
-
-                                  return (
-                                    <span 
-                                      key={c} 
-                                      className="bg-slate-950 border border-rose-900/60 text-rose-200 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm"
-                                    >
-                                      <span className="text-slate-400">{c}:</span>
-                                      <span className="text-emerald-400 font-black">{qtdCor}</span>
-                                    </span>
-                                  )
-                                })
-                              ) : (
-                                <span className="text-slate-500 text-[10px] italic">Sem cores especificadas</span>
-                              )}
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setPedidoDetalhes(ped)
+                                }}
+                                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                                title="Ver Detalhes do Pedido"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setPedidoParaExcluir(ped)
+                                }}
+                                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                title="Excluir Venda e Devolver Itens ao Estoque"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-black">
-                            {prod.estoque} un.
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleAbrirEditarProduto(prod)
-                              }}
-                              className="p-2 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
-                              title="Editar Produto / Adicionar Variações e Estoque"
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ABA: CLIENTES */}
+        {abaAtiva === "clientes" && (
+          <div className="space-y-6 max-w-6xl">
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Clientes Cadastrados</h1>
+              <p className="text-xs text-slate-400 mt-1">Listagem em tempo real de usuários no banco de dados.</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                <input
+                  type="text"
+                  value={buscaCliente}
+                  onChange={(e) => setBuscaCliente(e.target.value)}
+                  placeholder="Buscar cliente por nome ou e-mail..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              {carregandoClientes ? (
+                <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando clientes...
+                </div>
+              ) : clientesFiltrados.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 text-xs font-medium">
+                  Nenhum cliente cadastrado no momento.
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[500px]">
+                    <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
+                      <tr>
+                        <th className="p-3">Nome</th>
+                        <th className="p-3">E-mail</th>
+                        <th className="p-3">Data Cadastro</th>
+                        <th className="p-3">Permissão</th>
+                        <th className="p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {clientesFiltrados.map((cli) => (
+                        <tr key={cli.id} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="p-3 font-semibold text-white">{cli.nome}</td>
+                          <td className="p-3 text-slate-400">{cli.email}</td>
+                          <td className="p-3 text-slate-500">
+                            {new Date(cli.createdAt).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                                cli.role === "ADMIN"
+                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              }`}
                             >
-                              <Pencil className="h-4 w-4"/>
-                            </button>
+                              {cli.role}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setProdutoParaExcluir(prod)
+                                setClienteParaExcluir(cli)
                               }}
                               className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                              title="Excluir Produto"
+                              title="Excluir Conta"
                             >
-                              <Trash2 className="h-4 w-4"/>
+                              <Trash2 className="h-4 w-4" />
                             </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
-    {/* ABA: PEDIDOS */}
-    {abaAtiva === "pedidos" && (
-      <div className="space-y-6 max-w-6xl">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Pedidos</h1>
-          <p className="text-xs text-slate-400 mt-1">Acompanhe as vendas e altere os status dos pedidos.</p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500"/>
-            <input
-              type="text"
-              value={buscaPedido}
-              onChange={(e) => setBuscaPedido(e.target.value)}
-              placeholder="Buscar pedido por ID, cliente ou e-mail..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
-            />
-          </div>
-
-          {carregandoPedidos ? (
-            <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
-              <Loader2 className="h-4 w-4 animate-spin"/> Carregando pedidos...
-            </div>
-          ) : pedidosFiltrados.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs font-medium">
-              Nenhum pedido encontrado.
-            </div>
-          ) : (
-            <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
-              <table className="w-full text-left text-xs text-slate-300 min-w-[600px]">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
-                  <tr>
-                    <th className="p-3">ID do Pedido</th>
-                    <th className="p-3">Cliente</th>
-                    <th className="p-3">Data</th>
-                    <th className="p-3">Total</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {pedidosFiltrados.map((ped) => (
-                    <tr key={ped.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="p-3 font-mono text-[11px] text-rose-400 font-bold">
-                        #{ped.id.substring(0, 8)}
-                      </td>
-                      <td className="p-3">
-                        <div className="font-semibold text-white">{ped.cliente?.nome || "Cliente Removido"}</div>
-                        <div className="text-[10px] text-slate-500">{ped.cliente?.email || "-"}</div>
-                      </td>
-                      <td className="p-3 text-slate-400">
-                        {new Date(ped.createdAt).toLocaleDateString("pt-BR")}
-                      </td>
-                      <td className="p-3 font-bold text-white">
-                        {formatarMoeda(ped.total)}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          {atualizandoStatus === ped.id && (
-                            <Loader2 className="h-3 w-3 animate-spin text-rose-400"/>
-                          )}
-                          <select
-                            value={ped.status}
-                            onChange={(e) => handleMudarStatusPedido(ped.id, e.target.value)}
-                            className={`bg-slate-950 border rounded-lg px-2 py-1 text-[11px] font-bold focus:outline-none cursor-pointer ${
-                              ped.status === "PAGO" || ped.status === "ENTREGUE"
-                                ? "text-emerald-400 border-emerald-500/30"
-                                : ped.status === "CANCELADO"
-                                ? "text-rose-400 border-rose-500/30"
-                                : "text-amber-400 border-amber-500/30"
-                            }`}
-                          >
-                            <option value="PENDENTE">PENDENTE</option>
-                            <option value="PAGO">PAGO</option>
-                            <option value="ENVIADO">ENVIADO</option>
-                            <option value="ENTREGUE">ENTREGUE</option>
-                            <option value="CANCELADO">CANCELADO</option>
-                          </select>
-                        </div>
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setPedidoDetalhes(ped)
-                            }}
-                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                            title="Ver Detalhes do Pedido"
-                          >
-                            <Eye className="h-4 w-4"/>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setPedidoParaExcluir(ped)
-                            }}
-                            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                            title="Excluir Venda e Devolver Itens ao Estoque"
-                          >
-                            <Trash2 className="h-4 w-4"/>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
-    {/* ABA: CLIENTES */}
-    {abaAtiva === "clientes" && (
-      <div className="space-y-6 max-w-6xl">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Clientes Cadastrados</h1>
-          <p className="text-xs text-slate-400 mt-1">Listagem em tempo real de usuários no banco de dados.</p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500"/>
-            <input
-              type="text"
-              value={buscaCliente}
-              onChange={(e) => setBuscaCliente(e.target.value)}
-              placeholder="Buscar cliente por nome ou e-mail..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
-            />
-          </div>
-
-          {carregandoClientes ? (
-            <div className="flex items-center justify-center py-12 text-slate-400 gap-2 text-xs">
-              <Loader2 className="h-4 w-4 animate-spin"/> Carregando clientes...
-            </div>
-          ) : clientesFiltrados.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs font-medium">
-              Nenhum cliente cadastrado no momento.
-            </div>
-          ) : (
-            <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
-              <table className="w-full text-left text-xs text-slate-300 min-w-[500px]">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
-                  <tr>
-                    <th className="p-3">Nome</th>
-                    <th className="p-3">E-mail</th>
-                    <th className="p-3">Data Cadastro</th>
-                    <th className="p-3">Permissão</th>
-                    <th className="p-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {clientesFiltrados.map((cli) => (
-                    <tr key={cli.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="p-3 font-semibold text-white">{cli.nome}</td>
-                      <td className="p-3 text-slate-400">{cli.email}</td>
-                      <td className="p-3 text-slate-500">
-                        {new Date(cli.createdAt).toLocaleDateString("pt-BR")}
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                            cli.role === "ADMIN"
-                              ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                              : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                          }`}
-                        >
-                          {cli.role}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setClienteParaExcluir(cli)
-                          }}
-                          className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                          title="Excluir Conta"
-                        >
-                          <Trash2 className="h-4 w-4"/>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
-    {/* ABA: IMPORTAR TINY ERP */}
-    {abaAtiva === "tiny" && (
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Integração Tiny ERP</h1>
-          <p className="text-xs text-slate-400 mt-1">Importe os arquivos CSV baixados do Tiny ERP para atualizar a base de dados.</p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-8 rounded-2xl space-y-5">
-          <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl p-4 md:p-8 text-center bg-slate-950 hover:border-rose-500/50 transition-colors">
-            <FileSpreadsheet className="text-rose-500 mb-3" size="{48}"/>
-            <h3 className="text-sm font-bold text-white mb-1">Selecionar Arquivo do Tiny</h3>
-            <p className="text-xs text-slate-400 mb-5 max-w-sm">
-              Envie o arquivo CSV exportado do Tiny ERP para atualizar o e-commerce.
-            </p>
-            
-            <label className="cursor-pointer bg-rose-600 text-white px-5 py-2.5 rounded-xl hover:bg-rose-500 transition-colors font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/20">
-              <Upload size="{16}"/>
-              <span>{loadingTiny ? 'Processando Arquivo...' : 'Selecionar Arquivo'}</span>
-              <input 
-                type="file" 
-                accept=".csv" 
-                className="hidden" 
-                onChange={handleImportTiny} 
-                disabled={loadingTiny}
-              />
-            </label>
-          </div>
-
-          {tinyMessage && (
-            <div className={`p-4 rounded-xl flex items-center gap-3 text-xs ${
-              tinyMessage.type === 'success' 
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-            }`}>
-              {tinyMessage.type === 'success' ? <CheckCircle size="{18}"/> : <AlertTriangle size="{18}"/>}
-              <span>{tinyMessage.text}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
-    {/* ABA: MINHA CONTA */}
-    {abaAtiva === "conta" && (
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Minha Conta (Administrador)</h1>
-          <p className="text-xs text-slate-400 mt-1">Gerencie suas credenciais de acesso ao painel.</p>
-        </div>
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Administrador</label>
-            <input
-              type="text"
-              value={nomeAdmin}
-              onChange={(e) => setNomeAdmin(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">E-mail</label>
-            <input
-              type="email"
-              value={emailAdmin}
-              onChange={(e) => setEmailAdmin(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-          </div>
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-            <button 
-              type="button" 
-              onClick={() => exibirToast("Alterações da conta salvas!")}
-              className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors"
-            >
-              <Key className="h-4 w-4"/> Salvar Dados da Conta
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* ABA: CONFIGURAÇÕES */}
-    {abaAtiva === "config" && (
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Configurações Gerais</h1>
-          <p className="text-xs text-slate-400 mt-1">Ajustes operacionais do e-commerce e gestão de dados.</p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Nome da Loja</label>
-            <input
-              type="text"
-              value={nomeLoja}
-              onChange={(e) => setNomeLoja(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => exibirToast("Configurações atualizadas!")}
-            className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
-          >
-            Salvar Configurações
-          </button>
-        </div>
-
-        {/* SEÇÃO: GERENCIAMENTO DE CATEGORIAS */}
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-rose-500"/>
-              <h2 className="text-sm font-bold text-white">Categorias de Produtos</h2>
-            </div>
-            <span className="text-[10px] text-slate-400">{categorias.length} cadastradas</span>
-          </div>
-
-          <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
-            <input
-              type="text"
-              value={novaCategoriaLabel}
-              onChange={(e) => setNovaCategoriaLabel(e.target.value)}
-              placeholder="Nome da nova categoria (ex: Pijamas)..."
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-            >
-              <Plus className="h-4 w-4"/> Adicionar
-            </button>
-          </form>
-
-          <div className="space-y-2 pt-2">
-            {categorias.map((cat) => (
-              <div
-                key={cat.value}
-                className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2.5 text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-white">{cat.label}</span>
-                  <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                    {cat.value}
-                  </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDeletarCategoria(cat.value)
-                  }}
-                  className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                  title="Excluir Categoria"
-                >
-                  <Trash2 className="h-4 w-4"/>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* SEÇÃO: GERENCIAMENTO DE TAMANHOS */}
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-rose-500"/>
-              <h2 className="text-sm font-bold text-white">Tamanhos de Produtos</h2>
+              )}
             </div>
-            <span className="text-[10px] text-slate-400">{opcoesTamanhos.length} cadastrados</span>
           </div>
+        )}
 
-          <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
-            <input
-              type="text"
-              value={novoTamanho}
-              onChange={(e) => setNovoTamanho(e.target.value)}
-              placeholder="Nome do novo tamanho (ex: 18, Extra G)..."
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-            >
-              <Plus className="h-4 w-4"/> Adicionar
-            </button>
-          </form>
-
-          <div className="flex flex-wrap gap-2 pt-2">
-            {opcoesTamanhos.map((tam) => (
-              <div
-                key={tam.id}
-                className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
-              >
-                <span className="font-semibold text-white">{tam.nome}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDeletarTamanho(tam)
-                  }}
-                  className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                  title="Excluir Tamanho"
-                >
-                  <Trash2 className="h-3.5 w-3.5"/>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* SEÇÃO: GERENCIAMENTO DE CORES */}
-        <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Palette className="h-4 w-4 text-rose-500"/>
-              <h2 className="text-sm font-bold text-white">Cores de Produtos</h2>
+        {/* ABA: IMPORTAR TINY ERP */}
+        {abaAtiva === "tiny" && (
+          <div className="space-y-6 max-w-2xl">
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Integração Tiny ERP</h1>
+              <p className="text-xs text-slate-400 mt-1">Importe os arquivos CSV baixados do Tiny ERP para atualizar a base de dados.</p>
             </div>
-            <span className="text-[10px] text-slate-400">{opcoesCores.length} cadastradas</span>
-          </div>
 
-          <form onSubmit={handleAdicionarCor} className="flex gap-2">
-            <input
-              type="text"
-              value={novaCor}
-              onChange={(e) => setNovaCor(e.target.value)}
-              placeholder="Nome da nova cor (ex: Rosa Bebê, Azul Marinho)..."
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-            >
-              <Plus className="h-4 w-4"/> Adicionar
-            </button>
-          </form>
-
-          <div className="flex flex-wrap gap-2 pt-2">
-            {opcoesCores.map((cor) => (
-              <div
-                key={cor.id}
-                className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
-              >
-                <span className="font-semibold text-white">{cor.nome}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDeletarCor(cor)
-                  }}
-                  className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                  title="Excluir Cor"
-                >
-                  <Trash2 className="h-3.5 w-3.5"/>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )}
-
-  </main>
-
-  {/* MODAL ITENS DO PEDIDO */}
-  {pedidoDetalhes && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div>
-            <h2 className="text-base font-bold text-white">Detalhes do Pedido</h2>
-            <p className="text-xs text-rose-400 font-mono font-semibold">#{pedidoDetalhes.id}</p>
-          </div>
-          <button type="button" onClick={() => setPedidoDetalhes(null)} className="text-slate-400 hover:text-white">
-            <X className="h-5 w-5"/>
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          <span className="text-xs font-semibold text-slate-400 uppercase">Itens Comprados</span>
-          <div className="divide-y divide-slate-800/60 max-h-60 overflow-y-auto pr-1">
-            {pedidoDetalhes.itens.map((item) => (
-              <div key={item.id} className="py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={item.produto?.imagemUrl || ""}
-                    alt={item.produto?.nome || "Produto"}
-                    className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shrink-0"
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-8 rounded-2xl space-y-5">
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl p-4 md:p-8 text-center bg-slate-950 hover:border-rose-500/50 transition-colors">
+                <FileSpreadsheet size={48} className="text-rose-500 mb-3" />
+                <h3 className="text-sm font-bold text-white mb-1">Selecionar Arquivo do Tiny</h3>
+                <p className="text-xs text-slate-400 mb-5 max-w-sm">
+                  Envie o arquivo CSV exportado do Tiny ERP para atualizar o e-commerce.
+                </p>
+                
+                <label className="cursor-pointer bg-rose-600 text-white px-5 py-2.5 rounded-xl hover:bg-rose-500 transition-colors font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/20">
+                  <Upload size={16} />
+                  <span>{loadingTiny ? 'Processando Arquivo...' : 'Selecionar Arquivo'}</span>
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    className="hidden" 
+                    onChange={handleImportTiny} 
+                    disabled={loadingTiny}
                   />
-                  <div>
-                    <span className="text-xs font-bold text-white block">{item.produto?.nome || "Produto Não Encontrado"}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {item.quantidade}x {formatarMoeda(item.precoUnitario)}
-                      {item.tamanho && ` (Tamanho: ${item.tamanho})`}
-                      {item.cor && ` (Cor: ${item.cor})`}
-                    </span>
-                  </div>
+                </label>
+              </div>
+
+              {tinyMessage && (
+                <div className={`p-4 rounded-xl flex items-center gap-3 text-xs ${
+                  tinyMessage.type === 'success' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {tinyMessage.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                  <span>{tinyMessage.text}</span>
                 </div>
-                <span className="text-xs font-bold text-rose-400 shrink-0">
-                  {formatarMoeda((item.quantidade || 0) * (item.precoUnitario || 0))}
-                </span>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="border-t border-slate-800 pt-4 flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-300">Total Pago:</span>
-          <span className="text-base font-bold text-emerald-400">
-            {formatarMoeda(pedidoDetalhes.total)}
-          </span>
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL CADASTRAR OU EDITAR PRODUTO */}
-  {modalProduto && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">
-            {produtoEditando ? "Editar Produto e Estoque" : "Novo Produto"}
-          </h2>
-          <button type="button" onClick={() => setModalProduto(false)} className="text-slate-400 hover:text-white">
-            <X className="h-5 w-5"/>
-          </button>
-        </div>
-
-        <form onSubmit={handleSalvarProduto} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Produto</label>
-            <input
-              type="text"
-              required
-              value={formNome}
-              onChange={(e) => setFormNome(e.target.value)}
-              placeholder="Ex: Conjunto Infantil Verão"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Descrição</label>
-            <textarea
-              rows={3}
-              value={formDesc}
-              onChange={(e) => setFormDesc(e.target.value)}
-              placeholder="Detalhes do tecido, estilo, lavagem..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* ABA: MINHA CONTA */}
+        {abaAtiva === "conta" && (
+          <div className="space-y-6 max-w-2xl">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Preço Normal (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                required
-                value={formPreco}
-                onChange={(e) => setFormPreco(e.target.value)}
-                placeholder="89.90"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-              />
+              <h1 className="text-xl md:text-2xl font-bold text-white">Minha Conta (Administrador)</h1>
+              <p className="text-xs text-slate-400 mt-1">Gerencie suas credenciais de acesso ao painel.</p>
             </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Preço Promocional (Opcional)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formPrecoPromocional}
-                onChange={(e) => setFormPrecoPromocional(e.target.value)}
-                placeholder="Ex: 69.90"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Estoque Total</label>
-            {(formTamanhos.length > 0 || formCores.length > 0) ? (
-              <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-sm text-emerald-400 font-extrabold flex items-center justify-between">
-                <span>{totalEstoqueCalculado} unidades</span>
-                <span className="text-[10px] text-slate-500 font-normal">(Somado das Variações)</span>
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Administrador</label>
+                <input
+                  type="text"
+                  value={nomeAdmin}
+                  onChange={(e) => setNomeAdmin(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
               </div>
-            ) : (
-              <input
-                type="number"
-                min="0"
-                value={formEstoqueManual}
-                onChange={(e) => setFormEstoqueManual(e.target.value)}
-                placeholder="Quantidade em estoque..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500"
-              />
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Gênero</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setFormGenero("masculino")}
-                className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition-all ${
-                  formGenero === "masculino"
-                    ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/20"
-                    : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
-                }`}
-              >
-                Masculino
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormGenero("feminino")}
-                className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition-all ${
-                  formGenero === "feminino"
-                    ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/20"
-                    : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
-                }`}
-              >
-                Feminino
-              </button>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">E-mail</label>
+                <input
+                  type="email"
+                  value={emailAdmin}
+                  onChange={(e) => setEmailAdmin(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <button 
+                  type="button" 
+                  onClick={() => exibirToast("Alterações da conta salvas!")}
+                  className="flex items-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors"
+                >
+                  <Key className="h-4 w-4" /> Salvar Dados da Conta
+                </button>
+              </div>
             </div>
           </div>
+        )}
 
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                <Tag className="h-3.5 w-3.5 text-rose-500"/> Categoria do Produto
-              </label>
+        {/* ABA: CONFIGURAÇÕES */}
+        {abaAtiva === "config" && (
+          <div className="space-y-6 max-w-2xl">
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold text-white">Configurações Gerais</h1>
+              <p className="text-xs text-slate-400 mt-1">Ajustes operacionais do e-commerce e gestão de dados.</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome da Loja</label>
+                <input
+                  type="text"
+                  value={nomeLoja}
+                  onChange={(e) => setNomeLoja(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
               <button
                 type="button"
-                onClick={() => setModalGerenciarCategorias(true)}
-                className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
+                onClick={() => exibirToast("Configurações atualizadas!")}
+                className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
               >
-                <FolderPlus className="h-3 w-3"/> Gerenciar Categorias
+                Salvar Configurações
               </button>
             </div>
-            <select
-              value={formCategoria}
-              onChange={(e) => setFormCategoria(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
-            >
-              {categorias.map((opcao) => (
-                <option key={opcao.value} value={opcao.value}>
-                  {opcao.label}
-                </option>
-              ))}
-            </select>
-          </div>
 
-          <div>
-            <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-              <Baby className="h-3.5 w-3.5 text-rose-500"/> Faixa Etária
-            </label>
-            <select
-              value={formFaixaEtaria}
-              onChange={(e) => setFormFaixaEtaria(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
-            >
-              {OPCOES_FAIXA_ETARIA.map((opcao) => (
-                <option key={opcao.value} value={opcao.value}>
-                  {opcao.label}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* SEÇÃO: GERENCIAMENTO DE CATEGORIAS */}
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-rose-500" />
+                  <h2 className="text-sm font-bold text-white">Categorias de Produtos</h2>
+                </div>
+                <span className="text-[10px] text-slate-400">{categorias.length} cadastradas</span>
+              </div>
 
-          <div>
-            <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-              <MapPin className="h-3.5 w-3.5 text-rose-500"/> Localização do Card na Loja
-            </label>
-            <select
-              value={formLocalCard}
-              onChange={(e) => setFormLocalCard(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
-            >
-              {OPCOES_LOCAIS.map((opcao) => (
-                <option key={opcao.value} value={opcao.value}>
-                  {opcao.label}
-                </option>
-              ))}
-            </select>
-          </div>
+              <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
+                <input
+                  type="text"
+                  value={novaCategoriaLabel}
+                  onChange={(e) => setNovaCategoriaLabel(e.target.value)}
+                  placeholder="Nome da nova categoria (ex: Pijamas)..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+                >
+                  <Plus className="h-4 w-4" /> Adicionar
+                </button>
+              </form>
 
-          <div className="space-y-3">
-            <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <ImageIcon className="h-3.5 w-3.5 text-rose-500"/> Imagens do Produto ({formImagens.length})
-              </span>
-              <span className="text-[10px] text-slate-400">A 1ª imagem será a capa principal</span>
-            </label>
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <input
-              type="file"
-              ref={cameraInputRef}
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-
-            {formImagens.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
-                {formImagens.map((img, index) => (
-                  <div key={index} className="relative group h-20 rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
-                    <img src={img} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" />
-                    {index === 0 ? (
-                      <span className="absolute bottom-1 left-1 bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow flex items-center gap-1">
-                        <Star className="h-2.5 w-2.5 fill-white"/> Capa
+              <div className="space-y-2 pt-2">
+                {categorias.map((cat) => (
+                  <div
+                    key={cat.value}
+                    className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2.5 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">{cat.label}</span>
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                        {cat.value}
                       </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleDefinirCapaImagem(index)}
-                        className="absolute bottom-1 left-1 bg-slate-900/80 hover:bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors"
-                        title="Definir como capa principal"
-                      >
-                        Tornar Capa
-                      </button>
-                    )}
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleRemoverImagem(index)
+                        handleDeletarCategoria(cat.value)
                       }}
-                      className="absolute top-1 right-1 bg-rose-600/90 hover:bg-rose-500 text-white p-1 rounded-full opacity-90 transition-opacity"
-                      title="Remover imagem"
+                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      title="Excluir Categoria"
                     >
-                      <X className="h-3 w-3"/>
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-950 p-3 text-center hover:border-rose-500 hover:bg-rose-500/5 transition-all group"
-              >
-                <div className="rounded-full bg-rose-500/10 p-2 text-rose-500 group-hover:scale-110 transition-transform">
-                  <Camera className="h-4 w-4"/>
+            {/* SEÇÃO: GERENCIAMENTO DE TAMANHOS */}
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-rose-500" />
+                  <h2 className="text-sm font-bold text-white">Tamanhos de Produtos</h2>
                 </div>
-                <div>
-                  <span className="text-xs font-bold text-white block">Tirar Foto</span>
-                  <span className="text-[10px] text-slate-400">Câmera do celular</span>
-                </div>
-              </button>
+                <span className="text-[10px] text-slate-400">{opcoesTamanhos.length} cadastrados</span>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-950 p-3 text-center hover:border-rose-500 hover:bg-rose-500/5 transition-all group"
-              >
-                <div className="rounded-full bg-rose-500/10 p-2 text-rose-500 group-hover:scale-110 transition-transform">
-                  <Upload className="h-4 w-4"/>
+              <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
+                <input
+                  type="text"
+                  value={novoTamanho}
+                  onChange={(e) => setNovoTamanho(e.target.value)}
+                  placeholder="Nome do novo tamanho (ex: 18, Extra G)..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+                >
+                  <Plus className="h-4 w-4" /> Adicionar
+                </button>
+              </form>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {opcoesTamanhos.map((tam) => (
+                  <div
+                    key={tam.id}
+                    className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-semibold text-white">{tam.nome}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeletarTamanho(tam)
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      title="Excluir Tamanho"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SEÇÃO: GERENCIAMENTO DE CORES */}
+            <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-rose-500" />
+                  <h2 className="text-sm font-bold text-white">Cores de Produtos</h2>
                 </div>
-                <div>
-                  <span className="text-xs font-bold text-white block">Enviar Arquivo</span>
-                  <span className="text-[10px] text-slate-400">Galeria / PC</span>
-                </div>
+                <span className="text-[10px] text-slate-400">{opcoesCores.length} cadastradas</span>
+              </div>
+
+              <form onSubmit={handleAdicionarCor} className="flex gap-2">
+                <input
+                  type="text"
+                  value={novaCor}
+                  onChange={(e) => setNovaCor(e.target.value)}
+                  placeholder="Nome da nova cor (ex: Rosa Bebê, Azul Marinho)..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+                >
+                  <Plus className="h-4 w-4" /> Adicionar
+                </button>
+              </form>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {opcoesCores.map((cor) => (
+                  <div
+                    key={cor.id}
+                    className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-semibold text-white">{cor.nome}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeletarCor(cor)
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      title="Excluir Cor"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* MODAL ITENS DO PEDIDO */}
+      {pedidoDetalhes && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-white">Detalhes do Pedido</h2>
+                <p className="text-xs text-rose-400 font-mono font-semibold">#{pedidoDetalhes.id}</p>
+              </div>
+              <button type="button" onClick={() => setPedidoDetalhes(null)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="flex gap-2">
+            <div className="space-y-3">
+              <span className="text-xs font-semibold text-slate-400 uppercase">Itens Comprados</span>
+              <div className="divide-y divide-slate-800/60 max-h-60 overflow-y-auto pr-1">
+                {pedidoDetalhes.itens.map((item) => (
+                  <div key={item.id} className="py-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={item.produto?.imagemUrl || ""}
+                        alt={item.produto?.nome || "Produto"}
+                        className="h-10 w-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shrink-0"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-white block">{item.produto?.nome || "Produto Não Encontrado"}</span>
+                        <span className="text-[10px] text-slate-400">
+                          {item.quantidade}x {formatarMoeda(item.precoUnitario)}
+                          {item.tamanho && ` (Tamanho: ${item.tamanho})`}
+                          {item.cor && ` (Cor: ${item.cor})`}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-rose-400 shrink-0">
+                      {formatarMoeda((item.quantidade || 0) * (item.precoUnitario || 0))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-4 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300">Total Pago:</span>
+              <span className="text-base font-bold text-emerald-400">
+                {formatarMoeda(pedidoDetalhes.total)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CADASTRAR OU EDITAR PRODUTO */}
+      {modalProduto && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
+                {produtoEditando ? "Editar Produto e Estoque" : "Novo Produto"}
+              </h2>
+              <button type="button" onClick={() => setModalProduto(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarProduto} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Produto</label>
+                <input
+                  type="text"
+                  required
+                  value={formNome}
+                  onChange={(e) => setFormNome(e.target.value)}
+                  placeholder="Ex: Conjunto Infantil Verão"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Descrição</label>
+                <textarea
+                  rows={3}
+                  value={formDesc}
+                  onChange={(e) => setFormDesc(e.target.value)}
+                  placeholder="Detalhes do tecido, estilo, lavagem..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Preço Normal (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formPreco}
+                    onChange={(e) => setFormPreco(e.target.value)}
+                    placeholder="89.90"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Preço Promocional (Opcional)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formPrecoPromocional}
+                    onChange={(e) => setFormPrecoPromocional(e.target.value)}
+                    placeholder="Ex: 69.90"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Estoque Total</label>
+                {(formTamanhos.length > 0 || formCores.length > 0) ? (
+                  <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-sm text-emerald-400 font-extrabold flex items-center justify-between">
+                    <span>{totalEstoqueCalculado} unidades</span>
+                    <span className="text-[10px] text-slate-500 font-normal">(Somado das Variações)</span>
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    value={formEstoqueManual}
+                    onChange={(e) => setFormEstoqueManual(e.target.value)}
+                    placeholder="Quantidade em estoque..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Gênero</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormGenero("masculino")}
+                    className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition-all ${
+                      formGenero === "masculino"
+                        ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/20"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    Masculino
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormGenero("feminino")}
+                    className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition-all ${
+                      formGenero === "feminino"
+                        ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/20"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    Feminino
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5 text-rose-500" /> Categoria do Produto
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setModalGerenciarCategorias(true)}
+                    className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
+                  >
+                    <FolderPlus className="h-3 w-3" /> Gerenciar Categorias
+                  </button>
+                </div>
+                <select
+                  value={formCategoria}
+                  onChange={(e) => setFormCategoria(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
+                >
+                  {categorias.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>
+                      {opcao.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Baby className="h-3.5 w-3.5 text-rose-500" /> Faixa Etária
+                </label>
+                <select
+                  value={formFaixaEtaria}
+                  onChange={(e) => setFormFaixaEtaria(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
+                >
+                  {OPCOES_FAIXA_ETARIA.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>
+                      {opcao.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-rose-500" /> Localização do Card na Loja
+                </label>
+                <select
+                  value={formLocalCard}
+                  onChange={(e) => setFormLocalCard(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
+                >
+                  {OPCOES_LOCAIS.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>
+                      {opcao.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <ImageIcon className="h-3.5 w-3.5 text-rose-500" /> Imagens do Produto ({formImagens.length})
+                  </span>
+                  <span className="text-[10px] text-slate-400">A 1ª imagem será a capa principal</span>
+                </label>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                <input
+                  type="file"
+                  ref={cameraInputRef}
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
+                {formImagens.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    {formImagens.map((img, index) => (
+                      <div key={index} className="relative group h-20 rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
+                        <img src={img} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" />
+                        {index === 0 ? (
+                          <span className="absolute bottom-1 left-1 bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-bold shadow flex items-center gap-1">
+                            <Star className="h-2.5 w-2.5 fill-white" /> Capa
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDefinirCapaImagem(index)}
+                            className="absolute bottom-1 left-1 bg-slate-900/80 hover:bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors"
+                            title="Definir como capa principal"
+                          >
+                            Tornar Capa
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRemoverImagem(index)
+                          }}
+                          className="absolute top-1 right-1 bg-rose-600/90 hover:bg-rose-500 text-white p-1 rounded-full opacity-90 transition-opacity"
+                          title="Remover imagem"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-950 p-3 text-center hover:border-rose-500 hover:bg-rose-500/5 transition-all group"
+                  >
+                    <div className="rounded-full bg-rose-500/10 p-2 text-rose-500 group-hover:scale-110 transition-transform">
+                      <Camera className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Tirar Foto</span>
+                      <span className="text-[10px] text-slate-400">Câmera do celular</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-950 p-3 text-center hover:border-rose-500 hover:bg-rose-500/5 transition-all group"
+                  >
+                    <div className="rounded-full bg-rose-500/10 p-2 text-rose-500 group-hover:scale-110 transition-transform">
+                      <Upload className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Enviar Arquivo</span>
+                      <span className="text-[10px] text-slate-400">Galeria / PC</span>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={novaUrlImagem}
+                    onChange={(e) => setNovaUrlImagem(e.target.value)}
+                    placeholder="Ou cole a URL de uma imagem..."
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAdicionarUrlImagem}
+                    className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shrink-0"
+                  >
+                    Adicionar URL
+                  </button>
+                </div>
+              </div>
+
+              {/* CONTROLE DE TAMANHOS DO PRODUTO */}
+              <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Package className="h-3.5 w-3.5 text-rose-500" />
+                    Tamanhos Selecionados ({formTamanhos.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setModalGerenciarTamanhos(true)}
+                    className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
+                  >
+                    <FolderPlus className="h-3 w-3" /> Gerenciar Banco
+                  </button>
+                </div>
+
+                {formTamanhos.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
+                    {formTamanhos.map((tam) => (
+                      <span
+                        key={tam}
+                        className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
+                      >
+                        {tam}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverTamanhoDoProduto(tam)}
+                          className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
+                          title={`Remover tamanho ${tam} do produto`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Nenhum tamanho selecionado para este produto.
+                  </p>
+                )}
+
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                    Puxar tamanhos do banco de dados:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                    {opcoesTamanhos.map((tam) => {
+                      const selecionado = formTamanhos.includes(tam.nome)
+                      return (
+                        <button
+                          key={tam.id}
+                          type="button"
+                          onClick={() => toggleTamanho(tam.nome)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                            selecionado
+                              ? "bg-rose-600 text-white border-rose-500 shadow-sm"
+                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          {selecionado ? `✓ ${tam.nome}` : `+ ${tam.nome}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Ou insira outro tamanho manualmente:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tamanhoManualInput}
+                      onChange={(e) => setTamanhoManualInput(e.target.value)}
+                      placeholder="Ex: 18, Extra G..."
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdicionarTamanhoManualAoProduto}
+                      className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ESTOQUE POR TAMANHO */}
+              {formTamanhos.length > 0 && (
+                <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-200 block">
+                    Definir Quantidade por Tamanho
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {formTamanhos.map((tam) => (
+                      <div key={tam} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <label className="text-[11px] font-bold text-rose-400 block mb-1">
+                          Tamanho: {tam}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={formEstoquePorTamanho[tam] ?? 0}
+                          onChange={(e) => handleQtdTamanhoChange(tam, parseInt(e.target.value) || 0)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* CONTROLE DE CORES DO PRODUTO */}
+              <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <Palette className="h-3.5 w-3.5 text-rose-500" />
+                    Cores Selecionadas ({formCores.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setModalGerenciarCores(true)}
+                    className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
+                  >
+                    <FolderPlus className="h-3 w-3" /> Gerenciar Banco
+                  </button>
+                </div>
+
+                {formCores.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
+                    {formCores.map((cor) => (
+                      <span
+                        key={cor}
+                        className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
+                      >
+                        {cor}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverCorDoProduto(cor)}
+                          className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
+                          title={`Remover cor ${cor} do produto`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Nenhuma cor selecionada para este produto.
+                  </p>
+                )}
+
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                    Puxar cores do banco de dados:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                    {opcoesCores.map((cor) => {
+                      const selecionada = formCores.includes(cor.nome)
+                      return (
+                        <button
+                          key={cor.id}
+                          type="button"
+                          onClick={() => toggleCor(cor.nome)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                            selecionada
+                              ? "bg-rose-600 text-white border-rose-500 shadow-sm"
+                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          {selecionada ? `✓ ${cor.nome}` : `+ ${cor.nome}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Ou insira outra cor manualmente:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={corManualInput}
+                      onChange={(e) => setCorManualInput(e.target.value)}
+                      placeholder="Ex: Rosa Bebê, Azul Marinho..."
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdicionarCorManualAoProduto}
+                      className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ESTOQUE POR COR */}
+              {formCores.length > 0 && (
+                <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-200 block">
+                    Definir Quantidade por Cor
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {formCores.map((cor) => (
+                      <div key={cor} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <label className="text-[11px] font-bold text-rose-400 block mb-1">
+                          Cor: {cor}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={formEstoquePorCor[cor] ?? 0}
+                          onChange={(e) => handleQtdCorChange(cor, parseInt(e.target.value) || 0)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalProduto(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoProduto}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {salvandoProduto && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GERENCIAR CATEGORIAS */}
+      {modalGerenciarCategorias && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Tag className="h-4 w-4 text-rose-500" /> Gerenciar Categorias da Loja
+              </h3>
+              <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
               <input
-                type="url"
-                value={novaUrlImagem}
-                onChange={(e) => setNovaUrlImagem(e.target.value)}
-                placeholder="Ou cole a URL de uma imagem..."
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                type="text"
+                value={novaCategoriaLabel}
+                onChange={(e) => setNovaCategoriaLabel(e.target.value)}
+                placeholder="Nome da categoria (ex: Pijamas)..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
               />
               <button
-                type="button"
-                onClick={handleAdicionarUrlImagem}
-                className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shrink-0"
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shrink-0"
               >
-                Adicionar URL
+                Adicionar
               </button>
-            </div>
-          </div>
+            </form>
 
-          {/* CONTROLE DE TAMANHOS DO PRODUTO */}
-          <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                <Package className="h-3.5 w-3.5 text-rose-500"/>
-                Tamanhos Selecionados ({formTamanhos.length})
-              </label>
-              <button
-                type="button"
-                onClick={() => setModalGerenciarTamanhos(true)}
-                className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
-              >
-                <FolderPlus className="h-3 w-3"/> Gerenciar Banco
-              </button>
-            </div>
-
-            {formTamanhos.length > 0 ? (
-              <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
-                {formTamanhos.map((tam) => (
-                  <span
-                    key={tam}
-                    className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {categorias.map((cat) => (
+                <div key={cat.value} className="flex items-center justify-between bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs">
+                  <span className="font-semibold text-white">{cat.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarCategoria(cat.value)}
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
                   >
-                    {tam}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoverTamanhoDoProduto(tam)}
-                      className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
-                      title={`Remover tamanho ${tam} do produto`}
-                    >
-                      <X className="h-3 w-3"/>
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-slate-500 italic">
-                Nenhum tamanho selecionado para este produto.
-              </p>
-            )}
-
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
-                Puxar tamanhos do banco de dados:
-              </span>
-              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-                {opcoesTamanhos.map((tam) => {
-                  const selecionado = formTamanhos.includes(tam.nome)
-                  return (
-                    <button
-                      key={tam.id}
-                      type="button"
-                      onClick={() => toggleTamanho(tam.nome)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                        selecionado
-                          ? "bg-rose-600 text-white border-rose-500 shadow-sm"
-                          : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
-                      }`}
-                    >
-                      {selecionado ? `✓ ${tam.nome}` : `+ ${tam.nome}`}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-800/80">
-              <span className="text-[11px] font-semibold text-slate-400 block mb-1">
-                Ou insira outro tamanho manualmente:
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={tamanhoManualInput}
-                  onChange={(e) => setTamanhoManualInput(e.target.value)}
-                  placeholder="Ex: 18, Extra G..."
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAdicionarTamanhoManualAoProduto}
-                  className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
-                >
-                  Adicionar
-                </button>
-              </div>
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* ESTOQUE POR TAMANHO */}
-          {formTamanhos.length > 0 && (
-            <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-xs font-bold text-slate-200 block">
-                Definir Quantidade por Tamanho
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {formTamanhos.map((tam) => (
-                  <div key={tam} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
-                    <label className="text-[11px] font-bold text-rose-400 block mb-1">
-                      Tamanho: {tam}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formEstoquePorTamanho[tam] ?? 0}
-                      onChange={(e) => handleQtdTamanhoChange(tam, parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* CONTROLE DE CORES DO PRODUTO */}
-          <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                <Palette className="h-3.5 w-3.5 text-rose-500"/>
-                Cores Selecionadas ({formCores.length})
-              </label>
-              <button
-                type="button"
-                onClick={() => setModalGerenciarCores(true)}
-                className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 hover:underline"
-              >
-                <FolderPlus className="h-3 w-3"/> Gerenciar Banco
+      {/* MODAL GERENCIAR TAMANHOS */}
+      {modalGerenciarTamanhos && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Package className="h-4 w-4 text-rose-500" /> Gerenciar Banco de Tamanhos
+              </h3>
+              <button type="button" onClick={() => setModalGerenciarTamanhos(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {formCores.length > 0 ? (
-              <div className="flex flex-wrap gap-2 pb-1 border-b border-slate-800/80">
-                {formCores.map((cor) => (
-                  <span
-                    key={cor}
-                    className="inline-flex items-center gap-1.5 bg-rose-600/20 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-lg text-xs font-bold"
+            <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
+              <input
+                type="text"
+                value={novoTamanho}
+                onChange={(e) => setNovoTamanho(e.target.value)}
+                placeholder="Nome do tamanho (ex: 18)..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shrink-0"
+              >
+                Adicionar
+              </button>
+            </form>
+
+            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pr-1">
+              {opcoesTamanhos.map((tam) => (
+                <div key={tam.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                  <span className="font-semibold text-white">{tam.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarTamanho(tam)}
+                    className="p-0.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
                   >
-                    {cor}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoverCorDoProduto(cor)}
-                      className="hover:text-white hover:bg-rose-600 rounded p-0.5 transition-colors"
-                      title={`Remover cor ${cor} do produto`}
-                    >
-                      <X className="h-3 w-3"/>
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-slate-500 italic">
-                Nenhuma cor selecionada para este produto.
-              </p>
-            )}
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* MODAL GERENCIAR CORES */}
+      {modalGerenciarCores && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Palette className="h-4 w-4 text-rose-500" /> Gerenciar Banco de Cores
+              </h3>
+              <button type="button" onClick={() => setModalGerenciarCores(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdicionarCor} className="flex gap-2">
+              <input
+                type="text"
+                value={novaCor}
+                onChange={(e) => setNovaCor(e.target.value)}
+                placeholder="Nome da cor (ex: Rosa Bebê)..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shrink-0"
+              >
+                Adicionar
+              </button>
+            </form>
+
+            <div className="max-h-60 overflow-y-auto flex flex-wrap gap-2 pr-1">
+              {opcoesCores.map((cor) => (
+                <div key={cor.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                  <span className="font-semibold text-white">{cor.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarCor(cor)}
+                    className="p-0.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE PRODUTO */}
+      {produtoParaExcluir && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
             <div>
-              <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
-                Puxar cores do banco de dados:
-              </span>
-              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-                {opcoesCores.map((cor) => {
-                  const selecionado = formCores.includes(cor.nome)
-                  return (
-                    <button
-                      key={cor.id}
-                      type="button"
-                      onClick={() => toggleCor(cor.nome)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                        selecionado
-                          ? "bg-rose-600 text-white border-rose-500 shadow-sm"
-                          : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
-                      }`}
-                    >
-                      {selecionado ? `✓ ${cor.nome}` : `+ ${cor.nome}`}
-                    </button>
-                  )
-                })}
-              </div>
+              <h3 className="text-base font-bold text-white">Excluir Produto?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Você tem certeza que deseja excluir <span className="text-white font-semibold">"{produtoParaExcluir.nome}"</span>? Esta ação é irreversible.
+              </p>
             </div>
-
-            <div className="pt-2 border-t border-slate-800/80">
-              <span className="text-[11px] font-semibold text-slate-400 block mb-1">
-                Ou insira outra cor manualmente:
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={corManualInput}
-                  onChange={(e) => setCorManualInput(e.target.value)}
-                  placeholder="Ex: Rosa Bebê, Azul Marinho..."
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleAdicionarCorManualAoProduto}
-                  className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0"
-                >
-                  Adicionar
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* ESTOQUE POR COR */}
-          {formCores.length > 0 && (
-            <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-xs font-bold text-slate-200 block">
-                Definir Quantidade por Cor
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {formCores.map((cor) => (
-                  <div key={cor} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
-                    <label className="text-[11px] font-bold text-rose-400 block mb-1">
-                      Cor: {cor}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formEstoquePorCor[cor] ?? 0}
-                      onChange={(e) => handleQtdCorChange(cor, parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setModalProduto(false)}
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={salvandoProduto}
-              className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
-            >
-              {salvandoProduto && <Loader2 className="h-4 w-4 animate-spin"/>}
-              {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE PRODUTO */}
-  {produtoParaExcluir && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center gap-3 text-rose-500">
-          <AlertTriangle className="h-6 w-6 shrink-0"/>
-          <h3 className="text-base font-bold text-white">Excluir Produto</h3>
-        </div>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          Tem certeza de que deseja excluir o produto <strong className="text-white">{produtoParaExcluir.nome}</strong>? Esta ação não poderá ser desfeita.
-        </p>
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => setProdutoParaExcluir(null)}
-            className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmarExclusao}
-            disabled={deletandoProduto}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            {deletandoProduto && <Loader2 className="h-4 w-4 animate-spin"/>}
-            Confirmar Exclusão
-          </button>
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE CLIENTE */}
-  {clienteParaExcluir && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center gap-3 text-rose-500">
-          <AlertTriangle className="h-6 w-6 shrink-0"/>
-          <h3 className="text-base font-bold text-white">Excluir Conta do Cliente</h3>
-        </div>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          Tem certeza de que deseja excluir a conta de <strong className="text-white">{clienteParaExcluir.nome}</strong> ({clienteParaExcluir.email})? Esta ação é irreversível.
-        </p>
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => setClienteParaExcluir(null)}
-            className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmarExclusaoCliente}
-            disabled={deletandoCliente}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            {deletandoCliente && <Loader2 className="h-4 w-4 animate-spin"/>}
-            Excluir Cliente
-          </button>
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE PEDIDO */}
-  {pedidoParaExcluir && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center gap-3 text-rose-500">
-          <AlertTriangle className="h-6 w-6 shrink-0"/>
-          <h3 className="text-base font-bold text-white">Excluir Venda</h3>
-        </div>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          Tem certeza de que deseja excluir o pedido <strong className="text-white">#{pedidoParaExcluir.id.substring(0, 8)}</strong>? Os itens serão estornados para o estoque dos produtos.
-        </p>
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => setPedidoParaExcluir(null)}
-            className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmarExclusaoPedido}
-            disabled={deletandoPedido}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            {deletandoPedido && <Loader2 className="h-4 w-4 animate-spin"/>}
-            Excluir Venda
-          </button>
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL GERENCIAR CATEGORIAS */}
-  {modalGerenciarCategorias && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-rose-500">
-            <Tag className="h-5 w-5"/>
-            <h3 className="text-base font-bold text-white">Gerenciar Categorias</h3>
-          </div>
-          <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
-            <X className="h-5 w-5"/>
-          </button>
-        </div>
-
-        <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
-          <input
-            type="text"
-            value={novaCategoriaLabel}
-            onChange={(e) => setNovaCategoriaLabel(e.target.value)}
-            placeholder="Nome da categoria..."
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-          />
-          <button
-            type="submit"
-            className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-          >
-            Adicionar
-          </button>
-        </form>
-
-        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-          {categorias.map((cat) => (
-            <div
-              key={cat.value}
-              className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2 text-xs"
-            >
-              <span className="font-semibold text-white">{cat.label}</span>
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => handleDeletarCategoria(cat.value)}
-                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                onClick={() => setProdutoParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
               >
-                <Trash2 className="h-4 w-4"/>
+                Cancelar
               </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL GERENCIAR TAMANHOS */}
-  {modalGerenciarTamanhos && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-rose-500">
-            <Package className="h-5 w-5"/>
-            <h3 className="text-base font-bold text-white">Gerenciar Banco de Tamanhos</h3>
-          </div>
-          <button type="button" onClick={() => setModalGerenciarTamanhos(false)} className="text-slate-400 hover:text-white">
-            <X className="h-5 w-5"/>
-          </button>
-        </div>
-
-        <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
-          <input
-            type="text"
-            value={novoTamanho}
-            onChange={(e) => setNovoTamanho(e.target.value)}
-            placeholder="Nome do tamanho..."
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-          />
-          <button
-            type="submit"
-            className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-          >
-            Adicionar
-          </button>
-        </form>
-
-        <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
-          {opcoesTamanhos.map((tam) => (
-            <div
-              key={tam.id}
-              className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
-            >
-              <span className="font-semibold text-white">{tam.nome}</span>
               <button
                 type="button"
-                onClick={() => handleDeletarTamanho(tam)}
-                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                onClick={handleConfirmarExclusao}
+                disabled={deletandoProduto}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2"
               >
-                <Trash2 className="h-3.5 w-3.5"/>
+                {deletandoProduto && <Loader2 className="h-4 w-4 animate-spin" />}
+                Excluir
               </button>
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )}
-
-  {/* MODAL GERENCIAR CORES */}
-  {modalGerenciarCores && (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-rose-500">
-            <Palette className="h-5 w-5"/>
-            <h3 className="text-base font-bold text-white">Gerenciar Banco de Cores</h3>
           </div>
-          <button type="button" onClick={() => setModalGerenciarCores(false)} className="text-slate-400 hover:text-white">
-            <X className="h-5 w-5"/>
-          </button>
         </div>
+      )}
 
-        <form onSubmit={handleAdicionarCor} className="flex gap-2">
-          <input
-            type="text"
-            value={novaCor}
-            onChange={(e) => setNovaCor(e.target.value)}
-            placeholder="Nome da cor..."
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-          />
-          <button
-            type="submit"
-            className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
-          >
-            Adicionar
-          </button>
-        </form>
-
-        <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
-          {opcoesCores.map((cor) => (
-            <div
-              key={cor.id}
-              className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs"
-            >
-              <span className="font-semibold text-white">{cor.nome}</span>
+      {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE CLIENTE */}
+      {clienteParaExcluir && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Excluir Conta do Cliente?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Tem certeza que deseja remover o usuário <span className="text-white font-semibold">"{clienteParaExcluir.nome}"</span>?
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => handleDeletarCor(cor)}
-                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                onClick={() => setClienteParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
               >
-                <Trash2 className="h-3.5 w-3.5"/>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusaoCliente}
+                disabled={deletandoCliente}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2"
+              >
+                {deletandoCliente && <Loader2 className="h-4 w-4 animate-spin" />}
+                Excluir Conta
               </button>
             </div>
-          ))}
+          </div>
         </div>
-      </div>
-    </div>
-  )}
+      )}
 
-</div>
+      {/* MODAL CONFIRMAÇÃO EXCLUSÃO DE PEDIDO */}
+      {pedidoParaExcluir && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Excluir Pedido e Devolver Itens?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Ao excluir este pedido, os itens serão automaticamente estornados para o estoque dos produtos.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setPedidoParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusaoPedido}
+                disabled={deletandoPedido}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2"
+              >
+                {deletandoPedido && <Loader2 className="h-4 w-4 animate-spin" />}
+                Excluir Venda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
