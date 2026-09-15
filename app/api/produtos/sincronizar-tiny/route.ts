@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// Aumenta o tempo limite de execução em ambientes Serverless (como Vercel)
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
@@ -9,34 +8,45 @@ export async function POST(req: Request) {
 
   if (!TINY_TOKEN) {
     return NextResponse.json(
-      { error: "Variável TINY_API_TOKEN não encontrada." },
+      { error: "Variável TINY_API_TOKEN não encontrada no .env" },
       { status: 500 }
     );
   }
 
   try {
-    const { tipo } = await req.json(); // "estoque" | "novos_produtos" | "geral"
+    const body = await req.json().catch(() => ({}));
+    const tipo = body.tipo || "geral";
 
     let pagina = 1;
     let continuarBuscando = true;
     const produtosEncontrados: any[] = [];
 
-    // 1. Busca os produtos no Tiny (Lista resumida)
-    while (continuarBuscando && pagina <= 20) {
-      const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
+    // 1. Busca os produtos no Tiny usando POST com FormData
+    while (continuarBuscando && pagina <= 15) {
+      const formData = new URLSearchParams();
+      formData.append("token", TINY_TOKEN.trim());
+      formData.append("pagina", String(pagina));
+      formData.append("formato", "json");
 
-      const response = await fetch(urlTiny, { method: "GET" });
-      const textResponse = await response.text();
+      const response = await fetch("https://api.tiny.com.br/api2/produtos.pesquisa.php", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: formData.toString(),
+      });
 
-      let data;
-      try {
-        data = JSON.parse(textResponse);
-      } catch (e) {
-        break;
+      if (!response.ok) {
+        throw new Error(`Tiny API respondeu com status ${response.status}`);
       }
 
-      const retorno = data.retorno;
-      if (!retorno || retorno.status !== "OK") {
+      const data = await response.json();
+      const retorno = data?.retorno;
+
+      if (!retorno || retorno.status === "Erro") {
+        if (retorno?.erros?.[0]?.erro) {
+          console.error("Erro retornado pelo Tiny:", retorno.erros[0].erro);
+        }
         break;
       }
 
@@ -53,17 +63,22 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Processa e agrupa os estoques diretamente do retorno da busca
+    if (produtosEncontrados.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: "Nenhum produto encontrado no Tiny para sincronizar.",
+      });
+    }
+
+    // 2. Agrupamento e cálculo de variações/estoques
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
       const p = item.produto;
       if (!p || !p.nome) continue;
 
-      // Obtém o estoque vindo diretamente do objeto pesquisado
       const saldoReal = Number(p.saldo ?? p.estoque ?? 0);
-
-      let nomeCompleto = p.nome.trim();
+      const nomeCompleto = p.nome.trim();
       const parts = nomeCompleto.split(" - ");
 
       let nomeBase = nomeCompleto;
@@ -110,10 +125,10 @@ export async function POST(req: Request) {
       }
     }
 
+    // 3. Persistência no banco via Prisma
     let alterados = 0;
 
-    // 3. Atualização no banco de dados via Prisma
-    for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
+    for (const prod of Object.values(produtosAgrupados)) {
       const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(
         ([tam, qtd]) => `${tam}: ${qtd}`
       );
