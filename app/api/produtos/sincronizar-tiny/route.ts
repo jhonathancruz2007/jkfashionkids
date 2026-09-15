@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+// Aumenta o tempo limite de execução em ambientes Serverless (como Vercel)
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
@@ -50,27 +53,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Mapeia estoques reais fazendo chamadas por ID
-    // Obs: No Tiny API v2, a forma mais precisa de puxar o saldo é via produto.obter.estoque.php
+    // 2. Processa e agrupa os estoques diretamente do retorno da busca
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
       const p = item.produto;
       if (!p || !p.nome) continue;
 
-      // Puxa o saldo real de estoque do produto individual no Tiny
-      let saldoReal = 0;
-      try {
-        const urlEstoque = `https://api.tiny.com.br/api2/produto.obter.estoque.php?token=${TINY_TOKEN.trim()}&id=${p.id}&formato=json`;
-        const resEstoque = await fetch(urlEstoque);
-        const dataEstoque = await resEstoque.json();
-
-        if (dataEstoque?.retorno?.status === "OK") {
-          saldoReal = Number(dataEstoque.retorno.produto.saldo) || 0;
-        }
-      } catch (err) {
-        console.error(`Erro ao buscar estoque do produto ${p.id}:`, err);
-      }
+      // Obtém o estoque vindo diretamente do objeto pesquisado
+      const saldoReal = Number(p.saldo ?? p.estoque ?? 0);
 
       let nomeCompleto = p.nome.trim();
       const parts = nomeCompleto.split(" - ");
