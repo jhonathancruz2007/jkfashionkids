@@ -354,7 +354,7 @@ export default function PaginaDashboardAdmin() {
         type: 'error', 
         text: 'Erro de conexão ao enviar o arquivo do Tiny.' 
       })
-    } fontally {
+    } finally {
       setLoadingTiny(false)
       e.target.value = ''
     }
