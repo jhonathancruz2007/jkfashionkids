@@ -172,7 +172,7 @@ const [modalGerenciarCategorias, setModalGerenciarCategorias] = useState(false)
 
 // ESTADO DINÂMICO DE TAMANHOS
 const [opcoesTamanhos, setOpcoesTamanhos] = useState<TamanhoItem[]>(
-TAMANHOS_INICIAIS.map((t, index) => ({ id: temp-${index}, nome: t }))
+  TAMANHOS_INICIAIS.map((t, index) => ({ id: `temp-${index}`, nome: t }))
 )
 const [novoTamanho, setNovoTamanho] = useState("")
 const [modalGerenciarTamanhos, setModalGerenciarTamanhos] = useState(false)
