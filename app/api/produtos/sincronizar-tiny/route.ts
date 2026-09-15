@@ -1,52 +1,39 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export const maxDuration = 60;
-
 export async function POST(req: Request) {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
   if (!TINY_TOKEN) {
     return NextResponse.json(
-      { error: "Variável TINY_API_TOKEN não encontrada no .env" },
+      { error: "Variável TINY_API_TOKEN não encontrada." },
       { status: 500 }
     );
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const tipo = body.tipo || "geral";
+    const { tipo } = await req.json(); // "estoque" | "novos_produtos" | "geral"
 
     let pagina = 1;
     let continuarBuscando = true;
     const produtosEncontrados: any[] = [];
 
-    // 1. Busca os produtos no Tiny usando os parâmetros exatos da API v2
-    while (continuarBuscando && pagina <= 10) {
-      const params = new URLSearchParams({
-        token: TINY_TOKEN.trim(),
-        pesquisa: "", // Obrigatorio para a rota produtos.pesquisa.php
-        pagina: String(pagina),
-        formato: "JSON",
-      });
+    // 1. Busca os produtos no Tiny (Lista resumida)
+    while (continuarBuscando && pagina <= 20) {
+      const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
 
-      const response = await fetch("https://api.tiny.com.br/api2/produtos.pesquisa.php", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: params.toString(),
-      });
+      const response = await fetch(urlTiny, { method: "GET" });
+      const textResponse = await response.text();
 
-      if (!response.ok) {
-        throw new Error(`Tiny API respondeu com HTTP ${response.status}`);
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch (e) {
+        break;
       }
 
-      const data = await response.json();
-      const retorno = data?.retorno;
-
-      // Status 20 no Tiny indica "A Consulta não retornou registros"
-      if (!retorno || retorno.status === "Erro") {
+      const retorno = data.retorno;
+      if (!retorno || retorno.status !== "OK") {
         break;
       }
 
@@ -63,22 +50,29 @@ export async function POST(req: Request) {
       }
     }
 
-    if (produtosEncontrados.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: "Nenhum produto foi encontrado no Tiny.",
-      });
-    }
-
-    // 2. Mapeamento e agrupamento das variações
+    // 2. Mapeia estoques reais fazendo chamadas por ID
+    // Obs: No Tiny API v2, a forma mais precisa de puxar o saldo é via produto.obter.estoque.php
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
       const p = item.produto;
       if (!p || !p.nome) continue;
 
-      const saldoReal = Number(p.saldo ?? p.estoque ?? 0);
-      const nomeCompleto = p.nome.trim();
+      // Puxa o saldo real de estoque do produto individual no Tiny
+      let saldoReal = 0;
+      try {
+        const urlEstoque = `https://api.tiny.com.br/api2/produto.obter.estoque.php?token=${TINY_TOKEN.trim()}&id=${p.id}&formato=json`;
+        const resEstoque = await fetch(urlEstoque);
+        const dataEstoque = await resEstoque.json();
+
+        if (dataEstoque?.retorno?.status === "OK") {
+          saldoReal = Number(dataEstoque.retorno.produto.saldo) || 0;
+        }
+      } catch (err) {
+        console.error(`Erro ao buscar estoque do produto ${p.id}:`, err);
+      }
+
+      let nomeCompleto = p.nome.trim();
       const parts = nomeCompleto.split(" - ");
 
       let nomeBase = nomeCompleto;
@@ -112,8 +106,12 @@ export async function POST(req: Request) {
       produtosAgrupados[nomeBase].estoqueTotal += saldoReal;
 
       if (tamanhoEncontrado) {
-        const estoqueAtual = produtosAgrupados[nomeBase].tamanhosMap.get(tamanhoEncontrado) || 0;
-        produtosAgrupados[nomeBase].tamanhosMap.set(tamanhoEncontrado, estoqueAtual + saldoReal);
+        const estoqueAtualTamanho =
+          produtosAgrupados[nomeBase].tamanhosMap.get(tamanhoEncontrado) || 0;
+        produtosAgrupados[nomeBase].tamanhosMap.set(
+          tamanhoEncontrado,
+          estoqueAtualTamanho + saldoReal
+        );
       }
 
       if (corEncontrada) {
@@ -121,10 +119,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Atualização no banco via Prisma
     let alterados = 0;
 
-    for (const prod of Object.values(produtosAgrupados)) {
+    // 3. Atualização no banco de dados via Prisma
+    for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
       const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(
         ([tam, qtd]) => `${tam}: ${qtd}`
       );
@@ -191,9 +189,9 @@ export async function POST(req: Request) {
     }
 
     const mensagens: Record<string, string> = {
-      estoque: `Estoque de ${alterados} produtos atualizado!`,
-      novos_produtos: `${alterados} novos produtos importados!`,
-      geral: `Sincronização concluída! ${alterados} produtos processados.`,
+      estoque: `Estoque de ${alterados} produtos atualizado com sucesso!`,
+      novos_produtos: `${alterados} novos produtos importados do Tiny!`,
+      geral: `Sincronização geral concluída! ${alterados} produtos sincronizados.`,
     };
 
     return NextResponse.json({
@@ -203,7 +201,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("Erro na sincronização:", error);
     return NextResponse.json(
-      { error: "Erro na sincronização", details: error.message },
+      { error: "Erro interno ao processar sincronização", details: error.message },
       { status: 500 }
     );
   }
