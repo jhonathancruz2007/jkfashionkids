@@ -256,9 +256,24 @@ async function obterEstoque(id: string): Promise<StockResult> {
     throw new Error(tinyErrorMessage(data));
   }
 
+  const depositos = Array.isArray((retorno.produto as any).depositos)
+    ? (retorno.produto as any).depositos
+    : [];
+
+  // A API 2.0 informa o estoque por depósito em
+  // retorno.produto.depositos[].deposito.saldo.
+  // O saldo total é a soma dos depósitos.
+  const saldoDosDepositos = depositos.reduce((total: number, item: any) => {
+    return total + numberOrZero(item?.deposito?.saldo);
+  }, 0);
+
+  // Fallback para respostas antigas/compatíveis que eventualmente tragam
+  // saldo diretamente no produto.
+  const saldoDireto = numberOrZero((retorno.produto as any).saldo);
+
   return {
     id,
-    saldo: numberOrZero(retorno.produto.saldo),
+    saldo: depositos.length > 0 ? saldoDosDepositos : saldoDireto,
   };
 }
 
@@ -322,7 +337,8 @@ export async function POST(req: Request) {
     while (pagina <= Math.max(totalPaginas, 1) && pagina <= MAX_PAGES) {
       const paginaAtual = await pesquisarPagina(pagina);
       produtosPesquisa.push(...paginaAtual.produtos);
-      totalPaginas = paginaAtual.numeroPaginas || pagina;
+      const recebeuPaginaCompleta = paginaAtual.produtos.length >= 100;
+      totalPaginas = paginaAtual.numeroPaginas || (recebeuPaginaCompleta ? pagina + 1 : pagina);
 
       if (pagina >= totalPaginas) break;
       pagina += 1;
