@@ -26,7 +26,6 @@ import {
   Tag,
   Baby,
   FolderPlus,
-  FileSpreadsheet,
   CheckCircle,
   Menu,
   Star,
@@ -161,7 +160,7 @@ const formatarMoeda = (valor: number): string => {
 }
 
 export default function PaginaDashboardAdmin() {
-  const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config" | "tiny">("geral")
+  const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config">("geral")
   const [saindo, setSaindo] = useState<boolean>(false)
   const [sidebarAberta, setSidebarAberta] = useState<boolean>(false)
 
@@ -197,6 +196,9 @@ export default function PaginaDashboardAdmin() {
   const [salvandoProduto, setSalvandoProduto] = useState<boolean>(false)
   const [produtoParaExcluir, setProdutoParaExcluir] = useState<Produto | null>(null)
   const [deletandoProduto, setDeletandoProduto] = useState<boolean>(false)
+
+  // ESTADO DE SINCRONIZAÇÃO VIA API DO TINY ERP
+  const [sincronizandoTiny, setSincronizandoTiny] = useState<boolean>(false)
 
   // Form Produto
   const [formNome, setFormNome] = useState<string>("")
@@ -245,16 +247,38 @@ export default function PaginaDashboardAdmin() {
   const [emailAdmin, setEmailAdmin] = useState<string>("admin@seusite.com")
   const [nomeLoja, setNomeLoja] = useState<string>("JKfashion Kids")
 
-  // ESTADOS PARA IMPORTAÇÃO DO TINY ERP
-  const [loadingTiny, setLoadingTiny] = useState<boolean>(false)
-  const [tinyMessage, setTinyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
   // NOTIFICAÇÕES TOAST LOCAIS
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const exibirToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type })
     setTimeout(() => setToastMessage(null), 4000)
+  }
+
+  // FUNÇÃO PARA SINCRONIZAR PRODUTOS/ESTOQUE DIRETO PELA API DO TINY
+  const handleSincronizarTiny = async (tipo: "geral" | "estoque" | "novos_produtos" = "geral") => {
+    setSincronizandoTiny(true)
+    try {
+      const res = await fetch("/api/admin/produtos/sincronizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo }),
+      })
+
+      const data = await res.json()
+
+      if (res.ok && data.success) {
+        exibirToast(data.message || "Sincronização com o Tiny concluída!")
+        carregarProdutos()
+      } else {
+        exibirToast(data.error || "Erro ao sincronizar com o Tiny.", "error")
+      }
+    } catch (error) {
+      console.error("Erro na requisição de sincronização Tiny:", error)
+      exibirToast("Erro de conexão ao tentar sincronizar.", "error")
+    } finally {
+      setSincronizandoTiny(false)
+    }
   }
 
   // BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
@@ -312,51 +336,6 @@ export default function PaginaDashboardAdmin() {
       }
     } catch (error) {
       console.error("Erro ao carregar cores da API:", error)
-    }
-  }
-
-  const handleImportTiny = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setLoadingTiny(true)
-    setTinyMessage(null)
-
-    const formData = new FormData()
-    formData.append('file', file)
-
-    try {
-      const response = await fetch('/api/admin/produtos/importar', { 
-        method: 'POST', 
-        body: formData 
-      })
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        setTinyMessage({ 
-          type: 'error', 
-          text: data.error || data.erro || 'Erro ao processar o arquivo do Tiny.' 
-        })
-        return
-      }
-
-      setTinyMessage({ 
-        type: 'success', 
-        text: data.message || `Arquivo "${file.name}" importado com sucesso!` 
-      })
-      exibirToast("Importação do Tiny concluída com sucesso!")
-      carregarProdutos()
-      carregarCategorias()
-    } catch (error) {
-      console.error('Erro na importação:', error)
-      setTinyMessage({ 
-        type: 'error', 
-        text: 'Erro de conexão ao enviar o arquivo do Tiny.' 
-      })
-    } finally {
-      setLoadingTiny(false)
-      e.target.value = ''
     }
   }
 
@@ -1061,8 +1040,12 @@ export default function PaginaDashboardAdmin() {
       
       {/* TOAST FEEDBACK NOTIFICATION */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-[200] flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/30 text-emerald-400 shadow-2xl animate-in slide-in-from-top-3 duration-200 text-xs font-bold">
-          <CheckCircle className="h-4 w-4" />
+        <div className={`fixed top-5 right-5 z-[200] flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border text-xs font-bold shadow-2xl animate-in slide-in-from-top-3 duration-200 ${
+          toastMessage.type === 'error' 
+            ? 'border-rose-500/30 text-rose-400' 
+            : 'border-emerald-500/30 text-emerald-400'
+        }`}>
+          {toastMessage.type === 'error' ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
           <span>{toastMessage.text}</span>
         </div>
       )}
@@ -1156,16 +1139,6 @@ export default function PaginaDashboardAdmin() {
 
             <button
               type="button"
-              onClick={() => handleMudarAba("tiny")}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
-                abaAtiva === "tiny" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-              }`}
-            >
-              <FileSpreadsheet className="h-4 w-4" /> Importar Tiny ERP
-            </button>
-
-            <button
-              type="button"
               onClick={() => handleMudarAba("conta")}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                 abaAtiva === "conta" ? "bg-rose-600 text-white font-semibold shadow-lg shadow-rose-600/20" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
@@ -1203,24 +1176,37 @@ export default function PaginaDashboardAdmin() {
         {/* ABA: VISÃO GERAL */}
         {abaAtiva === "geral" && (
           <div className="space-y-6 md:space-y-8 max-w-6xl">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Visão Geral</h1>
                 <p className="text-xs text-slate-400 mt-1">Acompanhe as estatísticas principais da loja.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  carregarProdutos()
-                  carregarClientes()
-                  carregarPedidos()
-                  exibirToast("Dados atualizados!")
-                }}
-                className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold"
-                title="Atualizar dados"
-              >
-                <RefreshCw className="h-3.5 w-3.5" /> Atualizar
-              </button>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSincronizarTiny("geral")}
+                  disabled={sincronizandoTiny}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
+                >
+                  {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Tiny (API)"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    carregarProdutos()
+                    carregarClientes()
+                    carregarPedidos()
+                    exibirToast("Dados atualizados!")
+                  }}
+                  className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold"
+                  title="Atualizar dados"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
@@ -1252,15 +1238,28 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e adicione mais tamanhos, cores, imagens ou quantidades aos seus produtos.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e sincronize variações de estoque em tempo real via API Tiny.</p>
               </div>
-              <button
-                type="button"
-                onClick={handleAbrirNovoProduto}
-                className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
-              >
-                <Plus className="h-4 w-4" /> Cadastrar Produto
-              </button>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSincronizarTiny("geral")}
+                  disabled={sincronizandoTiny}
+                  className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
+                >
+                  {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Tiny (API)"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAbrirNovoProduto}
+                  className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
+                >
+                  <Plus className="h-4 w-4" /> Cadastrar Produto
+                </button>
+              </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
@@ -1653,49 +1652,6 @@ export default function PaginaDashboardAdmin() {
                       ))}
                     </tbody>
                   </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ABA: IMPORTAR TINY ERP */}
-        {abaAtiva === "tiny" && (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white">Integração Tiny ERP</h1>
-              <p className="text-xs text-slate-400 mt-1">Importe os arquivos CSV baixados do Tiny ERP para atualizar a base de dados.</p>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-4 md:p-8 rounded-2xl space-y-5">
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-2xl p-4 md:p-8 text-center bg-slate-950 hover:border-rose-500/50 transition-colors">
-                <FileSpreadsheet size={48} className="text-rose-500 mb-3" />
-                <h3 className="text-sm font-bold text-white mb-1">Selecionar Arquivo do Tiny</h3>
-                <p className="text-xs text-slate-400 mb-5 max-w-sm">
-                  Envie o arquivo CSV exportado do Tiny ERP para atualizar o e-commerce.
-                </p>
-                
-                <label className="cursor-pointer bg-rose-600 text-white px-5 py-2.5 rounded-xl hover:bg-rose-500 transition-colors font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/20">
-                  <Upload size={16} />
-                  <span>{loadingTiny ? 'Processando Arquivo...' : 'Selecionar Arquivo'}</span>
-                  <input 
-                    type="file" 
-                    accept=".csv" 
-                    className="hidden" 
-                    onChange={handleImportTiny} 
-                    disabled={loadingTiny}
-                  />
-                </label>
-              </div>
-
-              {tinyMessage && (
-                <div className={`p-4 rounded-xl flex items-center gap-3 text-xs ${
-                  tinyMessage.type === 'success' 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                }`}>
-                  {tinyMessage.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-                  <span>{tinyMessage.text}</span>
                 </div>
               )}
             </div>
