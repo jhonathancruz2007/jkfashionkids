@@ -257,26 +257,75 @@ export default function PaginaDashboardAdmin() {
 
   // FUNÇÃO PARA SINCRONIZAR PRODUTOS/ESTOQUE DIRETO PELA API DO TINY
   const handleSincronizarTiny = async (tipo: "geral" | "estoque" | "novos_produtos" = "geral") => {
+    if (sincronizandoTiny) return
+
     setSincronizandoTiny(true)
+
     try {
+      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY ===")
+      console.log("Tipo:", tipo)
+
       const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ tipo }),
+        cache: "no-store",
       })
 
-      const data = await res.json().catch(() => ({}))
+      console.log("HTTP Status:", res.status)
+      console.log("HTTP OK:", res.ok)
+
+      const texto = await res.text()
+      console.log("Resposta bruta do servidor:", texto)
+
+      let data: any = {}
+
+      try {
+        data = texto ? JSON.parse(texto) : {}
+      } catch {
+        console.error("A resposta do servidor não veio em JSON válido.")
+      }
+
+      console.log("Resposta JSON:", data)
 
       if (res.ok && data.success) {
-        exibirToast(data.message || "Sincronização com o Tiny concluída!")
+        exibirToast(
+          data.message || "Sincronização com o Tiny concluída!"
+        )
+
         await carregarProdutos()
+
+        console.log("Estatísticas da sincronização:", data.estatisticas)
+        console.log("=== SINCRONIZAÇÃO TINY CONCLUÍDA ===")
+
+        if (data.details) {
+          console.warn("Aviso da sincronização:", data.details)
+        }
       } else {
-        const detalhes = data.details ? ` ${data.details}` : ""
-        exibirToast((data.error || "Erro ao sincronizar com o Tiny.") + detalhes, "error")
+        const mensagem =
+          data.details ||
+          data.error ||
+          data.message ||
+          `Erro HTTP ${res.status}`
+
+        console.error("=== ERRO NA SINCRONIZAÇÃO TINY ===")
+        console.error("Mensagem:", mensagem)
+        console.error("Dados completos:", data)
+
+        exibirToast(mensagem, "error")
       }
     } catch (error) {
-      console.error("Erro na requisição de sincronização Tiny:", error)
-      exibirToast("Erro de conexão ao tentar sincronizar.", "error")
+      console.error("=== ERRO DE CONEXÃO COM A SINCRONIZAÇÃO TINY ===")
+      console.error(error)
+
+      exibirToast(
+        error instanceof Error
+          ? error.message
+          : "Erro de conexão ao tentar sincronizar.",
+        "error"
+      )
     } finally {
       setSincronizandoTiny(false)
     }
