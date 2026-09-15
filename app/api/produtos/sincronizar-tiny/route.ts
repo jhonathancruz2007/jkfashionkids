@@ -11,7 +11,11 @@ const PLACEHOLDER_IMAGE = "https://via.placeholder.com/300";
 
 type SyncType = "estoque" | "novos_produtos" | "geral";
 
-type TinyGrade = Record<string, string | number | null | undefined>;
+type TinyGrade =
+  | Record<string, string | number | null | undefined>
+  | Array<Record<string, unknown>>
+  | null
+  | undefined;
 
 type TinyVariation = {
   id?: string | number;
@@ -117,24 +121,47 @@ function normalizeGrade(grade?: TinyGrade): { tamanho: string; cor: string } {
   let tamanho = "";
   let cor = "";
 
-  for (const [rawKey, rawValue] of Object.entries(grade ?? {})) {
-    const key = normalizeText(rawKey);
+  const processarEntrada = (rawKey: unknown, rawValue: unknown) => {
+    const key = normalizeText(stringOrEmpty(rawKey));
     const value = stringOrEmpty(rawValue);
-    if (!value) continue;
+
+    if (!key || !value) return;
 
     if (
       !tamanho &&
-      (key.includes("tamanho") || key.includes("tam") || key.includes("size"))
+      (
+        key.includes("tamanho") ||
+        key === "tam" ||
+        key.includes("size")
+      )
     ) {
       tamanho = value;
-      continue;
+      return;
     }
 
     if (
       !cor &&
-      (key.includes("cor") || key.includes("color") || key.includes("colour"))
+      (
+        key.includes("cor") ||
+        key.includes("color") ||
+        key.includes("colour")
+      )
     ) {
       cor = value;
+    }
+  };
+
+  if (grade && Array.isArray(grade)) {
+    for (const item of grade) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+
+      for (const [key, value] of Object.entries(item)) {
+        processarEntrada(key, value);
+      }
+    }
+  } else if (grade && typeof grade === "object") {
+    for (const [key, value] of Object.entries(grade)) {
+      processarEntrada(key, value);
     }
   }
 
@@ -256,24 +283,47 @@ async function obterEstoque(id: string): Promise<StockResult> {
     throw new Error(tinyErrorMessage(data));
   }
 
-  const depositos = Array.isArray((retorno.produto as any).depositos)
-    ? (retorno.produto as any).depositos
+  const produtoEstoque = retorno.produto as TinyProduct & {
+    saldo?: string | number;
+    saldoReservado?: string | number;
+    depositos?: Array<{
+      deposito?: {
+        saldo?: string | number;
+        desconsiderar?: string;
+      };
+    }>;
+  };
+
+  // A API pode devolver o saldo consolidado diretamente no produto.
+  const saldoDireto = Number(produtoEstoque.saldo);
+
+  if (Number.isFinite(saldoDireto)) {
+    return {
+      id,
+      saldo: saldoDireto,
+    };
+  }
+
+  // Fallback: soma somente depósitos que não estejam marcados como
+  // "desconsiderar" pelo Tiny.
+  const depositos = Array.isArray(produtoEstoque.depositos)
+    ? produtoEstoque.depositos
     : [];
 
-  // A API 2.0 informa o estoque por depósito em
-  // retorno.produto.depositos[].deposito.saldo.
-  // O saldo total é a soma dos depósitos.
-  const saldoDosDepositos = depositos.reduce((total: number, item: any) => {
-    return total + numberOrZero(item?.deposito?.saldo);
-  }, 0);
+  const saldoDosDepositos = depositos.reduce((total, item) => {
+    const deposito = item?.deposito;
 
-  // Fallback para respostas antigas/compatíveis que eventualmente tragam
-  // saldo diretamente no produto.
-  const saldoDireto = numberOrZero((retorno.produto as any).saldo);
+    if (!deposito) return total;
+    if (stringOrEmpty(deposito.desconsiderar).toUpperCase() === "S") {
+      return total;
+    }
+
+    return total + numberOrZero(deposito.saldo);
+  }, 0);
 
   return {
     id,
-    saldo: depositos.length > 0 ? saldoDosDepositos : saldoDireto,
+    saldo: saldoDosDepositos,
   };
 }
 
@@ -358,15 +408,37 @@ export async function POST(req: Request) {
     const grupos = new Map<string, TinyProduct>();
 
     // 3. Obtém o cadastro completo de cada raiz.
-    const produtosCompletos = await mapWithConcurrency(
+    const resultadosProdutosCompletos = await mapWithConcurrency(
       idsRaiz,
       STOCK_CONCURRENCY,
-      async (id) => obterProduto(id)
+      async (id) => {
+        try {
+          return { id, produto: await obterProduto(id), erro: "" };
+        } catch (error) {
+          return {
+            id,
+            produto: null,
+            erro: error instanceof Error ? error.message : "Erro desconhecido",
+          };
+        }
+      }
     );
 
-    for (const product of produtosCompletos) {
-      const id = getParentId(product);
-      if (id) grupos.set(id, product);
+    const errosProdutos = resultadosProdutosCompletos.filter((item) => item.erro);
+
+    for (const resultado of resultadosProdutosCompletos) {
+      if (!resultado.produto) continue;
+
+      const id = getParentId(resultado.produto);
+      if (id) grupos.set(id, resultado.produto);
+    }
+
+    if (grupos.size === 0 && resultadosProdutosCompletos.length > 0) {
+      throw new Error(
+        `Não foi possível obter nenhum produto completo do Tiny. ${
+          errosProdutos[0]?.erro || "Verifique o token e as permissões da API."
+        }`
+      );
     }
 
     // 4. Monta a estrutura final de estoque por tamanho/cor.
@@ -415,8 +487,8 @@ export async function POST(req: Request) {
         idsParaEstoque.push({
           grupoId,
           variacaoId: stringOrEmpty(product.id),
-          tamanho: stringOrEmpty(product.grade?.Tamanho),
-          cor: stringOrEmpty(product.grade?.Cor),
+          tamanho: normalizeGrade(product.grade).tamanho,
+          cor: normalizeGrade(product.grade).cor,
         });
       }
     }
@@ -587,13 +659,19 @@ export async function POST(req: Request) {
       success: true,
       message: mensagens[tipo],
       details:
-        errosEstoque.length > 0
-          ? `${errosEstoque.length} variações não puderam ter o estoque consultado.`
-          : undefined,
+        [
+          errosProdutos.length > 0
+            ? `${errosProdutos.length} produtos-base não puderam ser obtidos do Tiny.`
+            : "",
+          errosEstoque.length > 0
+            ? `${errosEstoque.length} variações não puderam ter o estoque consultado.`
+            : "",
+        ].filter(Boolean).join(" ") || undefined,
       estatisticas: {
         paginas: totalPaginas,
         produtosPesquisa: produtosPesquisa.length,
         produtosAgrupados: Object.keys(produtosAgrupados).length,
+        produtosComErroAoObter: errosProdutos.length,
         variacoesConsultadas: idsParaEstoque.length,
         estoquesComErro: errosEstoque.length,
         criados,
