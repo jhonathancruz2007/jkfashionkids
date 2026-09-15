@@ -5,7 +5,10 @@ export async function POST(req: Request) {
   const TINY_TOKEN = process.env.TINY_API_TOKEN;
 
   if (!TINY_TOKEN) {
-    return NextResponse.json({ error: "Variável TINY_API_TOKEN não encontrada." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Variável TINY_API_TOKEN não encontrada." },
+      { status: 500 }
+    );
   }
 
   try {
@@ -15,7 +18,7 @@ export async function POST(req: Request) {
     let continuarBuscando = true;
     const produtosEncontrados: any[] = [];
 
-    // Busca os produtos no Tiny
+    // 1. Busca os produtos no Tiny (Lista resumida)
     while (continuarBuscando && pagina <= 20) {
       const urlTiny = `https://api.tiny.com.br/api2/produtos.pesquisa.php?token=${TINY_TOKEN.trim()}&pagina=${pagina}&formato=json`;
 
@@ -47,16 +50,31 @@ export async function POST(req: Request) {
       }
     }
 
-    // Agrupa os produtos e calcula variações/estoques
+    // 2. Mapeia estoques reais fazendo chamadas por ID
+    // Obs: No Tiny API v2, a forma mais precisa de puxar o saldo é via produto.obter.estoque.php
     const produtosAgrupados: { [key: string]: any } = {};
 
     for (const item of produtosEncontrados) {
       const p = item.produto;
       if (!p || !p.nome) continue;
 
+      // Puxa o saldo real de estoque do produto individual no Tiny
+      let saldoReal = 0;
+      try {
+        const urlEstoque = `https://api.tiny.com.br/api2/produto.obter.estoque.php?token=${TINY_TOKEN.trim()}&id=${p.id}&formato=json`;
+        const resEstoque = await fetch(urlEstoque);
+        const dataEstoque = await resEstoque.json();
+
+        if (dataEstoque?.retorno?.status === "OK") {
+          saldoReal = Number(dataEstoque.retorno.produto.saldo) || 0;
+        }
+      } catch (err) {
+        console.error(`Erro ao buscar estoque do produto ${p.id}:`, err);
+      }
+
       let nomeCompleto = p.nome.trim();
       const parts = nomeCompleto.split(" - ");
-      
+
       let nomeBase = nomeCompleto;
       let tamanhoEncontrado = null;
       let corEncontrada = null;
@@ -71,7 +89,6 @@ export async function POST(req: Request) {
       }
 
       const preco = Number(p.preco) || 0;
-      const estoqueItem = Number(p.saldo ?? p.estoque ?? 0);
 
       if (!produtosAgrupados[nomeBase]) {
         produtosAgrupados[nomeBase] = {
@@ -82,17 +99,21 @@ export async function POST(req: Request) {
           estoqueTotal: 0,
           tamanhosMap: new Map<string, number>(),
           cores: new Set<string>(),
-          imagemUrl: "https://via.placeholder.com/300"
+          imagemUrl: "https://via.placeholder.com/300",
         };
       }
 
-      produtosAgrupados[nomeBase].estoqueTotal += estoqueItem;
+      produtosAgrupados[nomeBase].estoqueTotal += saldoReal;
 
       if (tamanhoEncontrado) {
-        const estoqueAtualTamanho = produtosAgrupados[nomeBase].tamanhosMap.get(tamanhoEncontrado) || 0;
-        produtosAgrupados[nomeBase].tamanhosMap.set(tamanhoEncontrado, estoqueAtualTamanho + estoqueItem);
+        const estoqueAtualTamanho =
+          produtosAgrupados[nomeBase].tamanhosMap.get(tamanhoEncontrado) || 0;
+        produtosAgrupados[nomeBase].tamanhosMap.set(
+          tamanhoEncontrado,
+          estoqueAtualTamanho + saldoReal
+        );
       }
-      
+
       if (corEncontrada) {
         produtosAgrupados[nomeBase].cores.add(corEncontrada);
       }
@@ -100,28 +121,29 @@ export async function POST(req: Request) {
 
     let alterados = 0;
 
+    // 3. Atualização no banco de dados via Prisma
     for (const [nomeBase, prod] of Object.entries(produtosAgrupados)) {
-      const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(([tam, qtd]) => `${tam}: ${qtd}`);
+      const arrayTamanhos = Array.from(prod.tamanhosMap.entries()).map(
+        ([tam, qtd]) => `${tam}: ${qtd}`
+      );
       const arrayCores = Array.from(prod.cores);
 
       const produtoExistente = await prisma.produto.findUnique({
-        where: { id: prod.id }
+        where: { id: prod.id },
       });
 
       if (tipo === "estoque") {
-        // Apenas atualiza o estoque dos produtos que já existem
         if (produtoExistente) {
           await prisma.produto.update({
             where: { id: prod.id },
             data: {
               estoque: prod.estoqueTotal,
               tamanhos: arrayTamanhos,
-            }
+            },
           });
           alterados++;
         }
       } else if (tipo === "novos_produtos") {
-        // Apenas cadastra produtos que ainda não existem no banco
         if (!produtoExistente) {
           await prisma.produto.create({
             data: {
@@ -135,12 +157,11 @@ export async function POST(req: Request) {
               imagemUrl: prod.imagemUrl,
               imagens: [],
               ativo: true,
-            }
+            },
           });
           alterados++;
         }
       } else {
-        // Modo "geral" ou "todos": Cadastra novos e atualiza existentes por completo
         await prisma.produto.upsert({
           where: { id: prod.id },
           update: {
@@ -161,7 +182,7 @@ export async function POST(req: Request) {
             imagemUrl: prod.imagemUrl,
             imagens: [],
             ativo: true,
-          }
+          },
         });
         alterados++;
       }
@@ -177,9 +198,11 @@ export async function POST(req: Request) {
       success: true,
       message: mensagens[tipo] || mensagens.geral,
     });
-
   } catch (error: any) {
     console.error("Erro na sincronização:", error);
-    return NextResponse.json({ error: "Erro interno ao processar sincronização", details: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erro interno ao processar sincronização", details: error.message },
+      { status: 500 }
+    );
   }
 }
