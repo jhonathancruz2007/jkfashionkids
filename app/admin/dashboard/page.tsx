@@ -354,7 +354,7 @@ export default function PaginaDashboardAdmin() {
         type: 'error', 
         text: 'Erro de conexão ao enviar o arquivo do Tiny.' 
       })
-    } finally {
+    } fontally {
       setLoadingTiny(false)
       e.target.value = ''
     }
@@ -1262,69 +1262,6 @@ export default function PaginaDashboardAdmin() {
                 <Plus className="h-4 w-4" /> Cadastrar Produto
               </button>
             </div>
-
-            export function BotaoSincronizarTiny() {
-  const [carregando, setCarregando] = useState(false);
-  const [tipoOpcao, setTipoOpcao] = useState<"estoque" | "novos_produtos" | "geral">("estoque");
-
-  const handleSincronizar = async () => {
-    setCarregando(true);
-    try {
-      const response = await fetch("/api/produtos/sincronizar-tiny", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: tipoOpcao }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert(data.message);
-        window.location.reload();
-      } else {
-        alert(`Erro: ${data.error || "Falha na sincronização."}`);
-      }
-    } catch (error) {
-      console.error(error);
-      alert("Ocorreu um erro ao tentar sincronizar.");
-    } finally {
-      setCarregando(false);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Seletor do Tipo de Sincronização */}
-      <select
-        value={tipoOpcao}
-        onChange={(e) => setTipoOpcao(e.target.value as any)}
-        disabled={carregando}
-        className="bg-slate-800 text-white border border-slate-700 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-pink-500"
-      >
-        <option value="estoque">Apenas Estoque</option>
-        <option value="novos_produtos">Apenas Novos Produtos</option>
-        <option value="geral">Sincronização Geral (Todos)</option>
-      </select>
-
-      {/* Botão de Disparo */}
-      <button
-        onClick={handleSincronizar}
-        disabled={carregando}
-        className="flex items-center gap-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-all disabled:opacity-50"
-      >
-        {carregando ? (
-          <>
-            <span className="animate-spin text-base">⏳</span> Sincronizando...
-          </>
-        ) : (
-          <>
-            <span>🔄</span> Sincronizar Tiny
-          </>
-        )}
-      </button>
-    </div>
-  );
-}
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
               <div className="relative">
@@ -2549,16 +2486,16 @@ export default function PaginaDashboardAdmin() {
                 <button
                   type="button"
                   onClick={() => setModalProduto(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold transition-colors"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={salvandoProduto}
-                  className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 shadow-lg shadow-rose-600/20"
+                  className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
                 >
-                  {salvandoProduto && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {salvandoProduto ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
                 </button>
               </div>
@@ -2567,24 +2504,165 @@ export default function PaginaDashboardAdmin() {
         </div>
       )}
 
-      {/* MODAL CONFIRMAR EXCLUSÃO DE PRODUTO */}
+      {/* MODAL GERENCIAR CATEGORIAS */}
+      {modalGerenciarCategorias && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Tag className="h-4 w-4 text-rose-500" /> Gerenciar Categorias
+              </h2>
+              <button type="button" onClick={() => setModalGerenciarCategorias(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdicionarCategoria} className="flex gap-2">
+              <input
+                type="text"
+                value={novaCategoriaLabel}
+                onChange={(e) => setNovaCategoriaLabel(e.target.value)}
+                placeholder="Nova categoria..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+              >
+                Adicionar
+              </button>
+            </form>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {categorias.map((cat) => (
+                <div key={cat.value} className="flex items-center justify-between bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2 text-xs">
+                  <span className="font-semibold text-white">{cat.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarCategoria(cat.value)}
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GERENCIAR TAMANHOS */}
+      {modalGerenciarTamanhos && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Package className="h-4 w-4 text-rose-500" /> Gerenciar Tamanhos Globais
+              </h2>
+              <button type="button" onClick={() => setModalGerenciarTamanhos(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdicionarTamanho} className="flex gap-2">
+              <input
+                type="text"
+                value={novoTamanho}
+                onChange={(e) => setNovoTamanho(e.target.value)}
+                placeholder="Novo tamanho..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+              >
+                Adicionar
+              </button>
+            </form>
+
+            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
+              {opcoesTamanhos.map((tam) => (
+                <div key={tam.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="font-semibold text-white">{tam.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarTamanho(tam)}
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GERENCIAR CORES */}
+      {modalGerenciarCores && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-4 md:p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Palette className="h-4 w-4 text-rose-500" /> Gerenciar Cores Globais
+              </h2>
+              <button type="button" onClick={() => setModalGerenciarCores(false)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdicionarCor} className="flex gap-2">
+              <input
+                type="text"
+                value={novaCor}
+                onChange={(e) => setNovaCor(e.target.value)}
+                placeholder="Nova cor..."
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="submit"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0"
+              >
+                Adicionar
+              </button>
+            </form>
+
+            <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto pr-1">
+              {opcoesCores.map((cor) => (
+                <div key={cor.id} className="flex items-center gap-2 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-1.5 text-xs">
+                  <span className="font-semibold text-white">{cor.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletarCor(cor)}
+                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAÇÃO EXCLUIR PRODUTO */}
       {produtoParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl text-center">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
               <AlertTriangle className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white mb-1">Excluir Produto?</h3>
-              <p className="text-xs text-slate-400">
-                Tem certeza que deseja remover <strong className="text-white">{produtoParaExcluir.nome}</strong>? Esta ação não pode ser desfeita.
+              <h3 className="text-base font-bold text-white">Excluir Produto</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja realmente remover &quot;{produtoParaExcluir.nome}&quot;? Esta ação não pode ser desfeita.
               </p>
             </div>
-            <div className="flex gap-2 pt-2">
+            <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setProdutoParaExcluir(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800 transition-colors"
               >
                 Cancelar
               </button>
@@ -2592,9 +2670,9 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusao}
                 disabled={deletandoProduto}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl text-xs font-bold transition-colors shadow-lg shadow-rose-600/20"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
               >
-                {deletandoProduto && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {deletandoProduto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 Excluir
               </button>
             </div>
@@ -2602,24 +2680,24 @@ export default function PaginaDashboardAdmin() {
         </div>
       )}
 
-      {/* MODAL CONFIRMAR EXCLUSÃO DE CLIENTE */}
+      {/* CONFIRMAÇÃO EXCLUIR CLIENTE */}
       {clienteParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl text-center">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
               <AlertTriangle className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white mb-1">Excluir Conta de Cliente?</h3>
-              <p className="text-xs text-slate-400">
-                Deseja excluir a conta de <strong className="text-white">{clienteParaExcluir.nome}</strong>?
+              <h3 className="text-base font-bold text-white">Excluir Cliente</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja excluir a conta de &quot;{clienteParaExcluir.nome}&quot;?
               </p>
             </div>
-            <div className="flex gap-2 pt-2">
+            <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setClienteParaExcluir(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800 transition-colors"
               >
                 Cancelar
               </button>
@@ -2627,34 +2705,34 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusaoCliente}
                 disabled={deletandoCliente}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl text-xs font-bold transition-colors shadow-lg shadow-rose-600/20"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
               >
-                {deletandoCliente && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Excluir Conta
+                {deletandoCliente ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Excluir
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL CONFIRMAR EXCLUSÃO DE PEDIDO */}
+      {/* CONFIRMAÇÃO EXCLUIR PEDIDO */}
       {pedidoParaExcluir && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-5 text-center shadow-2xl">
-            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[120]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl text-center">
+            <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
               <AlertTriangle className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white mb-1">Excluir Venda / Pedido?</h3>
-              <p className="text-xs text-slate-400">
-                Ao excluir o pedido <strong className="text-white">#{pedidoParaExcluir.id.substring(0, 8)}</strong>, todos os produtos comprados serão <span className="text-emerald-400 font-bold">estornados de volta ao estoque</span> automaticamente.
+              <h3 className="text-base font-bold text-white">Excluir Pedido</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Deseja excluir este pedido? A venda será cancelada e o estoque será devolvido.
               </p>
             </div>
-            <div className="flex gap-2 pt-2">
+            <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setPedidoParaExcluir(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800 transition-colors"
               >
                 Cancelar
               </button>
@@ -2662,10 +2740,10 @@ export default function PaginaDashboardAdmin() {
                 type="button"
                 onClick={handleConfirmarExclusaoPedido}
                 disabled={deletandoPedido}
-                className="flex-1 flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl text-xs font-bold transition-colors shadow-lg shadow-rose-600/20"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
               >
-                {deletandoPedido && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Confirmar Exclusão
+                {deletandoPedido ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Excluir Venda
               </button>
             </div>
           </div>
