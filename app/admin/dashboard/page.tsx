@@ -259,7 +259,7 @@ export default function PaginaDashboardAdmin() {
   const handleSincronizarTiny = async (tipo: "geral" | "estoque" | "novos_produtos" = "geral") => {
     setSincronizandoTiny(true)
     try {
-      const res = await fetch("/api/admin/produtos/sincronizar", {
+      const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tipo }),
