@@ -269,7 +269,7 @@ export default function PaginaDashboardAdmin() {
       // ETAPA 1: baixa o catálogo apenas 1 vez.
       // O endpoint devolve os grupos e suas variações sem tentar processar
       // centenas de estoques dentro de uma única função serverless.
-      const startRes = await fetch("/api/produtos/sincronizar-tiny", {
+      const startRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "start", tipo }),
