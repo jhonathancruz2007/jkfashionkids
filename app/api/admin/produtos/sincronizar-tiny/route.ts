@@ -4,11 +4,21 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TINY_BASE_URL = "https://api.tiny.com.br/api2";
+const TINY_BASE_URL =
+  "https://api.tiny.com.br/api2";
 
 const DEFAULT_LIMIT_PER_MINUTE = 20;
+
+/*
+ * Lotes pequenos para não sobrecarregar
+ * a API do Tiny.
+ */
+const MAX_STOCK_BATCH = 3;
+
+/*
+ * Máximo de páginas da pesquisa.
+ */
 const MAX_SEARCH_PAGES = 100;
-const MAX_STOCK_BATCH = 5;
 
 const PLACEHOLDER_IMAGE =
   "https://via.placeholder.com/300";
@@ -51,6 +61,12 @@ type TinyProduct = {
   obs?: string;
 
   tipo?: string;
+
+  /*
+   * N = Normal
+   * P = Pai
+   * V = Variação
+   */
   tipoVariacao?: string;
 
   idProdutoPai?: string | number;
@@ -75,21 +91,22 @@ type TinyProduct = {
   }>;
 };
 
-type TinyStockProduct = TinyProduct & {
-  saldo?: string | number;
-  saldoReservado?: string | number;
+type TinyStockProduct =
+  TinyProduct & {
+    saldo?: string | number;
+    saldoReservado?: string | number;
 
-  depositos?: Array<{
-    deposito?: {
-      id?: string | number;
-      nome?: string;
-      desconsiderar?: string;
-      saldo?: string | number;
-      saldoReservado?: string | number;
-      empresa?: string;
-    };
-  }>;
-};
+    depositos?: Array<{
+      deposito?: {
+        id?: string | number;
+        nome?: string;
+        desconsiderar?: string;
+        saldo?: string | number;
+        saldoReservado?: string | number;
+        empresa?: string;
+      };
+    }>;
+  };
 
 type TinyResponse = {
   retorno?: {
@@ -142,7 +159,9 @@ type StockResult = {
  * UTILITÁRIOS
  * =======================================================*/
 
-function text(value: unknown): string {
+function text(
+  value: unknown
+): string {
   if (
     value === null ||
     value === undefined
@@ -153,7 +172,9 @@ function text(value: unknown): string {
   return String(value).trim();
 }
 
-function toNumber(value: unknown): number {
+function toNumber(
+  value: unknown
+): number {
   if (
     value === null ||
     value === undefined ||
@@ -162,29 +183,30 @@ function toNumber(value: unknown): number {
     return 0;
   }
 
-  if (typeof value === "number") {
+  if (
+    typeof value === "number"
+  ) {
     return Number.isFinite(value)
       ? value
       : 0;
   }
 
-  const raw = String(value).trim();
+  const raw =
+    String(value).trim();
 
   if (!raw) {
     return 0;
   }
 
-  /*
-   * "50,90" -> 50.9
-   * "50.90" -> 50.9
-   */
-  const normalized = raw.includes(",")
-    ? raw
-        .replace(/\./g, "")
-        .replace(",", ".")
-    : raw;
+  const normalized =
+    raw.includes(",")
+      ? raw
+          .replace(/\./g, "")
+          .replace(",", ".")
+      : raw;
 
-  const result = Number(normalized);
+  const result =
+    Number(normalized);
 
   return Number.isFinite(result)
     ? result
@@ -202,12 +224,7 @@ function optionalNumber(
     return undefined;
   }
 
-  const result =
-    toNumber(value);
-
-  return Number.isFinite(result)
-    ? result
-    : undefined;
+  return toNumber(value);
 }
 
 function normalize(
@@ -215,7 +232,10 @@ function normalize(
 ): string {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    )
     .toLowerCase()
     .trim();
 }
@@ -225,12 +245,156 @@ function sleep(
 ): Promise<void> {
   return new Promise(
     (resolve) =>
-      setTimeout(resolve, ms)
+      setTimeout(
+        resolve,
+        ms
+      )
   );
 }
 
 /* =========================================================
- * ERROS DO TINY
+ * ORDENAÇÃO DOS TAMANHOS
+ * =======================================================*/
+
+/**
+ * Ordem desejada:
+ *
+ * PP
+ * P
+ * M
+ * G
+ * GG
+ * XGG
+ * XXG...
+ *
+ * E:
+ *
+ * 1
+ * 2
+ * 3
+ * ...
+ * 16
+ */
+
+function tamanhoPeso(
+  tamanho: string
+): number {
+  const raw =
+    normalize(
+      tamanho
+    );
+
+  /*
+   * Numéricos:
+   * 1 -> 1
+   * 16 -> 16
+   */
+  const numeric =
+    Number(raw);
+
+  if (
+    Number.isFinite(
+      numeric
+    )
+  ) {
+    return numeric;
+  }
+
+  const especiais:
+    Record<
+      string,
+      number
+    > = {
+      "pp": 100,
+      "p": 200,
+      "m": 300,
+      "g": 400,
+      "gg": 500,
+      "xg": 600,
+      "xgg": 600,
+      "xxg": 700,
+      "xxgg": 700,
+      "xxxg": 800,
+      "eg": 800,
+      "egg": 900,
+    };
+
+  if (
+    especiais[raw] !==
+    undefined
+  ) {
+    return especiais[raw];
+  }
+
+  /*
+   * Tamanhos compostos:
+   * 2/3
+   * 4/6
+   * 10/12
+   */
+  const match =
+    raw.match(
+      /^(\d+)/
+    );
+
+  if (match) {
+    const n =
+      Number(match[1]);
+
+    if (
+      Number.isFinite(n)
+    ) {
+      return n;
+    }
+  }
+
+  /*
+   * Outros tamanhos ficam depois
+   * dos conhecidos.
+   */
+  return 10000;
+}
+
+function ordenarTamanhos(
+  tamanhos: string[]
+): string[] {
+  return [
+    ...new Set(
+      tamanhos.filter(
+        Boolean
+      )
+    ),
+  ].sort(
+    (a, b) => {
+      const pesoA =
+        tamanhoPeso(a);
+
+      const pesoB =
+        tamanhoPeso(b);
+
+      if (
+        pesoA !==
+        pesoB
+      ) {
+        return (
+          pesoA -
+          pesoB
+        );
+      }
+
+      return a.localeCompare(
+        b,
+        "pt-BR",
+        {
+          numeric: true,
+        }
+      );
+    }
+  );
+}
+
+/* =========================================================
+ * ERRO TINY
  * =======================================================*/
 
 function tinyErrorMessage(
@@ -240,22 +404,32 @@ function tinyErrorMessage(
 ): string {
   const errors =
     (
-      data.retorno?.erros ?? []
+      data.retorno
+        ?.erros ?? []
     )
       .map(
         (item) =>
-          text(item?.erro) ||
-          text(item?.descricao)
+          text(
+            item?.erro
+          ) ||
+          text(
+            item?.descricao
+          )
       )
       .filter(Boolean);
 
-  if (errors.length > 0) {
-    return errors.join(" | ");
+  if (
+    errors.length > 0
+  ) {
+    return errors.join(
+      " | "
+    );
   }
 
   const mensagem =
     text(
-      data.retorno?.mensagem
+      data.retorno
+        ?.mensagem
     );
 
   if (mensagem) {
@@ -274,15 +448,16 @@ async function tinyPost<T>(
   params: Record<
     string,
     string | number
-  >,
-  retries = 2
+  >
 ): Promise<{
   data: T;
   headers: Headers;
   status: number;
 }> {
   const token =
-    process.env.TINY_API_TOKEN?.trim();
+    process.env
+      .TINY_API_TOKEN
+      ?.trim();
 
   if (!token) {
     throw new Error(
@@ -305,7 +480,9 @@ async function tinyPost<T>(
 
   for (
     const [key, value] of
-    Object.entries(params)
+    Object.entries(
+      params
+    )
   ) {
     body.set(
       key,
@@ -317,7 +494,8 @@ async function tinyPost<T>(
     await fetch(
       `${TINY_BASE_URL}/${endpoint}`,
       {
-        method: "POST",
+        method:
+          "POST",
 
         headers: {
           "Content-Type":
@@ -341,31 +519,19 @@ async function tinyPost<T>(
 
   try {
     data =
-      JSON.parse(raw) as T;
+      JSON.parse(
+        raw
+      ) as T;
   } catch {
-    if (
-      retries > 0 &&
-      (
-        response.status === 429 ||
-        response.status >= 500
-      )
-    ) {
-      await sleep(3000);
-
-      return tinyPost<T>(
-        endpoint,
-        params,
-        retries - 1
-      );
-    }
-
     throw new Error(
       `Resposta inválida do Tiny em ${endpoint}. HTTP ${response.status}.`
     );
   }
 
   const typedData =
-    data as T & TinyResponse;
+    data as
+      T &
+      TinyResponse;
 
   const message =
     tinyErrorMessage(
@@ -373,47 +539,43 @@ async function tinyPost<T>(
       `Erro HTTP ${response.status}.`
     );
 
-  const messageNormalized =
+  const normalized =
     normalize(message);
 
-  /*
-   * O Tiny pode retornar bloqueio
-   * mesmo com HTTP 200.
-   */
-  const blocked =
-    messageNormalized.includes(
+  if (
+    response.status ===
+      429 ||
+    normalized.includes(
       "api bloqueada"
     ) ||
-    messageNormalized.includes(
+    normalized.includes(
       "excedido o numero de acessos"
-    ) ||
-    messageNormalized.includes(
-      "limite"
-    );
-
-  if (
-    response.status === 429 ||
-    blocked
+    )
   ) {
-    if (retries > 0) {
-      await sleep(7000);
-
-      return tinyPost<T>(
-        endpoint,
-        params,
-        retries - 1
-      );
-    }
-
     throw new Error(
-      message ||
-        "A API do Tiny está temporariamente bloqueada por excesso de acessos. Aguarde alguns minutos antes de tentar novamente."
+      "API Bloqueada - Excedido o número de acessos a API, aguarde alguns minutos e tente novamente."
     );
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       `Tiny respondeu HTTP ${response.status} em ${endpoint}: ${message}`
+    );
+  }
+
+  /*
+   * Erro lógico retornado pelo Tiny
+   * mesmo com HTTP 200.
+   */
+  if (
+    typedData.retorno
+      ?.status ===
+      "Erro"
+  ) {
+    throw new Error(
+      message
     );
   }
 
@@ -427,40 +589,14 @@ async function tinyPost<T>(
 }
 
 /* =========================================================
- * LIMITE
- * =======================================================*/
-
-function limitFromHeaders(
-  headers: Headers
-): number {
-  const value =
-    Number(
-      headers.get(
-        "x-limit-api"
-      )
-    );
-
-  if (
-    Number.isFinite(value) &&
-    value > 0
-  ) {
-    return value;
-  }
-
-  return (
-    DEFAULT_LIMIT_PER_MINUTE
-  );
-}
-
-/* =========================================================
  * IMAGENS
  * =======================================================*/
 
 function extractImages(
   product: TinyProduct
 ): string[] {
-  const urls: string[] =
-    [];
+  const urls:
+    string[] = [];
 
   for (
     const item of
@@ -478,7 +614,8 @@ function extractImages(
 
   for (
     const item of
-    product.imagens_externas ?? []
+    product.imagens_externas ??
+    []
   ) {
     const url =
       text(
@@ -493,13 +630,48 @@ function extractImages(
   }
 
   return [
-    ...new Set(urls),
+    ...new Set(
+      urls
+    ),
   ];
 }
 
 /* =========================================================
- * GRADE
+ * NOME
  * =======================================================*/
+
+function baseName(
+  name: string
+): string {
+  const parts =
+    name
+      .split(" - ")
+      .map(
+        (part) =>
+          part.trim()
+      )
+      .filter(Boolean);
+
+  /*
+   * Só remove tamanho/cor quando
+   * realmente temos pelo menos 3 partes.
+   */
+  if (
+    parts.length >= 3
+  ) {
+    return parts
+      .slice(
+        0,
+        -2
+      )
+      .join(
+        " - "
+      )
+      .trim();
+  }
+
+  return name.trim();
+}
 
 function gradeFromName(
   name: string
@@ -537,6 +709,10 @@ function gradeFromName(
       ] ?? "",
   };
 }
+
+/* =========================================================
+ * GRADE
+ * =======================================================*/
 
 function gradeFromTiny(
   grade: TinyGrade
@@ -602,7 +778,9 @@ function gradeFromTiny(
   };
 
   if (
-    Array.isArray(grade)
+    Array.isArray(
+      grade
+    )
   ) {
     for (
       const item of
@@ -618,8 +796,12 @@ function gradeFromTiny(
       }
 
       for (
-        const [key, value] of
-        Object.entries(item)
+        const [
+          key,
+          value,
+        ] of Object.entries(
+          item
+        )
       ) {
         inspect(
           key,
@@ -633,8 +815,12 @@ function gradeFromTiny(
       "object"
   ) {
     for (
-      const [key, value] of
-      Object.entries(grade)
+      const [
+        key,
+        value,
+      ] of Object.entries(
+        grade
+      )
     ) {
       inspect(
         key,
@@ -650,38 +836,7 @@ function gradeFromTiny(
 }
 
 /* =========================================================
- * NOME BASE
- * =======================================================*/
-
-function baseName(
-  name: string
-): string {
-  const parts =
-    name
-      .split(" - ")
-      .map(
-        (part) =>
-          part.trim()
-      )
-      .filter(Boolean);
-
-  /*
-   * Produto - Tamanho - Cor
-   */
-  if (
-    parts.length >= 3
-  ) {
-    return parts
-      .slice(0, -2)
-      .join(" - ")
-      .trim();
-  }
-
-  return name.trim();
-}
-
-/* =========================================================
- * VARIAÇÕES EMBUTIDAS NO PAI
+ * VARIAÇÕES DO PAI
  * =======================================================*/
 
 function normalizeVariations(
@@ -700,12 +855,7 @@ function normalizeVariations(
     if (
       !value ||
       typeof value !==
-        "object"
-    ) {
-      return;
-    }
-
-    if (
+        "object" ||
       Array.isArray(value)
     ) {
       return;
@@ -722,8 +872,7 @@ function normalizeVariations(
 
     if (
       objectValue.variacao &&
-      typeof
-        objectValue.variacao ===
+      typeof objectValue.variacao ===
         "object"
     ) {
       candidate =
@@ -740,7 +889,8 @@ function normalizeVariations(
     }
 
     const variation =
-      candidate as TinyVariation;
+      candidate as
+        TinyVariation;
 
     const id =
       text(
@@ -757,12 +907,17 @@ function normalizeVariations(
   };
 
   if (
-    Array.isArray(raw)
+    Array.isArray(
+      raw
+    )
   ) {
     for (
-      const item of raw
+      const item of
+      raw
     ) {
-      pushCandidate(item);
+      pushCandidate(
+        item
+      );
     }
   } else if (
     typeof raw ===
@@ -777,7 +932,9 @@ function normalizeVariations(
         >
       )
     ) {
-      pushCandidate(item);
+      pushCandidate(
+        item
+      );
     }
   }
 
@@ -792,7 +949,9 @@ function normalizeVariations(
     result
   ) {
     unique.set(
-      text(item.id),
+      text(
+        item.id
+      ),
       item
     );
   }
@@ -825,26 +984,36 @@ async function searchAllProducts(): Promise<{
     page <= MAX_SEARCH_PAGES
   ) {
     const response =
-      await tinyPost<TinyResponse>(
+      await tinyPost<
+        TinyResponse
+      >(
         "produtos.pesquisa.php",
         {
-          pesquisa: "",
-          pagina: page,
+          pesquisa:
+            "",
+          pagina:
+            page,
 
           /*
-           * Somente ativos.
+           * NÃO usamos situacao: A.
+           *
+           * Queremos todo o catálogo
+           * que não esteja excluído.
            */
-          situacao: "A",
         }
       );
 
     apiLimit =
-      limitFromHeaders(
-        response.headers
-      );
+      Number(
+        response.headers.get(
+          "x-limit-api"
+        )
+      ) ||
+      DEFAULT_LIMIT_PER_MINUTE;
 
     const retorno =
-      response.data.retorno;
+      response.data
+        .retorno;
 
     if (
       !retorno ||
@@ -860,7 +1029,8 @@ async function searchAllProducts(): Promise<{
 
     for (
       const item of
-      retorno.produtos ?? []
+      retorno.produtos ??
+      []
     ) {
       const product =
         item?.produto;
@@ -872,13 +1042,15 @@ async function searchAllProducts(): Promise<{
       }
 
       /*
-       * Segurança adicional.
+       * Excluído não entra.
+       *
+       * Inativos entram.
        */
       if (
         text(
           product.situacao
-        ).toUpperCase() !==
-        "A"
+        ).toUpperCase() ===
+        "E"
       ) {
         continue;
       }
@@ -891,37 +1063,65 @@ async function searchAllProducts(): Promise<{
     totalPages =
       toNumber(
         retorno.numero_paginas
-      ) || page;
+      ) ||
+      page;
 
     page++;
 
-    /*
-     * Intervalo conservador
-     * entre páginas.
-     */
     if (
-      page <= totalPages
+      page <=
+      totalPages
     ) {
-      await sleep(1000);
+      /*
+       * Mais espaçado para evitar
+       * novo bloqueio.
+       */
+      await sleep(
+        1500
+      );
+    }
+  }
+
+  /*
+   * Remove IDs duplicados.
+   */
+  const unique =
+    new Map<
+      string,
+      TinyProduct
+    >();
+
+  for (
+    const product of
+    products
+  ) {
+    const id =
+      text(
+        product.id
+      );
+
+    if (id) {
+      unique.set(
+        id,
+        product
+      );
     }
   }
 
   return {
-    products,
+    products: [
+      ...unique.values(),
+    ],
+
     apiLimit,
+
     paginas:
       totalPages,
   };
 }
 
 /* =========================================================
- * CONSTRUÇÃO DOS GRUPOS
- *
- * REGRA FUNDAMENTAL:
- *
- * N = vira produto
- * P = vira produto pai
- * V = NUNCA vira produto sozinho
+ * GRUPOS
  * =======================================================*/
 
 function buildGroups(
@@ -931,6 +1131,7 @@ function buildGroups(
   normais: number;
   pais: number;
   variacoes: number;
+  variacoesAgrupadas: number;
   variacoesOrfas: number;
 } {
   const parents =
@@ -945,15 +1146,19 @@ function buildGroups(
       string
     >();
 
+  const parentsByCode =
+    new Map<
+      string,
+      string
+    >();
+
   let normais = 0;
   let pais = 0;
   let variacoes = 0;
   let variacoesOrfas = 0;
 
   /*
-   * -------------------------------------------------------
-   * 1. PRIMEIRO: identificar todos os pais.
-   * -------------------------------------------------------
+   * Primeiro encontramos os PAIS.
    */
   for (
     const product of
@@ -965,13 +1170,16 @@ function buildGroups(
       ).toUpperCase();
 
     if (
-      type !== "P"
+      type !==
+      "P"
     ) {
       continue;
     }
 
     const id =
-      text(product.id);
+      text(
+        product.id
+      );
 
     if (!id) {
       continue;
@@ -984,7 +1192,7 @@ function buildGroups(
       product
     );
 
-    const nomeBase =
+    const nameKey =
       normalize(
         baseName(
           text(
@@ -993,9 +1201,27 @@ function buildGroups(
         )
       );
 
-    if (nomeBase) {
+    if (
+      nameKey
+    ) {
       parentsByName.set(
-        nomeBase,
+        nameKey,
+        id
+      );
+    }
+
+    const code =
+      normalize(
+        text(
+          product.codigo
+        )
+      );
+
+    if (
+      code
+    ) {
+      parentsByCode.set(
+        code,
         id
       );
     }
@@ -1007,95 +1233,92 @@ function buildGroups(
       StartGroup
     >();
 
-  const seenVariationIds =
+  const seen =
     new Map<
       string,
       Set<string>
     >();
 
-  const ensureGroup = (
-    groupId: string,
-    representative: TinyProduct
-  ) => {
-    if (
-      groups.has(
-        groupId
-      )
-    ) {
-      return;
-    }
+  const ensureGroup =
+    (
+      id: string,
+      product: TinyProduct
+    ) => {
+      if (
+        groups.has(id)
+      ) {
+        return;
+      }
 
-    const nome =
-      text(
-        representative.nome
-      ) ||
-      `Produto ${groupId}`;
+      const nome =
+        text(
+          product.nome
+        ) ||
+        `Produto ${id}`;
 
-    const base =
-      baseName(nome);
+      const nomeBase =
+        baseName(
+          nome
+        ) || nome;
 
-    const precoPromocional =
-      optionalNumber(
-        representative
-          .preco_promocional
+      const promo =
+        optionalNumber(
+          product
+            .preco_promocional
+        );
+
+      groups.set(
+        id,
+        {
+          id,
+
+          nome:
+            nomeBase,
+
+          descricao:
+            text(
+              product
+                .descricao_complementar
+            ) ||
+            text(
+              product.obs
+            ) ||
+            nomeBase,
+
+          preco:
+            toNumber(
+              product.preco
+            ),
+
+          precoPromocional:
+            promo ??
+            null,
+
+          imagens:
+            extractImages(
+              product
+            ),
+
+          tipoVariacao:
+            text(
+              product
+                .tipoVariacao
+            ),
+
+          variations:
+            [],
+        }
       );
 
-    groups.set(
-      groupId,
-      {
-        id:
-          groupId,
-
-        nome:
-          base || nome,
-
-        descricao:
-          text(
-            representative
-              .descricao_complementar
-          ) ||
-          text(
-            representative.obs
-          ) ||
-          base ||
-          nome,
-
-        preco:
-          toNumber(
-            representative.preco
-          ),
-
-        precoPromocional:
-          precoPromocional ??
-          null,
-
-        imagens:
-          extractImages(
-            representative
-          ),
-
-        tipoVariacao:
-          text(
-            representative
-              .tipoVariacao
-          ),
-
-        variations:
-          [],
-      }
-    );
-
-    seenVariationIds.set(
-      groupId,
-      new Set()
-    );
-  };
+      seen.set(
+        id,
+        new Set()
+      );
+    };
 
   /*
    * -------------------------------------------------------
-   * 2. PRODUTOS NORMAIS
-   *
-   * Cada N é um produto independente.
+   * PRODUTOS NORMAIS
    * -------------------------------------------------------
    */
   for (
@@ -1104,11 +1327,13 @@ function buildGroups(
   ) {
     const type =
       text(
-        product.tipoVariacao
+        product
+          .tipoVariacao
       ).toUpperCase();
 
     if (
-      type !== "N"
+      type !==
+      "N"
     ) {
       continue;
     }
@@ -1116,7 +1341,9 @@ function buildGroups(
     normais++;
 
     const id =
-      text(product.id);
+      text(
+        product.id
+      );
 
     if (!id) {
       continue;
@@ -1130,21 +1357,33 @@ function buildGroups(
     const group =
       groups.get(id)!;
 
-    const seen =
-      seenVariationIds.get(id)!;
+    const used =
+      seen.get(id)!;
 
     if (
-      seen.has(id)
+      used.has(id)
     ) {
       continue;
     }
 
-    seen.add(id);
+    used.add(id);
 
-    const grade =
+    let grade =
       gradeFromTiny(
         product.grade
       );
+
+    if (
+      !grade.tamanho &&
+      !grade.cor
+    ) {
+      grade =
+        gradeFromName(
+          text(
+            product.nome
+          )
+        );
+    }
 
     group.variations.push({
       id,
@@ -1155,6 +1394,13 @@ function buildGroups(
       cor:
         grade.cor,
 
+      /*
+       * Guardamos apenas como
+       * otimização.
+       *
+       * O stock action continua podendo
+       * consultar o estoque real.
+       */
       ...(product.estoque_atual !==
       undefined
         ? {
@@ -1169,9 +1415,7 @@ function buildGroups(
 
   /*
    * -------------------------------------------------------
-   * 3. PRODUTOS PAIS
-   *
-   * Cada P vira UM produto.
+   * PRODUTOS PAIS
    * -------------------------------------------------------
    */
   for (
@@ -1185,52 +1429,46 @@ function buildGroups(
       parent
     );
 
-    /*
-     * Algumas respostas do Tiny já
-     * trazem as variações dentro de:
-     *
-     * parent.variacoes[]
-     *
-     * Aproveitamos isso sem nova chamada.
-     */
-    const embedded =
-      normalizeVariations(
-        parent.variacoes
-      );
-
-    if (
-      embedded.length === 0
-    ) {
-      continue;
-    }
-
     const group =
       groups.get(
         parentId
       )!;
 
-    const seen =
-      seenVariationIds.get(
+    const used =
+      seen.get(
         parentId
       )!;
 
+    /*
+     * O Tiny pode devolver as variações
+     * diretamente no produto pai.
+     */
+    const variations =
+      normalizeVariations(
+        parent.variacoes
+      );
+
     for (
       const variation of
-      embedded
+      variations
     ) {
-      const id =
+      const variationId =
         text(
           variation.id
         );
 
       if (
-        !id ||
-        seen.has(id)
+        !variationId ||
+        used.has(
+          variationId
+        )
       ) {
         continue;
       }
 
-      seen.add(id);
+      used.add(
+        variationId
+      );
 
       let grade =
         gradeFromTiny(
@@ -1250,7 +1488,8 @@ function buildGroups(
       }
 
       group.variations.push({
-        id,
+        id:
+          variationId,
 
         tamanho:
           grade.tamanho,
@@ -1273,9 +1512,7 @@ function buildGroups(
 
   /*
    * -------------------------------------------------------
-   * 4. VARIAÇÕES RETORNADAS COMO V
-   *
-   * NUNCA criar produto a partir de V.
+   * VARIAÇÕES RETORNADAS NA PESQUISA
    * -------------------------------------------------------
    */
   for (
@@ -1284,11 +1521,13 @@ function buildGroups(
   ) {
     const type =
       text(
-        product.tipoVariacao
+        product
+          .tipoVariacao
       ).toUpperCase();
 
     if (
-      type !== "V"
+      type !==
+      "V"
     ) {
       continue;
     }
@@ -1296,32 +1535,27 @@ function buildGroups(
     variacoes++;
 
     const variationId =
-      text(product.id);
+      text(
+        product.id
+      );
 
-    if (
-      !variationId
-    ) {
+    if (!variationId) {
       continue;
     }
 
     /*
-     * PRIMEIRA TENTATIVA:
-     *
-     * idProdutoPai
+     * 1. Pai informado pelo Tiny.
      */
     let parentId =
       text(
-        product.idProdutoPai
+        product
+          .idProdutoPai
       );
 
     /*
-     * SEGUNDA TENTATIVA:
-     *
-     * nome base.
+     * 2. Busca pelo nome.
      */
-    if (
-      !parentId
-    ) {
+    if (!parentId) {
       const nameKey =
         normalize(
           baseName(
@@ -1338,9 +1572,7 @@ function buildGroups(
     }
 
     /*
-     * TERCEIRA TENTATIVA:
-     *
-     * tenta descobrir pelo código.
+     * 3. Busca pelo código.
      */
     if (
       !parentId &&
@@ -1353,51 +1585,64 @@ function buildGroups(
           )
         );
 
+      parentId =
+        parentsByCode.get(
+          code
+        ) || "";
+    }
+
+    /*
+     * 4. Último recurso:
+     *
+     * procura se o nome base do produto
+     * coincide com o nome de algum pai.
+     */
+    if (!parentId) {
+      const variationBase =
+        normalize(
+          baseName(
+            text(
+              product.nome
+            )
+          )
+        );
+
       for (
         const [
           candidateId,
           parent,
         ] of parents
       ) {
-        const parentCode =
+        const parentName =
           normalize(
-            text(
-              parent.codigo
+            baseName(
+              text(
+                parent.nome
+              )
             )
           );
 
         if (
-          parentCode &&
-          code.startsWith(
-            parentCode
-          )
+          variationBase &&
+          parentName &&
+          variationBase ===
+            parentName
         ) {
           parentId =
             candidateId;
+
           break;
         }
       }
     }
 
     /*
-     * AQUI ESTÁ A CORREÇÃO MAIS IMPORTANTE:
+     * MUITO IMPORTANTE:
      *
-     * se não encontramos o pai,
-     * NÃO criamos um novo produto.
+     * Nunca transforme V em produto.
      */
     if (
-      !parentId
-    ) {
-      variacoesOrfas++;
-      continue;
-    }
-
-    /*
-     * Se o pai não existe na lista
-     * ativa, também NÃO criamos
-     * a variação como produto.
-     */
-    if (
+      !parentId ||
       !parents.has(
         parentId
       )
@@ -1418,20 +1663,20 @@ function buildGroups(
         parentId
       )!;
 
-    const seen =
-      seenVariationIds.get(
+    const used =
+      seen.get(
         parentId
       )!;
 
     if (
-      seen.has(
+      used.has(
         variationId
       )
     ) {
       continue;
     }
 
-    seen.add(
+    used.add(
       variationId
     );
 
@@ -1452,11 +1697,6 @@ function buildGroups(
         );
     }
 
-    const estoqueAtual =
-      optionalNumber(
-        product.estoque_atual
-      );
-
     group.variations.push({
       id:
         variationId,
@@ -1467,15 +1707,73 @@ function buildGroups(
       cor:
         grade.cor,
 
-      ...(estoqueAtual !==
+      ...(product.estoque_atual !==
       undefined
         ? {
             estoque_atual:
-              estoqueAtual,
+              toNumber(
+                product.estoque_atual
+              ),
           }
         : {}),
     });
   }
+
+  /*
+   * Ordena as variações dentro
+   * de cada produto por tamanho.
+   */
+  for (
+    const group of
+    groups.values()
+  ) {
+    group.variations.sort(
+      (a, b) => {
+        const sizeA =
+          tamanhoPeso(
+            a.tamanho
+          );
+
+        const sizeB =
+          tamanhoPeso(
+            b.tamanho
+          );
+
+        if (
+          sizeA !==
+          sizeB
+        ) {
+          return (
+            sizeA -
+            sizeB
+          );
+        }
+
+        return a.cor.localeCompare(
+          b.cor,
+          "pt-BR"
+        );
+      }
+    );
+  }
+
+  const totalAgrupadas =
+    [...groups.values()]
+      .reduce(
+        (
+          total,
+          group
+        ) =>
+          total +
+          group
+            .variations
+            .filter(
+              (variation) =>
+                variation.id
+            )
+            .length,
+        0
+      );
 
   return {
     groups: [
@@ -1488,19 +1786,24 @@ function buildGroups(
 
     variacoes,
 
+    variacoesAgrupadas:
+      totalAgrupadas,
+
     variacoesOrfas,
   };
 }
 
 /* =========================================================
- * ESTOQUE
+ * ESTOQUE REAL
  * =======================================================*/
 
 async function getStock(
   id: string
 ): Promise<StockResult> {
   const response =
-    await tinyPost<TinyResponse>(
+    await tinyPost<
+      TinyResponse
+    >(
       "produto.obter.estoque.php",
       {
         id,
@@ -1508,7 +1811,8 @@ async function getStock(
     );
 
   const retorno =
-    response.data.retorno;
+    response.data
+      .retorno;
 
   if (
     !retorno ||
@@ -1523,69 +1827,63 @@ async function getStock(
     );
   }
 
-  const product =
+  const produto =
     retorno.produto;
 
-  const saldoDireto =
+  /*
+   * Fonte principal:
+   * saldo.
+   */
+  const saldo =
     optionalNumber(
-      product.saldo
+      produto.saldo
     );
 
-  /*
-   * O teste que você fez confirmou
-   * que esse é o campo correto.
-   */
   if (
-    saldoDireto !==
+    saldo !==
     undefined
   ) {
     return {
       id,
-      saldo:
-        saldoDireto,
+      saldo,
     };
   }
 
   /*
    * Fallback por depósitos.
    */
-  const total =
-    (
-      product.depositos ??
-      []
-    ).reduce(
-      (
-        total,
-        item
-      ) => {
-        const deposito =
-          item?.deposito;
+  let total = 0;
 
-        if (
-          !deposito
-        ) {
-          return total;
-        }
+  for (
+    const item of
+    produto.depositos ??
+    []
+  ) {
+    const deposito =
+      item?.deposito;
 
-        if (
-          normalize(
-            text(
-              deposito.desconsiderar
-            )
-          ) === "s"
-        ) {
-          return total;
-        }
+    if (
+      !deposito
+    ) {
+      continue;
+    }
 
-        return (
-          total +
-          toNumber(
-            deposito.saldo
-          )
-        );
-      },
-      0
-    );
+    if (
+      normalize(
+        text(
+          deposito.desconsiderar
+        )
+      ) ===
+      "s"
+    ) {
+      continue;
+    }
+
+    total +=
+      toNumber(
+        deposito.saldo
+      );
+  }
 
   return {
     id,
@@ -1596,24 +1894,16 @@ async function getStock(
 }
 
 /* =========================================================
- * CONSOLIDAÇÃO
+ * AGREGAÇÃO
  * =======================================================*/
 
-function sumByKey(
+function aggregateStock(
   values: Array<{
     tamanho: string;
     cor: string;
     saldo: number;
   }>
-): {
-  estoque: number;
-  tamanhos: string[];
-  cores: string[];
-  estoquePorTamanho:
-    Record<string, number>;
-  estoquePorCor:
-    Record<string, number>;
-} {
+) {
   const porTamanho =
     new Map<
       string,
@@ -1626,14 +1916,7 @@ function sumByKey(
       number
     >();
 
-  const tamanhos =
-    new Set<string>();
-
-  const cores =
-    new Set<string>();
-
-  let estoque =
-    0;
+  let estoque = 0;
 
   for (
     const item of
@@ -1645,10 +1928,6 @@ function sumByKey(
     if (
       item.tamanho
     ) {
-      tamanhos.add(
-        item.tamanho
-      );
-
       porTamanho.set(
         item.tamanho,
         (
@@ -1663,10 +1942,6 @@ function sumByKey(
     if (
       item.cor
     ) {
-      cores.add(
-        item.cor
-      );
-
       porCor.set(
         item.cor,
         (
@@ -1679,46 +1954,56 @@ function sumByKey(
     }
   }
 
+  const tamanhos =
+    ordenarTamanhos(
+      [
+        ...porTamanho.keys(),
+      ]
+    );
+
+  const cores =
+    [
+      ...porCor.keys(),
+    ].sort(
+      (a, b) =>
+        a.localeCompare(
+          b,
+          "pt-BR"
+        )
+    );
+
   return {
     estoque:
       Math.round(
         estoque
       ),
 
-    tamanhos:
-      [
-        ...tamanhos,
-      ].sort(
-        (a, b) =>
-          a.localeCompare(
-            b,
-            "pt-BR",
-            {
-              numeric:
-                true,
-            }
-          )
-      ),
+    tamanhos,
 
-    cores:
-      [
-        ...cores,
-      ].sort(
-        (a, b) =>
-          a.localeCompare(
-            b,
-            "pt-BR"
-          )
-      ),
+    cores,
 
     estoquePorTamanho:
       Object.fromEntries(
-        porTamanho
+        tamanhos.map(
+          (tamanho) => [
+            tamanho,
+            porTamanho.get(
+              tamanho
+            ) ?? 0,
+          ]
+        )
       ),
 
     estoquePorCor:
       Object.fromEntries(
-        porCor
+        cores.map(
+          (cor) => [
+            cor,
+            porCor.get(
+              cor
+            ) ?? 0,
+          ]
+        )
       ),
   };
 }
@@ -1792,27 +2077,9 @@ export async function POST(
       } =
         await searchAllProducts();
 
-      const {
-        groups,
-        normais,
-        pais,
-        variacoes,
-        variacoesOrfas,
-      } =
+      const result =
         buildGroups(
           products
-        );
-
-      const totalVariacoes =
-        groups.reduce(
-          (
-            total,
-            group
-          ) =>
-            total +
-            group.variations
-              .length,
-          0
         );
 
       return NextResponse.json(
@@ -1827,58 +2094,30 @@ export async function POST(
 
           apiLimit,
 
-          groups,
+          groups:
+            result.groups,
 
           estatisticas: {
-            /*
-             * Registros efetivamente
-             * recebidos da pesquisa.
-             */
-            registrosAtivosRecebidos:
+            registrosRecebidos:
               products.length,
 
-            /*
-             * Deve mostrar os seus
-             * produtos simples.
-             */
             produtosNormais:
-              normais,
+              result.normais,
 
-            /*
-             * Número de pais.
-             */
             produtosPais:
-              pais,
+              result.pais,
 
-            /*
-             * Quantidade de V recebidos.
-             */
             variacoes:
-              variacoes,
+              result.variacoes,
 
-            /*
-             * V realmente colocadas
-             * dentro dos pais.
-             */
             variacoesAgrupadas:
-              totalVariacoes,
+              result.variacoesAgrupadas,
 
-            /*
-             * V que não conseguimos
-             * relacionar a um pai.
-             *
-             * Essas NÃO serão criadas
-             * como produtos.
-             */
             variacoesOrfas:
-              variacoesOrfas,
+              result.variacoesOrfas,
 
-            /*
-             * Número real de produtos
-             * que o site irá processar.
-             */
             grupos:
-              groups.length,
+              result.groups.length,
 
             paginas,
 
@@ -1913,7 +2152,7 @@ export async function POST(
           ) || 0
         );
 
-      const requestedBatch =
+      const requested =
         Math.max(
           1,
           Number(
@@ -1925,7 +2164,7 @@ export async function POST(
       const batchSize =
         Math.min(
           MAX_STOCK_BATCH,
-          requestedBatch
+          requested
         );
 
       const batch =
@@ -1972,7 +2211,7 @@ export async function POST(
       /*
        * SEM Promise.all.
        *
-       * Fazemos uma chamada por vez.
+       * Uma chamada por vez.
        */
       for (
         const variation of
@@ -1984,32 +2223,15 @@ export async function POST(
           );
 
         if (!id) {
-          throw new Error(
-            "Variação sem ID."
-          );
-        }
-
-        /*
-         * Se a pesquisa já trouxe
-         * estoque_atual, não fazemos
-         * outra chamada.
-         */
-        if (
-          variation.estoque_atual !==
-          undefined
-        ) {
-          results.push({
-            id,
-
-            saldo:
-              toNumber(
-                variation.estoque_atual
-              ),
-          });
-
           continue;
         }
 
+        /*
+         * A partir de agora usamos
+         * o endpoint REAL do Tiny.
+         *
+         * Não confiamos no estoque da pesquisa.
+         */
         const stock =
           await getStock(
             id
@@ -2018,21 +2240,24 @@ export async function POST(
         results.push(
           stock
         );
+
+        /*
+         * Pequeno espaçamento entre
+         * chamadas individuais.
+         */
+        await sleep(
+          1500
+        );
       }
 
       /*
-       * Intervalo entre lotes.
+       * Próximo lote precisa aguardar.
        */
       const waitMs =
         Math.max(
           5000,
-          Math.ceil(
-            (
-              results.length /
-              DEFAULT_LIMIT_PER_MINUTE
-            ) *
-              60000
-          ) + 2000
+          results.length *
+            2500
         );
 
       return NextResponse.json(
@@ -2104,8 +2329,8 @@ export async function POST(
       }
 
       /*
-       * Liga o estoque ao tamanho
-       * e à cor da variação.
+       * Relaciona cada estoque
+       * à sua variação.
        */
       const stocks =
         rawStocks.map(
@@ -2116,48 +2341,47 @@ export async function POST(
             }
           ) => {
             const variation =
-              group.variations.find(
-                (v) =>
-                  text(v.id) ===
-                  text(
-                    item?.id
-                  )
-              );
+              group
+                .variations
+                .find(
+                  (v) =>
+                    text(
+                      v.id
+                    ) ===
+                    text(
+                      item.id
+                    )
+                );
 
             return {
               id:
                 text(
-                  item?.id
+                  item.id
                 ),
 
               saldo:
                 toNumber(
-                  item?.saldo
+                  item.saldo
                 ),
 
               tamanho:
-                variation?.tamanho ??
+                variation
+                  ?.tamanho ??
                 "",
 
               cor:
-                variation?.cor ??
+                variation
+                  ?.cor ??
                 "",
             };
           }
         );
 
-      const aggregates =
-        sumByKey(
+      const aggregate =
+        aggregateStock(
           stocks
         );
 
-      /*
-       * Imagens que vieram diretamente
-       * da pesquisa.
-       *
-       * Não fazemos uma segunda chamada
-       * ao Tiny apenas por imagem.
-       */
       const imagens =
         [
           ...new Set(
@@ -2194,10 +2418,6 @@ export async function POST(
 
       /*
        * Depois pelo nome.
-       *
-       * Isso permite aproveitar
-       * produtos que já existiam
-       * no site antes da sincronização.
        */
       const existente =
         existentePorId ??
@@ -2256,19 +2476,19 @@ export async function POST(
                 group.precoPromocional,
 
               estoque:
-                aggregates.estoque,
+                aggregate.estoque,
 
               tamanhos:
-                aggregates.tamanhos,
+                aggregate.tamanhos,
 
               estoquePorTamanho:
-                aggregates.estoquePorTamanho,
+                aggregate.estoquePorTamanho,
 
               cores:
-                aggregates.cores,
+                aggregate.cores,
 
               estoquePorCor:
-                aggregates.estoquePorCor,
+                aggregate.estoquePorCor,
 
               imagemUrl:
                 imageUrl,
@@ -2330,19 +2550,19 @@ export async function POST(
 
             data: {
               estoque:
-                aggregates.estoque,
+                aggregate.estoque,
 
               tamanhos:
-                aggregates.tamanhos,
+                aggregate.tamanhos,
 
               estoquePorTamanho:
-                aggregates.estoquePorTamanho,
+                aggregate.estoquePorTamanho,
 
               cores:
-                aggregates.cores,
+                aggregate.cores,
 
               estoquePorCor:
-                aggregates.estoquePorCor,
+                aggregate.estoquePorCor,
             },
           }
         );
@@ -2389,19 +2609,19 @@ export async function POST(
                 group.precoPromocional,
 
               estoque:
-                aggregates.estoque,
+                aggregate.estoque,
 
               tamanhos:
-                aggregates.tamanhos,
+                aggregate.tamanhos,
 
               estoquePorTamanho:
-                aggregates.estoquePorTamanho,
+                aggregate.estoquePorTamanho,
 
               cores:
-                aggregates.cores,
+                aggregate.cores,
 
               estoquePorCor:
-                aggregates.estoquePorCor,
+                aggregate.estoquePorCor,
 
               ...(imagens.length >
               0
@@ -2432,7 +2652,7 @@ export async function POST(
       }
 
       /*
-       * Produto ainda não existe.
+       * Novo produto.
        */
       await prisma.produto.create(
         {
@@ -2453,19 +2673,19 @@ export async function POST(
               group.precoPromocional,
 
             estoque:
-              aggregates.estoque,
+              aggregate.estoque,
 
             tamanhos:
-              aggregates.tamanhos,
+              aggregate.tamanhos,
 
             estoquePorTamanho:
-              aggregates.estoquePorTamanho,
+              aggregate.estoquePorTamanho,
 
             cores:
-              aggregates.cores,
+              aggregate.cores,
 
             estoquePorCor:
-              aggregates.estoquePorCor,
+              aggregate.estoquePorCor,
 
             imagemUrl:
               imageUrl,
@@ -2492,10 +2712,6 @@ export async function POST(
         }
       );
     }
-
-    /* =====================================================
-     * AÇÃO INVÁLIDA
-     * ===================================================*/
 
     return NextResponse.json(
       {
