@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// Função para normalizar strings
-function normalizar(texto: string = ""): string {
-  return texto
+export const dynamic = "force-dynamic";
+
+// Função para normalizar strings com segurança.
+// Evita erros caso algum valor vindo do banco/API seja undefined ou null.
+function normalizar(texto: unknown = ""): string {
+  return String(texto ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -25,15 +28,18 @@ function formatarNomeCategoria(slugOuNome: string): string {
     ACESSORIOS: "Acessórios",
   };
 
-  const chave = slugOuNome.toUpperCase().trim();
+  const chave = String(slugOuNome ?? "")
+    .toUpperCase()
+    .trim();
 
   if (mapaNomes[chave]) {
     return mapaNomes[chave];
   }
 
-  return slugOuNome
+  return String(slugOuNome ?? "")
     .toLowerCase()
     .split(" ")
+    .filter(Boolean)
     .map(
       (palavra) =>
         palavra.charAt(0).toUpperCase() +
@@ -82,9 +88,7 @@ export async function GET(
 
     return NextResponse.json(
       {
-        erro:
-          error?.message ||
-          "Erro interno",
+        erro: error?.message || "Erro interno",
       },
       {
         status: 500,
@@ -142,11 +146,12 @@ export async function PUT(
 
       let categoriaEncontrada =
         categoriasBanco.find((cat) => {
-          const catIdNorm = cat.id
-            .toLowerCase();
+          // IMPORTANTE:
+          // cat.id pode estar ausente em algum registro inconsistente.
+          // Nunca chamar .toLowerCase() diretamente em um valor possivelmente undefined.
+          const catIdNorm = normalizar(cat?.id);
 
-          const catNomeNorm =
-            normalizar(cat.nome);
+          const catNomeNorm = normalizar(cat?.nome);
 
           return (
             catIdNorm === termoNorm ||
@@ -181,10 +186,9 @@ export async function PUT(
     // FOTO POR COR
     // ==========================================
 
-    let coresDetalhesFinal: Record<
-      string,
-      string
-    > | undefined = undefined;
+    let coresDetalhesFinal:
+      | Record<string, string>
+      | undefined = undefined;
 
     if (
       coresDetalhes !== undefined &&
@@ -194,6 +198,10 @@ export async function PUT(
     ) {
       const coresPermitidas = Array.isArray(cores)
         ? cores
+            .filter(
+              (cor: unknown): cor is string =>
+                typeof cor === "string"
+            )
         : [];
 
       coresDetalhesFinal = {};
@@ -219,11 +227,13 @@ export async function PUT(
           "imagemUrl" in valor
         ) {
           imagem = String(
-            (valor as any).imagemUrl || ""
+            (valor as { imagemUrl?: unknown }).imagemUrl ?? ""
           ).trim();
         }
 
-        // Só salva foto se a cor ainda existir no produto
+        // Só salva foto se a cor ainda existir no produto.
+        // Quando não houver cores definidas, preserva o comportamento
+        // de aceitar as imagens recebidas.
         if (
           imagem &&
           (
@@ -288,7 +298,10 @@ export async function PUT(
 
           ...(tamanhos !== undefined && {
             tamanhos: Array.isArray(tamanhos)
-              ? tamanhos
+              ? tamanhos.filter(
+                  (item: unknown) =>
+                    typeof item === "string"
+                )
               : [],
           }),
 
@@ -298,7 +311,10 @@ export async function PUT(
 
           ...(cores !== undefined && {
             cores: Array.isArray(cores)
-              ? cores
+              ? cores.filter(
+                  (item: unknown) =>
+                    typeof item === "string"
+                )
               : [],
           }),
 
@@ -310,8 +326,7 @@ export async function PUT(
           // FOTO ESPECÍFICA DE CADA COR
           // ======================================
           ...(coresDetalhesFinal !== undefined && {
-            coresDetalhes:
-              coresDetalhesFinal,
+            coresDetalhes: coresDetalhesFinal,
           }),
 
           ...(genero !== undefined && {
@@ -322,14 +337,8 @@ export async function PUT(
 
           // ======================================
           // FAIXA ETÁRIA
+          // Aceita inclusive "todas"
           // ======================================
-          // Exemplos aceitos:
-          // "0-1"
-          // "1-2"
-          // "3-5"
-          // "6-8"
-          // "9-plus"
-          // "todas"
           ...(faixaEtaria !== undefined && {
             faixaEtaria:
               faixaEtaria === null ||
@@ -385,9 +394,7 @@ export async function PUT(
 
     return NextResponse.json(
       {
-        erro:
-          error?.message ||
-          "Erro interno",
+        erro: error?.message || "Erro interno",
       },
       {
         status: 500,
@@ -420,9 +427,7 @@ export async function DELETE(
 
     return NextResponse.json(
       {
-        erro:
-          error?.message ||
-          "Erro interno",
+        erro: error?.message || "Erro interno",
       },
       {
         status: 500,
