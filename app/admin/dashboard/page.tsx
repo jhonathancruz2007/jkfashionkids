@@ -67,6 +67,7 @@ interface Produto {
   localCard?: string
   categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
   categoriaId?: string
+  categoriaNome?: string
   faixaEtaria?: string
 }
 
@@ -545,11 +546,14 @@ export default function PaginaDashboardAdmin() {
       if (res.ok) {
         const data: ApiCategoria[] = await res.json()
         if (Array.isArray(data) && data.length > 0) {
-          const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
-            id: cat.id,
-            value: cat.id || cat.value || cat.nome || "",
-            label: cat.nome || cat.label || cat.value || ""
-          }))
+          const catsFormatadas: CategoriaItem[] = data
+            .map((cat) => ({
+              id: cat.id,
+              // Categoria.nome é a chave primária no schema atual.
+              value: String(cat.nome || cat.value || cat.id || "").trim(),
+              label: String(cat.nome || cat.label || cat.value || cat.id || "").trim(),
+            }))
+            .filter((cat) => Boolean(cat.value))
           setCategorias(catsFormatadas)
         }
       }
@@ -613,8 +617,9 @@ export default function PaginaDashboardAdmin() {
         const novaCatBanco: ApiCategoria = await res.json()
         const catItem: CategoriaItem = {
           id: novaCatBanco.id,
-          value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
-          label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
+          // Categoria.nome é a chave primária no schema atual.
+          value: String(novaCatBanco.nome || novaCatBanco.value || novaCatBanco.id || nomeFormatado).trim(),
+          label: String(novaCatBanco.nome || novaCatBanco.label || novaCatBanco.value || novaCatBanco.id || nomeFormatado).trim(),
         }
 
         setCategorias((prev) => {
@@ -1276,9 +1281,11 @@ export default function PaginaDashboardAdmin() {
     
     let catValor = ""
     if (typeof prod.categoria === "object" && prod.categoria !== null) {
-      catValor = prod.categoria.id || prod.categoria.value || prod.categoria.nome || ""
+      catValor = prod.categoria.nome || prod.categoria.value || prod.categoria.label || prod.categoria.id || ""
     } else if (typeof prod.categoria === "string") {
       catValor = prod.categoria
+    } else if (prod.categoriaNome) {
+      catValor = prod.categoriaNome
     } else if (prod.categoriaId) {
       catValor = prod.categoriaId
     }
@@ -1384,6 +1391,9 @@ export default function PaginaDashboardAdmin() {
           estoquePorCor: estoquePorCorFinal,
           coresDetalhes: formImagensPorCor,
           genero: formGenero,
+          // No schema atual, a FK do produto é Produto.categoriaNome.
+          // Mantemos categoriaId apenas para compatibilidade com APIs antigas.
+          categoriaNome: formCategoria,
           categoriaId: formCategoria,
           faixaEtaria: formFaixaEtaria.join(","),
           localCard: formLocalCard,
@@ -1518,11 +1528,14 @@ export default function PaginaDashboardAdmin() {
     let catLabel = ""
 
     if (typeof prod.categoria === "object" && prod.categoria !== null) {
-      catVal = prod.categoria.id || prod.categoria.value || ""
+      catVal = prod.categoria.nome || prod.categoria.value || prod.categoria.label || prod.categoria.id || ""
       catLabel = prod.categoria.nome || prod.categoria.label || catVal
     } else if (typeof prod.categoria === "string") {
       catVal = prod.categoria
       catLabel = prod.categoria
+    } else if (prod.categoriaNome) {
+      catVal = prod.categoriaNome
+      catLabel = prod.categoriaNome
     } else if (prod.categoriaId) {
       catVal = prod.categoriaId
       catLabel = prod.categoriaId
