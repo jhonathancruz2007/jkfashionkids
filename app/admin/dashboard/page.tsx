@@ -603,7 +603,7 @@ export default function PaginaDashboardAdmin() {
     const tamFormatado = novoTamanho.trim()
     if (!tamFormatado) return
 
-    if (opcoesTamanhos.some((t) => t.nome.toLowerCase() === tamFormatado.toLowerCase())) {
+    if (opcoesTamanhos.some((t) => (t.nome || "").toLowerCase() === tamFormatado.toLowerCase())) {
       alert("Este tamanho já existe no banco!")
       return
     }
@@ -678,7 +678,7 @@ export default function PaginaDashboardAdmin() {
     const corFormatada = novaCor.trim()
     if (!corFormatada) return
 
-    if (opcoesCores.some((c) => c.nome.toLowerCase() === corFormatada.toLowerCase())) {
+    if (opcoesCores.some((c) => (c.nome || "").toLowerCase() === corFormatada.toLowerCase())) {
       alert("Esta cor já existe no banco!")
       return
     }
@@ -825,7 +825,7 @@ export default function PaginaDashboardAdmin() {
       })
     }
 
-    if (!opcoesTamanhos.some((t) => t.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+    if (!opcoesTamanhos.some((t) => (t.nome || "").toLowerCase() === nomeFormatado.toLowerCase())) {
       setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: nomeFormatado }])
     }
 
@@ -931,7 +931,7 @@ export default function PaginaDashboardAdmin() {
       }
     }
 
-    if (!opcoesCores.some((c) => c.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
+    if (!opcoesCores.some((c) => (c.nome || "").toLowerCase() === nomeFormatado.toLowerCase())) {
       setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: nomeFormatado }])
     }
 
@@ -1432,9 +1432,9 @@ export default function PaginaDashboardAdmin() {
     }
   }
 
-  const produtosFiltrados = produtos.filter((p) => p.nome.toLowerCase().includes(buscaProduto.toLowerCase()))
+  const produtosFiltrados = produtos.filter((p) => (p.nome || "").toLowerCase().includes(buscaProduto.toLowerCase()))
   const clientesFiltrados = clientes.filter(
-    (c) => c.nome.toLowerCase().includes(buscaCliente.toLowerCase()) || c.email.toLowerCase().includes(buscaCliente.toLowerCase())
+    (c) => (c.nome || "").toLowerCase().includes(buscaCliente.toLowerCase()) || (c.email || "").toLowerCase().includes(buscaCliente.toLowerCase())
   )
   const pedidosFiltrados = pedidos.filter(
     (p) =>
