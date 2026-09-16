@@ -256,212 +256,589 @@ export default function PaginaDashboardAdmin() {
   }
 
   // FUNÇÃO PARA SINCRONIZAR PRODUTOS/ESTOQUE DIRETO PELA API DO TINY
-  const handleSincronizarTiny = async (
-    tipo: "geral" | "estoque" | "novos_produtos" = "geral"
-  ) => {
-    if (sincronizandoTiny) return
+ const handleSincronizarTiny = async (
+  tipo: "geral" | "estoque" | "novos_produtos" = "geral"
+) => {
+  if (sincronizandoTiny) return
 
-    setSincronizandoTiny(true)
+  setSincronizandoTiny(true)
+
+  try {
+    console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY ===")
+
+    // =========================================================
+    // ETAPA 1
+    // Baixa somente a estrutura do catálogo.
+    // NÃO grava produtos ainda.
+    // =========================================================
+
+    const startRes = await fetch(
+      "/api/admin/produtos/sincronizar-tiny",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "start",
+          tipo,
+        }),
+        cache: "no-store",
+      }
+    )
+
+    const startText = await startRes.text()
+
+    let startData: any = {}
 
     try {
-      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY ===")
+      startData = startText
+        ? JSON.parse(startText)
+        : {}
+    } catch {
+      throw new Error(
+        `O servidor não retornou JSON válido ao iniciar a sincronização. HTTP ${startRes.status}`
+      )
+    }
 
-      // ETAPA 1: baixa o catálogo apenas 1 vez.
-      // O endpoint devolve os grupos e suas variações sem tentar processar
-      // centenas de estoques dentro de uma única função serverless.
-      const startRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", tipo }),
-        cache: "no-store",
-      })
+    if (
+      !startRes.ok ||
+      !startData.success
+    ) {
+      throw new Error(
+        startData.details ||
+        startData.error ||
+        `Erro HTTP ${startRes.status} ao iniciar a sincronização.`
+      )
+    }
 
-      const startText = await startRes.text()
-      let startData: any = {}
+    const grupos = Array.isArray(
+      startData.groups
+    )
+      ? startData.groups
+      : []
 
-      try {
-        startData = startText ? JSON.parse(startText) : {}
-      } catch {
-        throw new Error(
-          `O servidor não retornou JSON válido ao iniciar a sincronização. HTTP ${startRes.status}`
+    const estatisticas =
+      startData.estatisticas || {}
+
+    console.log(
+      "=== CATÁLOGO RECEBIDO DO TINY ==="
+    )
+
+    console.log(
+      estatisticas
+    )
+
+    console.log(
+      "Grupos:",
+      grupos
+    )
+
+    // =========================================================
+    // VALIDAÇÃO DO CATÁLOGO
+    // =========================================================
+
+    if (grupos.length === 0) {
+      exibirToast(
+        "Nenhum produto encontrado no Tiny.",
+        "error"
+      )
+
+      return
+    }
+
+    /*
+     * Mostra exatamente o que o backend encontrou.
+     *
+     * Isso é importante para percebermos se os
+     * 22 simples + variações estão sendo localizados.
+     */
+    exibirToast(
+      `Tiny: ${estatisticas.grupos ?? grupos.length} produtos encontrados.`
+    )
+
+    console.log(
+      "Produtos normais:",
+      estatisticas.produtosNormais
+    )
+
+    console.log(
+      "Produtos pais:",
+      estatisticas.produtosPais
+    )
+
+    console.log(
+      "Variações:",
+      estatisticas.variacoes
+    )
+
+    console.log(
+      "Variações agrupadas:",
+      estatisticas.variacoesAgrupadas
+    )
+
+    console.log(
+      "Variações órfãs:",
+      estatisticas.variacoesOrfas
+    )
+
+    // =========================================================
+    // CONTADORES
+    // =========================================================
+
+    let criados = 0
+    let atualizados = 0
+    let ignorados = 0
+    let gruposProcessados = 0
+    let totalVariacoesProcessadas = 0
+
+    // =========================================================
+    // LIMITE DE ESTOQUE
+    // =========================================================
+
+    /*
+     * O backend limita em 3 chamadas por lote.
+     *
+     * Fazemos exatamente 3 aqui.
+     */
+    const batchSize = 3
+
+    /*
+     * Intervalo mínimo de segurança.
+     *
+     * Mesmo que o backend retorne um valor menor,
+     * nunca fazemos a próxima chamada imediatamente.
+     */
+    const MIN_WAIT_BETWEEN_BATCHES = 8000
+
+    // =========================================================
+    // PROCESSA CADA PRODUTO
+    // =========================================================
+
+    for (
+      let groupIndex = 0;
+      groupIndex < grupos.length;
+      groupIndex++
+    ) {
+      const group = grupos[groupIndex]
+
+      if (
+        !group ||
+        !group.id ||
+        !group.nome
+      ) {
+        console.warn(
+          "Grupo inválido ignorado:",
+          group
         )
+
+        continue
       }
 
-      if (!startRes.ok || !startData.success) {
-        throw new Error(
-          startData.details ||
-          startData.error ||
-          `Erro HTTP ${startRes.status} ao iniciar a sincronização.`
+      const variations =
+        Array.isArray(
+          group.variations
         )
-      }
-
-      const grupos = Array.isArray(startData.groups) ? startData.groups : []
-
-      console.log("Catálogo recebido:", startData.estatisticas)
-
-      if (grupos.length === 0) {
-        exibirToast("Nenhum produto encontrado no Tiny.", "error")
-        return
-      }
-
-      let criados = 0
-      let atualizados = 0
-      let ignorados = 0
-      let gruposProcessados = 0
-      let totalVariacoesProcessadas = 0
-
-      // O Tiny limita as chamadas concorrentes a 1/4 do limite do plano.
-      // 5 é seguro até mesmo para o limite antigo de 20 chamadas/minuto.
-      const batchSize = 5
-
-      for (const group of grupos) {
-        const variations = Array.isArray(group.variations)
           ? group.variations
           : []
 
-        const stocks: Array<{ id: string; saldo: number }> = []
-        let offset = 0
+      console.log(
+        `=== PRODUTO ${groupIndex + 1}/${grupos.length} ===`
+      )
 
-        while (offset < variations.length) {
-          const stockRes = await fetch(
-            "/api/admin/produtos/sincronizar-tiny",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "stock",
-                tipo,
-                variations,
-                offset,
-                batchSize,
-              }),
-              cache: "no-store",
-            }
-          )
+      console.log(
+        group.nome
+      )
 
-          const stockText = await stockRes.text()
+      console.log(
+        "ID:",
+        group.id
+      )
+
+      console.log(
+        "Variações:",
+        variations
+      )
+
+      // =======================================================
+      // ESTOQUES
+      // =======================================================
+
+      const stocks: Array<{
+        id: string
+        saldo: number
+      }> = []
+
+      let offset = 0
+
+      /*
+       * Mesmo um produto simples precisa passar
+       * pelo stock se tiver uma variação representativa.
+       */
+      if (
+        variations.length > 0
+      ) {
+        while (
+          offset <
+          variations.length
+        ) {
+          const stockRes =
+            await fetch(
+              "/api/admin/produtos/sincronizar-tiny",
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    action:
+                      "stock",
+
+                    tipo,
+
+                    variations,
+
+                    offset,
+
+                    batchSize,
+                  }),
+
+                cache:
+                  "no-store",
+              }
+            )
+
+          const stockText =
+            await stockRes.text()
+
           let stockData: any = {}
 
           try {
-            stockData = stockText ? JSON.parse(stockText) : {}
+            stockData =
+              stockText
+                ? JSON.parse(
+                    stockText
+                  )
+                : {}
           } catch {
             throw new Error(
-              `Resposta inválida ao consultar estoque. HTTP ${stockRes.status}`
+              `Resposta inválida ao consultar estoque de "${group.nome}". HTTP ${stockRes.status}`
             )
           }
 
-          if (!stockRes.ok || !stockData.success) {
+          if (
+            !stockRes.ok ||
+            !stockData.success
+          ) {
             throw new Error(
               stockData.details ||
               stockData.error ||
-              `Erro HTTP ${stockRes.status} ao consultar estoque.`
+              `Erro HTTP ${stockRes.status} ao consultar estoque de "${group.nome}".`
             )
           }
 
-          if (Array.isArray(stockData.stocks)) {
-            stocks.push(...stockData.stocks)
+          if (
+            Array.isArray(
+              stockData.stocks
+            )
+          ) {
+            for (
+              const stock of
+              stockData.stocks
+            ) {
+              const id =
+                String(
+                  stock?.id ??
+                    ""
+                )
+
+              if (!id) {
+                continue
+              }
+
+              const saldo =
+                Number(
+                  stock?.saldo
+                )
+
+              stocks.push({
+                id,
+
+                saldo:
+                  Number.isFinite(
+                    saldo
+                  )
+                    ? saldo
+                    : 0,
+              })
+            }
+
+            totalVariacoesProcessadas +=
+              stockData.stocks.length
           }
 
-          offset = Number(stockData.nextOffset)
-          totalVariacoesProcessadas += Array.isArray(stockData.stocks)
-            ? stockData.stocks.length
-            : 0
+          const nextOffset =
+            Number(
+              stockData.nextOffset
+            )
+
+          /*
+           * Segurança contra loop infinito.
+           */
+          if (
+            !Number.isFinite(
+              nextOffset
+            ) ||
+            nextOffset <= offset
+          ) {
+            throw new Error(
+              `O Tiny não avançou corretamente o lote de estoque do produto "${group.nome}".`
+            )
+          }
+
+          offset =
+            nextOffset
 
           const progresso =
             variations.length > 0
-              ? Math.min(100, Math.round((offset / variations.length) * 100))
+              ? Math.min(
+                  100,
+                  Math.round(
+                    (
+                      offset /
+                      variations.length
+                    ) *
+                      100
+                  )
+                )
               : 100
 
           exibirToast(
-            `Sincronizando ${group.nome}: ${progresso}% (${offset}/${variations.length})`
+            `Estoque: ${group.nome} — ${progresso}% (${offset}/${variations.length})`
           )
 
-          // Dá tempo para o limite por minuto do Tiny. Cada lote possui até 5
-          // chamadas e o limite antigo é 20/min => cerca de 15 s por lote.
-          const waitMs = Math.max(0, Number(stockData.waitMs) || 15300)
-          if (offset < variations.length && waitMs > 0) {
-            await new Promise((resolve) => setTimeout(resolve, waitMs))
+          console.log(
+            `Estoque ${group.nome}: ${offset}/${variations.length}`,
+            stockData.stocks
+          )
+
+          /*
+           * Se ainda faltam variações,
+           * respeitamos o intervalo.
+           */
+          if (
+            offset <
+            variations.length
+          ) {
+            const backendWait =
+              Number(
+                stockData.waitMs
+              )
+
+            const waitMs =
+              Math.max(
+                MIN_WAIT_BETWEEN_BATCHES,
+                Number.isFinite(
+                  backendWait
+                )
+                  ? backendWait
+                  : 0
+              )
+
+            console.log(
+              `Aguardando ${waitMs}ms antes do próximo lote...`
+            )
+
+            await new Promise(
+              (resolve) =>
+                setTimeout(
+                  resolve,
+                  waitMs
+                )
+            )
           }
         }
-
-        // Produto simples pode não possuir variações na resposta de pesquisa.
-        // Nesse caso, a própria lista ainda contém uma variação com o ID do produto.
-        if (variations.length === 0) {
-          exibirToast(`Finalizando ${group.nome}...`)
-        }
-
-        // ETAPA 3: grava somente este grupo. A operação é curta e não estoura
-        // o tempo da função serverless.
-        const finishRes = await fetch(
-          "/api/admin/produtos/sincronizar-tiny",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "finish",
-              tipo,
-              group,
-              stocks,
-            }),
-            cache: "no-store",
-          }
-        )
-
-        const finishText = await finishRes.text()
-        let finishData: any = {}
-
-        try {
-          finishData = finishText ? JSON.parse(finishText) : {}
-        } catch {
-          throw new Error(
-            `Resposta inválida ao salvar ${group.nome}. HTTP ${finishRes.status}`
-          )
-        }
-
-        if (!finishRes.ok || !finishData.success) {
-          throw new Error(
-            finishData.details ||
-            finishData.error ||
-            `Erro HTTP ${finishRes.status} ao salvar ${group.nome}.`
-          )
-        }
-
-        if (finishData.status === "created") criados += 1
-        else if (finishData.status === "updated") atualizados += 1
-        else ignorados += 1
-
-        gruposProcessados += 1
-
-        exibirToast(
-          `Produto ${gruposProcessados}/${grupos.length} sincronizado: ${group.nome}`
+      } else {
+        /*
+         * IMPORTANTE:
+         *
+         * Não inventamos estoque.
+         *
+         * Se o backend encontrou um produto
+         * sem variação, gravaremos o grupo
+         * somente se houver um estoque conhecido.
+         *
+         * O backend atualizado não deve deixar
+         * variações órfãs virarem produtos.
+         */
+        console.warn(
+          `Produto "${group.nome}" chegou sem variações.`
         )
       }
 
-      await carregarProdutos()
-
-      const resumo =
-        `${criados} novos, ${atualizados} atualizados` +
-        (ignorados > 0 ? `, ${ignorados} ignorados` : "")
+      // =======================================================
+      // FINISH
+      // =======================================================
 
       exibirToast(
-        `Sincronização concluída: ${resumo}. ${totalVariacoesProcessadas} variações processadas.`
+        `Salvando produto ${groupIndex + 1}/${grupos.length}: ${group.nome}`
       )
 
-      console.log("=== SINCRONIZAÇÃO TINY CONCLUÍDA ===")
-    } catch (error) {
-      console.error("=== ERRO NA SINCRONIZAÇÃO TINY ===")
-      console.error(error)
+      const finishRes =
+        await fetch(
+          "/api/admin/produtos/sincronizar-tiny",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                action:
+                  "finish",
+
+                tipo,
+
+                group,
+
+                stocks,
+              }),
+
+            cache:
+              "no-store",
+          }
+        )
+
+      const finishText =
+        await finishRes.text()
+
+      let finishData: any = {}
+
+      try {
+        finishData =
+          finishText
+            ? JSON.parse(
+                finishText
+              )
+            : {}
+      } catch {
+        throw new Error(
+          `Resposta inválida ao salvar "${group.nome}". HTTP ${finishRes.status}`
+        )
+      }
+
+      if (
+        !finishRes.ok ||
+        !finishData.success
+      ) {
+        throw new Error(
+          finishData.details ||
+          finishData.error ||
+          `Erro HTTP ${finishRes.status} ao salvar "${group.nome}".`
+        )
+      }
+
+      if (
+        finishData.status ===
+        "created"
+      ) {
+        criados++
+      } else if (
+        finishData.status ===
+        "updated"
+      ) {
+        atualizados++
+      } else {
+        ignorados++
+      }
+
+      gruposProcessados++
 
       exibirToast(
-        error instanceof Error
-          ? error.message
-          : "Erro de conexão ao tentar sincronizar.",
-        "error"
+        `${gruposProcessados}/${grupos.length} produtos sincronizados`
       )
-    } finally {
-      setSincronizandoTiny(false)
+
+      console.log(
+        `Produto concluído: ${group.nome}`,
+        finishData
+      )
+
+      /*
+       * Pequeno intervalo antes de passar
+       * para o próximo grupo.
+       *
+       * Não fazemos chamadas extras ao Tiny aqui;
+       * é apenas uma margem de segurança.
+       */
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            500
+          )
+      )
     }
+
+    // =========================================================
+    // ATUALIZA A LISTA LOCAL
+    // =========================================================
+
+    await carregarProdutos()
+
+    // =========================================================
+    // RESULTADO
+    // =========================================================
+
+    const resumo =
+      `${criados} novos, ${atualizados} atualizados` +
+      (
+        ignorados > 0
+          ? `, ${ignorados} ignorados`
+          : ""
+      )
+
+    exibirToast(
+      `Sincronização concluída: ${resumo}. ${totalVariacoesProcessadas} estoques consultados.`
+    )
+
+    console.log(
+      "=== SINCRONIZAÇÃO TINY CONCLUÍDA ==="
+    )
+
+    console.log({
+      criados,
+      atualizados,
+      ignorados,
+      gruposProcessados,
+      totalVariacoesProcessadas,
+      estatisticas,
+    })
+  } catch (error) {
+    console.error(
+      "=== ERRO NA SINCRONIZAÇÃO TINY ==="
+    )
+
+    console.error(error)
+
+    exibirToast(
+      error instanceof Error
+        ? error.message
+        : "Erro de conexão ao tentar sincronizar.",
+      "error"
+    )
+  } finally {
+    setSincronizandoTiny(
+      false
+    )
   }
+}
 
   // BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
   const carregarCategorias = async () => {
