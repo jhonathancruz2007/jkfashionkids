@@ -125,6 +125,7 @@ export async function PUT(
       ativo,
       localCard,
       categoriaId,
+      categoriaNome,
       categoria,
     } = body;
 
@@ -145,7 +146,9 @@ export async function PUT(
     // deve ser tratado como o nome/chave da categoria.
     let termoCategoria = "";
 
-    if (typeof categoriaId === "string" || typeof categoriaId === "number") {
+    if (typeof categoriaNome === "string" || typeof categoriaNome === "number") {
+      termoCategoria = String(categoriaNome).trim();
+    } else if (typeof categoriaId === "string" || typeof categoriaId === "number") {
       termoCategoria = String(categoriaId).trim();
     } else if (typeof categoria === "string" || typeof categoria === "number") {
       termoCategoria = String(categoria).trim();
