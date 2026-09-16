@@ -61,7 +61,7 @@ interface Produto {
   tamanhos: string[]
   cores?: string[]
   estoquePorTamanho?: Record<string, number>
-  estoquePorCor?: Record<string, any>
+  estoquePorCor?: Record<string, number>
   coresDetalhes?: Record<string, string>
   genero?: string
   localCard?: string
@@ -216,9 +216,7 @@ export default function PaginaDashboardAdmin() {
   const [formEstoquePorTamanho, setFormEstoquePorTamanho] = useState<Record<string, number>>({})
   
   const [formCores, setFormCores] = useState<string[]>([])
-  const [formEstoquePorCor, setFormEstoquePorCor] = useState<Record<string, Record<string, number>>>({})
-  const [formEstoquePorCorLegado, setFormEstoquePorCorLegado] = useState<Record<string, number>>({})
-  const [matrizEstoqueAlterada, setMatrizEstoqueAlterada] = useState<boolean>(false)
+  const [formEstoquePorCor, setFormEstoquePorCor] = useState<Record<string, number>>({})
 
   // Foto específica de cada cor do produto
   const [formImagensPorCor, setFormImagensPorCor] = useState<Record<string, string>>({})
@@ -321,8 +319,61 @@ export default function PaginaDashboardAdmin() {
       const batchSize = 5
 
       for (const group of grupos) {
-        const variations = Array.isArray(group.variations)
-          ? group.variations
+        // Produtos P (pai) não trazem necessariamente as variações completas
+        // na etapa START. Buscamos DETAILS antes do estoque para obter
+        // os IDs reais das variações, incluindo tamanho e cor.
+        let groupProcessado = group
+
+        if (String(group?.tipoVariacao || "").toUpperCase() === "P") {
+          exibirToast(`Buscando variações de ${group.nome}...`)
+
+          const detailsRes = await fetch(
+            "/api/admin/produtos/sincronizar-tiny",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "details",
+                tipo,
+                group,
+              }),
+              cache: "no-store",
+            }
+          )
+
+          const detailsText = await detailsRes.text()
+          let detailsData: any = {}
+
+          try {
+            detailsData = detailsText ? JSON.parse(detailsText) : {}
+          } catch {
+            throw new Error(
+              `Resposta inválida ao buscar variações de ${group.nome}. HTTP ${detailsRes.status}`
+            )
+          }
+
+          if (!detailsRes.ok || !detailsData.success) {
+            throw new Error(
+              detailsData.details ||
+              detailsData.error ||
+              `Erro HTTP ${detailsRes.status} ao buscar variações de ${group.nome}.`
+            )
+          }
+
+          if (detailsData.group && typeof detailsData.group === "object") {
+            groupProcessado = detailsData.group
+          }
+
+          console.log(
+            `Variações recebidas para ${group.nome}:`,
+            Array.isArray(groupProcessado.variations)
+              ? groupProcessado.variations.length
+              : 0
+          )
+        }
+
+        const variations = Array.isArray(groupProcessado.variations)
+          ? groupProcessado.variations
           : []
 
         const stocks: Array<{ id: string; saldo: number }> = []
@@ -379,7 +430,7 @@ export default function PaginaDashboardAdmin() {
               : 100
 
           exibirToast(
-            `Sincronizando ${group.nome}: ${progresso}% (${offset}/${variations.length})`
+            `Sincronizando ${groupProcessado.nome}: ${progresso}% (${offset}/${variations.length})`
           )
 
           // Dá tempo para o limite por minuto do Tiny. Cada lote possui até 5
@@ -393,7 +444,7 @@ export default function PaginaDashboardAdmin() {
         // Produto simples pode não possuir variações na resposta de pesquisa.
         // Nesse caso, a própria lista ainda contém uma variação com o ID do produto.
         if (variations.length === 0) {
-          exibirToast(`Finalizando ${group.nome}...`)
+          exibirToast(`Finalizando ${groupProcessado.nome}...`)
         }
 
         // ETAPA 3: grava somente este grupo. A operação é curta e não estoura
@@ -406,7 +457,7 @@ export default function PaginaDashboardAdmin() {
             body: JSON.stringify({
               action: "finish",
               tipo,
-              group,
+              group: groupProcessado,
               stocks,
             }),
             cache: "no-store",
@@ -420,7 +471,7 @@ export default function PaginaDashboardAdmin() {
           finishData = finishText ? JSON.parse(finishText) : {}
         } catch {
           throw new Error(
-            `Resposta inválida ao salvar ${group.nome}. HTTP ${finishRes.status}`
+            `Resposta inválida ao salvar ${groupProcessado.nome}. HTTP ${finishRes.status}`
           )
         }
 
@@ -428,7 +479,7 @@ export default function PaginaDashboardAdmin() {
           throw new Error(
             finishData.details ||
             finishData.error ||
-            `Erro HTTP ${finishRes.status} ao salvar ${group.nome}.`
+            `Erro HTTP ${finishRes.status} ao salvar ${groupProcessado.nome}.`
           )
         }
 
@@ -439,7 +490,7 @@ export default function PaginaDashboardAdmin() {
         gruposProcessados += 1
 
         exibirToast(
-          `Produto ${gruposProcessados}/${grupos.length} sincronizado: ${group.nome}`
+          `Produto ${gruposProcessados}/${grupos.length} sincronizado: ${groupProcessado.nome}`
         )
       }
 
@@ -755,32 +806,12 @@ export default function PaginaDashboardAdmin() {
         const novoEstoque = { ...formEstoquePorTamanho }
         delete novoEstoque[tam]
         setFormEstoquePorTamanho(novoEstoque)
-
-        setFormEstoquePorCor((prevEstoque) => {
-          const novo: Record<string, Record<string, number>> = {}
-          Object.entries(prevEstoque).forEach(([cor, tamanhos]) => {
-            const linha = { ...tamanhos }
-            delete linha[tam]
-            novo[cor] = linha
-          })
-          return novo
-        })
-
-        setMatrizEstoqueAlterada(true)
         return novosTamanhos
       } else {
         setFormEstoquePorTamanho((prevEstoque) => ({
           ...prevEstoque,
-          [tam]: prevEstoque[tam] ?? 0,
+          [tam]: prevEstoque[tam] ?? 1,
         }))
-        setFormEstoquePorCor((prevEstoque) => {
-          const novo: Record<string, Record<string, number>> = {}
-          Object.entries(prevEstoque).forEach(([cor, tamanhos]) => {
-            novo[cor] = { ...tamanhos, [tam]: tamanhos?.[tam] ?? 0 }
-          })
-          return novo
-        })
-        setMatrizEstoqueAlterada(true)
         return [...prev, tam]
       }
     })
@@ -793,16 +824,6 @@ export default function PaginaDashboardAdmin() {
       delete novo[tamNome]
       return novo
     })
-    setFormEstoquePorCor((prev) => {
-      const novo: Record<string, Record<string, number>> = {}
-      Object.entries(prev).forEach(([cor, tamanhos]) => {
-        const linha = { ...tamanhos }
-        delete linha[tamNome]
-        novo[cor] = linha
-      })
-      return novo
-    })
-    setMatrizEstoqueAlterada(true)
   }
 
   const handleAdicionarTamanhoManualAoProduto = () => {
@@ -813,22 +834,14 @@ export default function PaginaDashboardAdmin() {
       setFormTamanhos((prev) => [...prev, nomeFormatado])
       setFormEstoquePorTamanho((prev) => ({
         ...prev,
-        [nomeFormatado]: prev[nomeFormatado] ?? 0,
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
       }))
-      setFormEstoquePorCor((prev) => {
-        const novo: Record<string, Record<string, number>> = {}
-        Object.entries(prev).forEach(([cor, tamanhos]) => {
-          novo[cor] = { ...tamanhos, [nomeFormatado]: tamanhos?.[nomeFormatado] ?? 0 }
-        })
-        return novo
-      })
     }
 
     if (!opcoesTamanhos.some((t) => t.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
       setOpcoesTamanhos((prev) => [...prev, { id: `local-${Date.now()}`, nome: nomeFormatado }])
     }
 
-    setMatrizEstoqueAlterada(true)
     setTamanhoManualInput("")
   }
 
@@ -843,49 +856,24 @@ export default function PaginaDashboardAdmin() {
   const toggleCor = (cor: string) => {
     setFormCores((prev) => {
       const existe = prev.includes(cor)
-
       if (existe) {
         const novasCores = prev.filter((c) => c !== cor)
-
-        setFormEstoquePorCor((prevEstoque) => {
-          const novo = { ...prevEstoque }
-          delete novo[cor]
-          return novo
-        })
-
-        setFormEstoquePorCorLegado((prevEstoque) => {
-          const novo = { ...prevEstoque }
-          delete novo[cor]
-          return novo
-        })
-
+        const novoEstoque = { ...formEstoquePorCor }
+        delete novoEstoque[cor]
+        setFormEstoquePorCor(novoEstoque)
         setFormImagensPorCor((prevImagens) => {
           const novo = { ...prevImagens }
           delete novo[cor]
           return novo
         })
-
-        setMatrizEstoqueAlterada(true)
         return novasCores
-      }
-
-      setFormEstoquePorCor((prevEstoque) => ({
-        ...prevEstoque,
-        [cor]: formTamanhos.reduce((acc, tam) => ({
-          ...acc,
-          [tam]: prevEstoque[cor]?.[tam] ?? 0,
-        }), {} as Record<string, number>),
-      }))
-
-      if (formTamanhos.length === 0) {
-        setFormEstoquePorCorLegado((prevEstoque) => ({
+      } else {
+        setFormEstoquePorCor((prevEstoque) => ({
           ...prevEstoque,
-          [cor]: prevEstoque[cor] ?? 0,
+          [cor]: prevEstoque[cor] ?? 1,
         }))
+        return [...prev, cor]
       }
-
-      setMatrizEstoqueAlterada(formTamanhos.length > 0 ? true : false)
-      return [...prev, cor]
     })
   }
 
@@ -896,12 +884,6 @@ export default function PaginaDashboardAdmin() {
       delete novo[corNome]
       return novo
     })
-    setFormEstoquePorCorLegado((prev) => {
-      const novo = { ...prev }
-      delete novo[corNome]
-      return novo
-    })
-    setMatrizEstoqueAlterada(true)
     setFormImagensPorCor((prev) => {
       const novo = { ...prev }
       delete novo[corNome]
@@ -917,24 +899,14 @@ export default function PaginaDashboardAdmin() {
       setFormCores((prev) => [...prev, nomeFormatado])
       setFormEstoquePorCor((prev) => ({
         ...prev,
-        [nomeFormatado]: formTamanhos.reduce((acc, tam) => ({
-          ...acc,
-          [tam]: 0,
-        }), {} as Record<string, number>),
+        [nomeFormatado]: prev[nomeFormatado] ?? 1,
       }))
-      if (formTamanhos.length === 0) {
-        setFormEstoquePorCorLegado((prev) => ({
-          ...prev,
-          [nomeFormatado]: prev[nomeFormatado] ?? 0,
-        }))
-      }
     }
 
     if (!opcoesCores.some((c) => c.nome.toLowerCase() === nomeFormatado.toLowerCase())) {
       setOpcoesCores((prev) => [...prev, { id: `local-cor-${Date.now()}`, nome: nomeFormatado }])
     }
 
-    setMatrizEstoqueAlterada(true)
     setCorManualInput("")
   }
 
@@ -978,70 +950,18 @@ export default function PaginaDashboardAdmin() {
     })
   }
 
-  const handleQtdCorSemTamanhoChange = (cor: string, quantidade: number) => {
-    setFormEstoquePorCorLegado((prev) => ({
+  const handleQtdCorChange = (cor: string, quantidade: number) => {
+    setFormEstoquePorCor((prev) => ({
       ...prev,
       [cor]: Math.max(0, quantidade),
     }))
   }
-
-  const handleQtdCorTamanhoChange = (cor: string, tamanho: string, quantidade: number) => {
-    setFormEstoquePorCor((prev) => ({
-      ...prev,
-      [cor]: {
-        ...(prev[cor] || {}),
-        [tamanho]: Math.max(0, quantidade),
-      },
-    }))
-    setMatrizEstoqueAlterada(true)
-  }
-
-  const obterEstoqueDaMatriz = (cor: string, tamanho: string) => {
-    return Number(formEstoquePorCor[cor]?.[tamanho] ?? 0) || 0
-  }
-
-  const totalEstoqueMatriz = formCores.reduce(
-    (total, cor) =>
-      total + formTamanhos.reduce(
-        (subtotal, tam) => subtotal + obterEstoqueDaMatriz(cor, tam),
-        0
-      ),
-    0
-  )
-
-  const totalEstoqueLegado = formCores.reduce(
-    (total, cor) => total + (formEstoquePorCorLegado[cor] || 0),
-    0
-  )
-
-  const totalEstoqueCalculado = formCores.length > 0 && formTamanhos.length > 0
-    ? (matrizEstoqueAlterada || Object.keys(formEstoquePorCorLegado).length === 0
-        ? totalEstoqueMatriz
-        : totalEstoqueLegado)
-    : formTamanhos.length > 0
+  
+  const totalEstoqueCalculado = formTamanhos.length > 0 
     ? formTamanhos.reduce((acc, tam) => acc + (formEstoquePorTamanho[tam] || 0), 0)
     : formCores.length > 0
-    ? totalEstoqueLegado
+    ? formCores.reduce((acc, cor) => acc + (formEstoquePorCor[cor] || 0), 0)
     : 0
-
-  const estoquePorCorFinal = formCores.length > 0 && formTamanhos.length > 0
-    ? (matrizEstoqueAlterada || Object.keys(formEstoquePorCorLegado).length === 0
-        ? formEstoquePorCor
-        : formEstoquePorCorLegado)
-    : formCores.reduce((acc, cor) => {
-        acc[cor] = formEstoquePorCorLegado[cor] ?? 0
-        return acc
-      }, {} as Record<string, number>)
-
-  const estoquePorTamanhoFinal = formCores.length > 0 && formTamanhos.length > 0
-    ? formTamanhos.reduce((acc, tam) => {
-        acc[tam] = formCores.reduce(
-          (total, cor) => total + obterEstoqueDaMatriz(cor, tam),
-          0
-        )
-        return acc
-      }, {} as Record<string, number>)
-    : formEstoquePorTamanho
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1145,8 +1065,6 @@ export default function PaginaDashboardAdmin() {
     setFormEstoquePorTamanho({})
     setFormCores([])
     setFormEstoquePorCor({})
-    setFormEstoquePorCorLegado({})
-    setMatrizEstoqueAlterada(false)
     setFormImagensPorCor({})
     setTamanhoManualInput("")
     setCorManualInput("")
@@ -1200,40 +1118,9 @@ export default function PaginaDashboardAdmin() {
     setFormEstoquePorTamanho(
       prod.estoquePorTamanho ? { ...prod.estoquePorTamanho } : {}
     )
-
-    const estoqueCorBruto =
-      prod.estoquePorCor && typeof prod.estoquePorCor === "object"
-        ? prod.estoquePorCor
-        : {}
-
-    const matrizCarregada: Record<string, Record<string, number>> = {}
-    const legadoCarregado: Record<string, number> = {}
-    let encontrouMatriz = false
-
-    Object.entries(estoqueCorBruto).forEach(([cor, valor]) => {
-      if (valor && typeof valor === "object" && !Array.isArray(valor)) {
-        const linha: Record<string, number> = {}
-        Object.entries(valor as Record<string, any>).forEach(([tam, qtd]) => {
-          linha[tam] = Math.max(0, Number(qtd) || 0)
-        })
-        matrizCarregada[cor] = linha
-        encontrouMatriz = true
-      } else {
-        legadoCarregado[cor] = Math.max(0, Number(valor) || 0)
-      }
-    })
-
-    const matrizCompleta: Record<string, Record<string, number>> = {}
-    ;(prod.cores || []).forEach((cor) => {
-      matrizCompleta[cor] = {}
-      ;(prod.tamanhos || []).forEach((tam) => {
-        matrizCompleta[cor][tam] = matrizCarregada[cor]?.[tam] ?? 0
-      })
-    })
-
-    setFormEstoquePorCor(matrizCompleta)
-    setFormEstoquePorCorLegado(legadoCarregado)
-    setMatrizEstoqueAlterada(encontrouMatriz)
+    setFormEstoquePorCor(
+      prod.estoquePorCor ? { ...prod.estoquePorCor } : {}
+    )
 
     // Recupera as fotos específicas das cores.
     // Aceita tanto { "Azul": "url" } quanto
@@ -1285,9 +1172,9 @@ export default function PaginaDashboardAdmin() {
           imagens: formImagens,
           estoque: estoqueFinal,
           tamanhos: formTamanhos,
-          estoquePorTamanho: estoquePorTamanhoFinal,
+          estoquePorTamanho: formEstoquePorTamanho,
           cores: formCores,
-          estoquePorCor: estoquePorCorFinal,
+          estoquePorCor: formEstoquePorCor,
           coresDetalhes: formImagensPorCor,
           genero: formGenero,
           categoriaId: formCategoria,
@@ -2691,7 +2578,7 @@ export default function PaginaDashboardAdmin() {
               </div>
 
               {/* ESTOQUE POR TAMANHO */}
-              {formTamanhos.length > 0 && formCores.length === 0 && (
+              {formTamanhos.length > 0 && (
                 <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
                   <span className="text-xs font-bold text-slate-200 block">
                     Definir Quantidade por Tamanho
@@ -2712,12 +2599,6 @@ export default function PaginaDashboardAdmin() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {formTamanhos.length > 0 && formCores.length > 0 && (
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-2.5 text-[10px] text-slate-400">
-                  O estoque por tamanho deste produto é definido diretamente na <strong className="text-emerald-400">matriz Cor × Tamanho</strong> abaixo. Não é necessário informar novamente a quantidade por tamanho.
                 </div>
               )}
 
@@ -2898,111 +2779,12 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
-              {/* ESTOQUE POR COR E TAMANHO */}
-              {formCores.length > 0 && formTamanhos.length > 0 && (
+              {/* ESTOQUE POR COR */}
+              {formCores.length > 0 && (
                 <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-                  <div>
-                    <span className="text-xs font-bold text-slate-200 block">
-                      Estoque por Cor e Tamanho
-                    </span>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      Informe exatamente quantas unidades existem de cada cor em cada tamanho. O estoque total será calculado automaticamente pela soma da matriz.
-                    </p>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-xl border border-slate-800">
-                    <table className="w-full min-w-max text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-slate-900">
-                          <th className="sticky left-0 z-10 bg-slate-900 border-b border-r border-slate-800 px-3 py-2.5 text-left text-[10px] uppercase tracking-wider text-slate-400">
-                            Cor \ Tamanho
-                          </th>
-                          {formTamanhos.map((tam) => (
-                            <th key={tam} className="border-b border-slate-800 px-3 py-2.5 text-center text-[10px] uppercase tracking-wider text-slate-400">
-                              {tam}
-                            </th>
-                          ))}
-                          <th className="border-b border-l border-slate-800 px-3 py-2.5 text-center text-[10px] uppercase tracking-wider text-rose-400">
-                            Total
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/70">
-                        {formCores.map((cor) => {
-                          const totalCor = formTamanhos.reduce(
-                            (total, tam) => total + obterEstoqueDaMatriz(cor, tam),
-                            0
-                          )
-
-                          return (
-                            <tr key={cor} className="bg-slate-950">
-                              <td className="sticky left-0 z-10 bg-slate-950 border-r border-slate-800 px-3 py-2">
-                                <span className="font-bold text-rose-400 whitespace-nowrap">{cor}</span>
-                              </td>
-
-                              {formTamanhos.map((tam) => (
-                                <td key={`${cor}-${tam}`} className="px-2 py-2 text-center">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={formEstoquePorCor[cor]?.[tam] ?? 0}
-                                    onChange={(e) =>
-                                      handleQtdCorTamanhoChange(
-                                        cor,
-                                        tam,
-                                        Number.parseInt(e.target.value, 10) || 0
-                                      )
-                                    }
-                                    className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-emerald-400 font-bold text-center focus:outline-none focus:border-rose-500"
-                                    aria-label={`Estoque da cor ${cor} no tamanho ${tam}`}
-                                  />
-                                </td>
-                              ))}
-
-                              <td className="border-l border-slate-800 px-3 py-2 text-center font-black text-emerald-400">
-                                {totalCor}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-slate-900">
-                          <td className="sticky left-0 z-10 bg-slate-900 border-r border-slate-800 px-3 py-2.5 text-[10px] font-bold uppercase text-slate-400">
-                            Total por tamanho
-                          </td>
-                          {formTamanhos.map((tam) => {
-                            const totalTamanho = formCores.reduce(
-                              (total, cor) => total + obterEstoqueDaMatriz(cor, tam),
-                              0
-                            )
-                            return (
-                              <td key={tam} className="px-3 py-2.5 text-center text-emerald-400 font-black">
-                                {totalTamanho}
-                              </td>
-                            )
-                          })}
-                          <td className="border-l border-slate-800 px-3 py-2.5 text-center text-white font-black">
-                            {totalEstoqueCalculado}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* ESTOQUE POR COR SEM TAMANHO */}
-              {formCores.length > 0 && formTamanhos.length === 0 && (
-                <div className="space-y-3 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-                  <div>
-                    <span className="text-xs font-bold text-slate-200 block">
-                      Definir Quantidade por Cor
-                    </span>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      Como este produto não possui tamanhos, informe o estoque total de cada cor.
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-slate-200 block">
+                    Definir Quantidade por Cor
+                  </span>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {formCores.map((cor) => (
                       <div key={cor} className="bg-slate-900 p-2 rounded-lg border border-slate-800">
@@ -3012,13 +2794,8 @@ export default function PaginaDashboardAdmin() {
                         <input
                           type="number"
                           min="0"
-                          value={formEstoquePorCorLegado[cor] ?? 0}
-                          onChange={(e) =>
-                            handleQtdCorSemTamanhoChange(
-                              cor,
-                              Number.parseInt(e.target.value, 10) || 0
-                            )
-                          }
+                          value={formEstoquePorCor[cor] ?? 0}
+                          onChange={(e) => handleQtdCorChange(cor, parseInt(e.target.value) || 0)}
                           className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-rose-500 text-center"
                         />
                       </div>
