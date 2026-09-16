@@ -358,6 +358,10 @@ export async function PUT(
           }),
 
           ...(idCategoriaFinal && {
+            // Salva a relação real com a categoria
+            categoriaId: idCategoriaFinal,
+
+            // Mantém também o nome da categoria para compatibilidade
             categoriaNome:
               (
                 await prisma.categoria.findUnique(
