@@ -49,6 +49,66 @@ function ordenarTamanhos(lista: string[]): string[] {
 }
 
 /**
+ * Converte nomes comuns de cores em uma cor visual quando o produto
+ * não possui um HEX cadastrado.
+ */
+function obterHexDaCor(nome: string, hexInformado?: string | null): string {
+  if (hexInformado && String(hexInformado).trim()) {
+    return String(hexInformado).trim();
+  }
+
+  const normalizado = String(nome || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+  const mapa: Record<string, string> = {
+    preto: "#111827",
+    preta: "#111827",
+    branco: "#ffffff",
+    branca: "#ffffff",
+    vermelho: "#ef4444",
+    vermelha: "#ef4444",
+    azul: "#2563eb",
+    "azul marinho": "#172554",
+    marinho: "#172554",
+    "azul claro": "#60a5fa",
+    rosa: "#ec4899",
+    "rosa bebe": "#f9a8d4",
+    pink: "#ec4899",
+    roxo: "#8b5cf6",
+    violeta: "#8b5cf6",
+    lilas: "#c084fc",
+    amarelo: "#facc15",
+    dourado: "#d4af37",
+    laranja: "#f97316",
+    verde: "#22c55e",
+    "verde militar": "#4d5c3b",
+    "verde musgo": "#556b2f",
+    bege: "#d6b98c",
+    nude: "#e8c3a5",
+    marrom: "#8b5a2b",
+    cinza: "#9ca3af",
+    prata: "#c0c0c0",
+    caramelo: "#b7793f",
+    terracota: "#c66b4e",
+    vinho: "#7f1d1d",
+    bordô: "#7f1d1d",
+    bordo: "#7f1d1d",
+    creme: "#fff7d6",
+  };
+
+  if (mapa[normalizado]) return mapa[normalizado];
+
+  const encontrada = Object.keys(mapa).find((chave) =>
+    normalizado.includes(chave) || chave.includes(normalizado)
+  );
+
+  return encontrada ? mapa[encontrada] : "#d1d5db";
+}
+
+/**
  * Procura a imagem específica de uma cor dentro de `coresDetalhes`.
  * Aceita os formatos:
  *   { "Azul": "https://..." }
@@ -403,28 +463,10 @@ export default function ProdutoDetalhePage() {
           produtoEncontrado.coresDisponiveis ||
           [];
 
-        if (Array.isArray(cores) && cores.length > 0) {
-          const primeiraCor =
-            typeof cores[0] === "string"
-              ? cores[0]
-              : cores[0]?.nome || cores[0]?.cor || "";
-
-          const primeiraCorFinal = String(primeiraCor || "");
-
-          setCorSelecionada(primeiraCorFinal);
-
-          // Ao abrir o produto, a foto da primeira cor tem prioridade,
-          // caso exista uma foto específica cadastrada no admin.
-          const imagemPrimeiraCor = obterImagemDaCor(
-            produtoEncontrado.coresDetalhes,
-            primeiraCorFinal
-          );
-
-          setImagemDaCor(imagemPrimeiraCor);
-        } else {
-          setCorSelecionada("");
-          setImagemDaCor("");
-        }
+        // Nenhuma cor fica selecionada automaticamente ao abrir o produto.
+        // O cliente precisa escolher a cor antes de adicionar ao carrinho.
+        setCorSelecionada("");
+        setImagemDaCor("");
 
         // Consulta do estoque no Tiny usando o SKU/ID.
         // Mantida conforme a implementação atual do projeto.
@@ -830,23 +872,19 @@ export default function ProdutoDetalhePage() {
                     <Palette className="h-3.5 w-3.5 text-slate-500" />
                     Selecione a Cor:
                     {corSelecionada && (
-                      <span className="font-normal text-slate-500">
-                        ({corSelecionada})
+                      <span className="font-normal text-slate-500 normal-case">
+                        {corSelecionada}
                       </span>
                     )}
                   </span>
                 </div>
 
-                <div className="flex gap-2.5 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap">
                   {listaCores.map((item: any, idx: number) => {
-                    const selecionado =
-                      corSelecionada === item.nome;
-
-                    const possuiFoto = Boolean(
-                      obterImagemDaCor(
-                        produto.coresDetalhes,
-                        item.nome
-                      )
+                    const selecionado = corSelecionada === item.nome;
+                    const corVisual = obterHexDaCor(
+                      item.nome,
+                      item.hex
                     );
 
                     return (
@@ -854,29 +892,48 @@ export default function ProdutoDetalhePage() {
                         key={`${item.nome}-${idx}`}
                         type="button"
                         onClick={() => handleSelecionarCor(item.nome)}
-                        className={`h-10 px-4 rounded-2xl text-xs font-bold border transition-all flex items-center gap-2 ${
+                        aria-label={`Selecionar cor ${item.nome}`}
+                        title={item.nome}
+                        className={`relative h-11 w-11 rounded-full border-2 transition-all duration-200 flex items-center justify-center ${
                           selecionado
-                            ? "border-slate-900 bg-slate-900 text-white shadow-sm"
-                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                            ? "border-slate-900 shadow-md scale-110 ring-2 ring-slate-200 ring-offset-2"
+                            : "border-slate-200 bg-white hover:border-slate-400 hover:scale-105"
                         }`}
-                        title={
-                          possuiFoto
-                            ? `Ver foto da cor ${item.nome}`
-                            : `Selecionar ${item.nome}`
-                        }
                       >
-                        {item.hex && (
-                          <span
-                            className="h-3.5 w-3.5 rounded-full border border-black/10 flex-shrink-0"
-                            style={{ backgroundColor: item.hex }}
-                          />
-                        )}
+                        <span
+                          className="h-8 w-8 rounded-full border border-black/10 shadow-inner"
+                          style={{ backgroundColor: corVisual }}
+                        />
 
-                        <span>{item.nome}</span>
+                        {selecionado && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Check
+                              className={`h-4 w-4 drop-shadow ${
+                                [
+                                  "#ffffff",
+                                  "#facc15",
+                                  "#d1d5db",
+                                  "#f9a8d4",
+                                  "#fff7d6",
+                                ].includes(
+                                  corVisual.toLowerCase()
+                                )
+                                  ? "text-slate-900"
+                                  : "text-white"
+                              }`}
+                            />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
+
+                {!corSelecionada && (
+                  <p className="text-[11px] text-slate-400">
+                    Escolha uma cor para continuar.
+                  </p>
+                )}
               </div>
             )}
 
