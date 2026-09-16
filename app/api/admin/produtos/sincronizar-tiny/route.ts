@@ -157,13 +157,6 @@ type TinyResponse = {
  * tamanho + cor -> ID da variação no Tiny
  */
 
-type TinyVariationMapping = {
-  id: string;
-  codigo: string;
-  tamanho: string;
-  cor: string;
-};
-
 type StartVariation = {
   id: string;
   codigo: string;
@@ -1859,84 +1852,6 @@ function aggregateStock(
 }
 
 /* =========================================================
- * MONTA O MAPA DAS VARIAÇÕES
- * =======================================================*/
-
-function buildTinyVariationMap(
-  group: StartGroup
-): TinyVariationMapping[] {
-  return (
-    group.variations ?? []
-  )
-    .map(
-      (variation) => ({
-        id:
-          text(
-            variation.id
-          ),
-
-        codigo:
-          text(
-            variation.codigo
-          ),
-
-        tamanho:
-          text(
-            variation.tamanho
-          ),
-
-        cor:
-          text(
-            variation.cor
-          ),
-      })
-    )
-    .filter(
-      (variation) =>
-        Boolean(
-          variation.id
-        )
-    );
-}
-
-/* =========================================================
- * SALVA O VÍNCULO TINY NO PRODUTO
- * =======================================================*/
-
-function buildTinyFields(
-  group: StartGroup
-) {
-  const tinyVariacoes =
-    buildTinyVariationMap(
-      group
-    );
-
-  return {
-    /*
-     * ID do produto pai/normal no Tiny.
-     *
-     * Para P:
-     *   é o ID do produto pai.
-     *
-     * Para N:
-     *   é o próprio ID do produto.
-     */
-    tinyId:
-      group.id,
-
-    /*
-     * Mapeamento:
-     *
-     * tamanho + cor
-     * ->
-     * ID da variação no Tiny
-     */
-    tinyVariacoes:
-      tinyVariacoes,
-  };
-}
-
-/* =========================================================
  * POST
  * =======================================================*/
 
@@ -2449,16 +2364,6 @@ export async function POST(
             ];
 
       /*
-       * ===================================================
-       * MAPA DE VARIAÇÕES TINY
-       * ===================================================
-       */
-      const tinyFields =
-        buildTinyFields(
-          group
-        );
-
-      /*
        * Procuramos primeiro
        * pelo ID atual do produto.
        */
@@ -2515,9 +2420,7 @@ export async function POST(
                   existente.id,
               },
 
-              data: {
-                ...tinyFields,
-              },
+              data: {},
             }
           );
 
@@ -2532,10 +2435,6 @@ export async function POST(
               status:
                 "ignored",
 
-              tinyVariacoes:
-                tinyFields
-                  .tinyVariacoes
-                  .length,
             }
           );
         }
@@ -2582,10 +2481,6 @@ export async function POST(
               ativo:
                 true,
 
-              /*
-               * NOVOS CAMPOS
-               */
-              ...tinyFields,
             },
           }
         );
@@ -2600,11 +2495,6 @@ export async function POST(
 
             status:
               "created",
-
-            tinyVariacoes:
-              tinyFields
-                .tinyVariacoes
-                .length,
           }
         );
       }
@@ -2657,11 +2547,6 @@ export async function POST(
               estoquePorCor:
                 aggregate.estoquePorCor,
 
-              /*
-               * Mesmo no modo estoque,
-               * mantemos o vínculo Tiny.
-               */
-              ...tinyFields,
             },
           }
         );
@@ -2676,11 +2561,6 @@ export async function POST(
 
             status:
               "updated",
-
-            tinyVariacoes:
-              tinyFields
-                .tinyVariacoes
-                .length,
           }
         );
       }
@@ -2738,11 +2618,6 @@ export async function POST(
                   }
                 : {}),
 
-              /*
-               * NOVOS CAMPOS:
-               * vínculo com Tiny.
-               */
-              ...tinyFields,
             },
           }
         );
@@ -2757,11 +2632,6 @@ export async function POST(
 
             status:
               "updated",
-
-            tinyVariacoes:
-              tinyFields
-                .tinyVariacoes
-                .length,
           }
         );
       }
@@ -2811,10 +2681,6 @@ export async function POST(
             ativo:
               true,
 
-            /*
-             * NOVOS CAMPOS
-             */
-            ...tinyFields,
           },
         }
       );
@@ -2829,11 +2695,6 @@ export async function POST(
 
           status:
             "created",
-
-          tinyVariacoes:
-            tinyFields
-              .tinyVariacoes
-              .length,
         }
       );
     }
