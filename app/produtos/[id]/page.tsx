@@ -49,66 +49,6 @@ function ordenarTamanhos(lista: string[]): string[] {
 }
 
 /**
- * Converte nomes comuns de cores em uma cor visual quando o produto
- * não possui um HEX cadastrado.
- */
-function obterHexDaCor(nome: string, hexInformado?: string | null): string {
-  if (hexInformado && String(hexInformado).trim()) {
-    return String(hexInformado).trim();
-  }
-
-  const normalizado = String(nome || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-
-  const mapa: Record<string, string> = {
-    preto: "#111827",
-    preta: "#111827",
-    branco: "#ffffff",
-    branca: "#ffffff",
-    vermelho: "#ef4444",
-    vermelha: "#ef4444",
-    azul: "#2563eb",
-    "azul marinho": "#172554",
-    marinho: "#172554",
-    "azul claro": "#60a5fa",
-    rosa: "#ec4899",
-    "rosa bebe": "#f9a8d4",
-    pink: "#ec4899",
-    roxo: "#8b5cf6",
-    violeta: "#8b5cf6",
-    lilas: "#c084fc",
-    amarelo: "#facc15",
-    dourado: "#d4af37",
-    laranja: "#f97316",
-    verde: "#22c55e",
-    "verde militar": "#4d5c3b",
-    "verde musgo": "#556b2f",
-    bege: "#d6b98c",
-    nude: "#e8c3a5",
-    marrom: "#8b5a2b",
-    cinza: "#9ca3af",
-    prata: "#c0c0c0",
-    caramelo: "#b7793f",
-    terracota: "#c66b4e",
-    vinho: "#7f1d1d",
-    bordô: "#7f1d1d",
-    bordo: "#7f1d1d",
-    creme: "#fff7d6",
-  };
-
-  if (mapa[normalizado]) return mapa[normalizado];
-
-  const encontrada = Object.keys(mapa).find((chave) =>
-    normalizado.includes(chave) || chave.includes(normalizado)
-  );
-
-  return encontrada ? mapa[encontrada] : "#d1d5db";
-}
-
-/**
  * Procura a imagem específica de uma cor dentro de `coresDetalhes`.
  * Aceita os formatos:
  *   { "Azul": "https://..." }
@@ -173,7 +113,6 @@ export default function ProdutoDetalhePage() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const [produto, setProduto] = useState<any>(null);
-  const [estoqueTinyReal, setEstoqueTinyReal] = useState<number | null>(null);
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState<string>("");
   const [corSelecionada, setCorSelecionada] = useState<string>("");
   const [imagemIndex, setImagemIndex] = useState<number>(0);
@@ -322,42 +261,135 @@ export default function ProdutoDetalhePage() {
     return {};
   }, [produto]);
 
+  const estoquePorCoresObj = useMemo(() => {
+    if (!produto) return {};
+
+    let bruto = produto.estoquePorCor ?? produto.coresEstoque;
+
+    if (typeof bruto === "string") {
+      try {
+        bruto = JSON.parse(bruto);
+      } catch {
+        return {};
+      }
+    }
+
+    if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) {
+      return {};
+    }
+
+    const obj: Record<string, Record<string, number> | number> = {};
+
+    Object.entries(bruto).forEach(([cor, valor]) => {
+      const chaveCor = String(cor).trim();
+      if (!chaveCor) return;
+
+      if (valor && typeof valor === "object" && !Array.isArray(valor)) {
+        const linha: Record<string, number> = {};
+
+        Object.entries(valor as Record<string, any>).forEach(([tam, qtd]) => {
+          linha[String(tam).trim().toUpperCase()] = Number(qtd) || 0;
+        });
+
+        obj[chaveCor] = linha;
+      } else {
+        obj[chaveCor] = Number(valor) || 0;
+      }
+    });
+
+    return obj;
+  }, [produto]);
+
+  const encontrarEstoqueDaCor = (cor: string) => {
+    if (!cor) return null;
+
+    const normalizarCor = (valor: string) =>
+      String(valor || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase();
+
+    const chave = Object.keys(estoquePorCoresObj).find(
+      (item) => normalizarCor(item) === normalizarCor(cor)
+    );
+
+    if (!chave) return null;
+    return estoquePorCoresObj[chave];
+  };
+
   const getEstoqueDisponivel = (tam: string) => {
-    if (estoqueTinyReal !== null) {
-      return Math.max(0, Number(estoqueTinyReal) || 0);
+    const estoqueGeral = Math.max(
+      0,
+      Number(
+        produto?.estoque ??
+          produto?.quantidade ??
+          produto?.qtd ??
+          0
+      ) || 0
+    );
+
+    const semTamanho = listaTamanhos.length === 0;
+
+    // Produto sem tamanhos: usa o estoque geral ou, quando houver cor
+    // selecionada e estoquePorCor, usa o estoque daquela cor.
+    if (semTamanho) {
+      if (corSelecionada) {
+        const estoqueCor = encontrarEstoqueDaCor(corSelecionada);
+
+        if (typeof estoqueCor === "number") {
+          return Math.max(0, estoqueCor);
+        }
+
+        if (estoqueCor && typeof estoqueCor === "object") {
+          return Math.max(
+            0,
+            Object.values(estoqueCor).reduce(
+              (total, quantidade) => total + (Number(quantidade) || 0),
+              0
+            )
+          );
+        }
+      }
+
+      return estoqueGeral;
     }
 
-    // Produto sem tamanhos: o estoque fica no campo geral `estoque`.
-    // Nesses produtos não existe tamanho para selecionar e, portanto,
-    // eles devem continuar compráveis enquanto o estoque geral for maior que zero.
-    if (!tam && listaTamanhos.length === 0) {
-      return Math.max(
-        0,
-        Number(
-          produto?.estoque ??
-            produto?.quantidade ??
-            produto?.qtd ??
-            0
-        ) || 0
-      );
+    const tamClean = String(tam || "").trim().toUpperCase();
+
+    // Quando o produto possui cor selecionada e o estoque por cor está
+    // disponível, respeita a combinação COR × TAMANHO.
+    if (corSelecionada) {
+      const estoqueCor = encontrarEstoqueDaCor(corSelecionada);
+
+      if (typeof estoqueCor === "number") {
+        return estoqueCor;
+      }
+
+      if (estoqueCor && typeof estoqueCor === "object" && tamClean) {
+        const quantidade = (estoqueCor as Record<string, number>)[tamClean];
+
+        if (quantidade !== undefined) {
+          return Math.max(0, Number(quantidade) || 0);
+        }
+
+        return 0;
+      }
     }
 
-    if (!tam) return 0;
+    if (!tamClean) return estoqueGeral;
 
-    const tamClean = String(tam).trim().toUpperCase();
     const chaves = Object.keys(estoqueTamanhosObj);
 
     if (chaves.length > 0) {
       if (tamClean in estoqueTamanhosObj) {
-        return Number(estoqueTamanhosObj[tamClean]) || 0;
+        return Math.max(0, Number(estoqueTamanhosObj[tamClean]) || 0);
       }
 
       return 0;
     }
 
-    return Number(
-      produto?.estoque ?? produto?.quantidade ?? produto?.qtd ?? 0
-    );
+    return estoqueGeral;
   };
 
   const qtdNoCarrinho = useMemo(() => {
@@ -380,6 +412,7 @@ export default function ProdutoDetalhePage() {
       const mesmoTam = produtoSemTamanho
         ? true
         : itemTam === String(tamanhoSelecionado).trim().toUpperCase();
+
       const mesmaCor = !corAtual || itemCor === corAtual;
 
       return itemProdId === idProd && mesmoTam && mesmaCor;
@@ -434,7 +467,6 @@ export default function ProdutoDetalhePage() {
       try {
         setCarregando(true);
         setImagemDaCor("");
-        setEstoqueTinyReal(null);
 
         let produtoEncontrado: any = null;
 
@@ -472,7 +504,8 @@ export default function ProdutoDetalhePage() {
         setImagemIndex(0);
 
         const tamanhosProduto = ordenarTamanhos(
-          Array.isArray(produtoEncontrado.tamanhos)
+          Array.isArray(produtoEncontrado.tamanhos) &&
+            produtoEncontrado.tamanhos.length > 0
             ? produtoEncontrado.tamanhos
             : Array.isArray(produtoEncontrado.tamanhosDisponiveis)
             ? produtoEncontrado.tamanhosDisponiveis
@@ -481,52 +514,10 @@ export default function ProdutoDetalhePage() {
 
         setTamanhoSelecionado(tamanhosProduto[0] || "");
 
-        const cores =
-          produtoEncontrado.cores ||
-          produtoEncontrado.coresDisponiveis ||
-          [];
-
         // Nenhuma cor fica selecionada automaticamente ao abrir o produto.
-        // O cliente precisa escolher a cor antes de adicionar ao carrinho.
+        // O cliente escolhe a cor somente quando o produto possui cores.
         setCorSelecionada("");
         setImagemDaCor("");
-
-        // Consulta do estoque no Tiny usando o SKU/ID.
-        // Mantida conforme a implementação atual do projeto.
-        const skuBusca = produtoEncontrado.sku || produtoEncontrado.id || id;
-
-        try {
-          const token = process.env.NEXT_PUBLIC_TINY_API_TOKEN || "";
-
-          const resTiny = await fetch(
-            `https://api.tiny.com.br/public-api/v3/produtos?pesquisa=${encodeURIComponent(
-              skuBusca
-            )}`,
-            {
-              method: "GET",
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          ).catch(() => null);
-
-          if (resTiny && resTiny.ok && ativo) {
-            const tinyData = await resTiny.json();
-
-            if (tinyData.itens && tinyData.itens.length > 0) {
-              const saldo = tinyData.itens[0].produto?.saldoEstoque;
-
-              if (saldo !== undefined && saldo !== null) {
-                setEstoqueTinyReal(Number(saldo));
-              }
-            }
-          }
-        } catch (err) {
-          console.warn(
-            "Aviso: Não foi possível buscar o estoque do Tiny diretamente no cliente.",
-            err
-          );
-        }
       } catch (e) {
         console.error("Erro ao carregar produto:", e);
 
@@ -895,19 +886,23 @@ export default function ProdutoDetalhePage() {
                     <Palette className="h-3.5 w-3.5 text-slate-500" />
                     Selecione a Cor:
                     {corSelecionada && (
-                      <span className="font-normal text-slate-500 normal-case">
-                        {corSelecionada}
+                      <span className="font-normal text-slate-500">
+                        ({corSelecionada})
                       </span>
                     )}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex gap-2.5 flex-wrap">
                   {listaCores.map((item: any, idx: number) => {
-                    const selecionado = corSelecionada === item.nome;
-                    const corVisual = obterHexDaCor(
-                      item.nome,
-                      item.hex
+                    const selecionado =
+                      corSelecionada === item.nome;
+
+                    const possuiFoto = Boolean(
+                      obterImagemDaCor(
+                        produto.coresDetalhes,
+                        item.nome
+                      )
                     );
 
                     return (
@@ -915,99 +910,78 @@ export default function ProdutoDetalhePage() {
                         key={`${item.nome}-${idx}`}
                         type="button"
                         onClick={() => handleSelecionarCor(item.nome)}
-                        aria-label={`Selecionar cor ${item.nome}`}
-                        title={item.nome}
-                        className={`relative h-11 w-11 rounded-full border-2 transition-all duration-200 flex items-center justify-center ${
+                        className={`h-10 px-4 rounded-2xl text-xs font-bold border transition-all flex items-center gap-2 ${
                           selecionado
-                            ? "border-slate-900 shadow-md scale-110 ring-2 ring-slate-200 ring-offset-2"
-                            : "border-slate-200 bg-white hover:border-slate-400 hover:scale-105"
+                            ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
                         }`}
+                        title={
+                          possuiFoto
+                            ? `Ver foto da cor ${item.nome}`
+                            : `Selecionar ${item.nome}`
+                        }
                       >
-                        <span
-                          className="h-8 w-8 rounded-full border border-black/10 shadow-inner"
-                          style={{ backgroundColor: corVisual }}
-                        />
-
-                        {selecionado && (
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <Check
-                              className={`h-4 w-4 drop-shadow ${
-                                [
-                                  "#ffffff",
-                                  "#facc15",
-                                  "#d1d5db",
-                                  "#f9a8d4",
-                                  "#fff7d6",
-                                ].includes(
-                                  corVisual.toLowerCase()
-                                )
-                                  ? "text-slate-900"
-                                  : "text-white"
-                              }`}
-                            />
-                          </span>
+                        {item.hex && (
+                          <span
+                            className="h-3.5 w-3.5 rounded-full border border-black/10 flex-shrink-0"
+                            style={{ backgroundColor: item.hex }}
+                          />
                         )}
+
+                        <span>{item.nome}</span>
                       </button>
                     );
                   })}
                 </div>
-
-                {!corSelecionada && (
-                  <p className="text-[11px] text-slate-400">
-                    Escolha uma cor para continuar.
-                  </p>
-                )}
               </div>
             )}
 
             {/* SELEÇÃO DE TAMANHOS */}
-            {listaTamanhos.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold uppercase text-slate-700">
-                    Selecione o Tamanho:
-                  </span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase text-slate-700">
+                  Selecione o Tamanho:
+                </span>
 
-                  <button
-                    type="button"
-                    onClick={() => setModalGuiaTamanhos(true)}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
-                  >
-                    <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
-                  </button>
-                </div>
-
-                <div className="flex gap-2.5 flex-wrap">
-                  {listaTamanhos.map((tam: string) => {
-                    const esgotado = isTamanhoEsgotado(tam);
-                    const selecionado = tamanhoSelecionado === tam;
-
-                    return (
-                      <button
-                        key={tam}
-                        type="button"
-                        onClick={() => setTamanhoSelecionado(tam)}
-                        className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
-                          selecionado
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
-                        }`}
-                      >
-                        <span
-                          className={
-                            esgotado && !selecionado
-                              ? "line-through opacity-50"
-                              : ""
-                          }
-                        >
-                          {tam}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalGuiaTamanhos(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
+                >
+                  <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
+                </button>
               </div>
-            )}
+
+              <div className="flex gap-2.5 flex-wrap">
+                {listaTamanhos.map((tam: string) => {
+                  const esgotado = isTamanhoEsgotado(tam);
+                  const selecionado = tamanhoSelecionado === tam;
+
+                  return (
+                    <button
+                      key={tam}
+                      type="button"
+                      onClick={() => setTamanhoSelecionado(tam)}
+                      className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
+                        selecionado
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                      }`}
+                    >
+                      <span
+                        className={
+                          esgotado && !selecionado
+                            ? "line-through opacity-50"
+                            : ""
+                        }
+                      >
+                        {tam}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* AÇÃO E VERIFICAÇÃO DE ESTOQUE */}
             <div className="space-y-3 pt-2">
@@ -1017,7 +991,9 @@ export default function ProdutoDetalhePage() {
                     <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
                     <span>
                       {estoqueMaxAtual === 0
-                        ? "Sem disponibilidade no estoque para este tamanho."
+                        ? produtoSemTamanhos
+                          ? "Sem disponibilidade no estoque para este produto."
+                          : "Sem disponibilidade no estoque para este tamanho."
                         : `Sem disponibilidade no estoque. Você já adicionou todas as ${estoqueMaxAtual} unidades disponíveis ao seu carrinho.`}
                     </span>
                   </div>
@@ -1234,9 +1210,7 @@ export default function ProdutoDetalhePage() {
             </div>
 
             <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-              Deixe seus dados para avisarmos assim que o tamanho{" "}
-              <strong>{tamanhoSelecionado}</strong>{" "}
-              {corSelecionada ? `na cor ${corSelecionada}` : ""} estiver de volta ao estoque.
+              Deixe seus dados para avisarmos assim que {produtoSemTamanhos ? "este produto" : <>o tamanho{" "}<strong>{tamanhoSelecionado}</strong></>} {corSelecionada ? `na cor ${corSelecionada}` : ""} estiver de volta ao estoque.
             </p>
 
             {sucessoAviseMe ? (
