@@ -1,69 +1,107 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
-// Ordem customizada de tamanhos
-const ORDEM_TAMANHOS = [
-  'RN', 'P', 'M', 'G', 'GG', 
-  '1', '2', '3', '4', '6', '8', '10', '12', '14', '16',
-  'ÚNICO', 'UNICO'
-]
-
-// Função para tratar e ordenar os tamanhos
-function processarTamanhos(tamanhosInput: any): string[] {
-  if (!Array.isArray(tamanhosInput)) return ['Único']
-
-  const filtrados = tamanhosInput
-    .map((t: any) => String(t).trim())
-    .filter((t: string) => t !== '')
-
-  if (filtrados.length === 0) return ['Único']
-
-  return [...filtrados].sort((a, b) => {
-    const idxA = ORDEM_TAMANHOS.indexOf(a.toUpperCase())
-    const idxB = ORDEM_TAMANHOS.indexOf(b.toUpperCase())
-
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB
-    if (idxA !== -1) return -1
-    if (idxB !== -1) return 1
-    return a.localeCompare(b, undefined, { numeric: true })
-  })
+// Função para normalizar strings
+function normalizar(texto: string = ""): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
-// GET: Buscar um único produto pelo ID
+// Formata o nome para salvar no banco com boa apresentação
+function formatarNomeCategoria(slugOuNome: string): string {
+  const mapaNomes: Record<string, string> = {
+    CONJUNTOS: "Conjuntos",
+    VESTIDOS: "Vestidos",
+    BLUSAS: "Blusas e Camisetas",
+    CAMISETAS: "Blusas e Camisetas",
+    BLUSAS_CAMISETAS: "Blusas e Camisetas",
+    CALCAS_SHORTS: "Calças e Shorts",
+    CALCAS: "Calças e Shorts",
+    SHORTS: "Calças e Shorts",
+    CALCADOS: "Calçados",
+    ACESSORIOS: "Acessórios",
+  };
+
+  const chave = slugOuNome.toUpperCase().trim();
+
+  if (mapaNomes[chave]) {
+    return mapaNomes[chave];
+  }
+
+  return slugOuNome
+    .toLowerCase()
+    .split(" ")
+    .map(
+      (palavra) =>
+        palavra.charAt(0).toUpperCase() +
+        palavra.slice(1)
+    )
+    .join(" ");
+}
+
+// GET: Buscar um produto específico por ID
 export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const resolvedParams = await params
+    const { id } = await params;
+
     const produto = await prisma.produto.findUnique({
-      where: { id: resolvedParams.id },
-      include: { categoria: true },
-    })
+      where: { id },
+      include: {
+        categoria: true,
+      },
+    });
 
     if (!produto) {
-      return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 })
+      return NextResponse.json(
+        {
+          erro: "Não encontrado",
+        },
+        {
+          status: 404,
+        }
+      );
     }
 
-    return NextResponse.json(produto)
-  } catch (error) {
-    console.error("Erro ao buscar produto:", error)
+    return NextResponse.json({
+      ...produto,
+
+      // Compatibilidade com o frontend
+      imagem: produto.imagemUrl,
+    });
+  } catch (error: any) {
+    console.error(
+      "🔥 ERRO FATAL na API de produtos [id] (GET):",
+      error
+    );
+
     return NextResponse.json(
-      { error: "Erro interno ao buscar produto." },
-      { status: 500 }
-    )
+      {
+        erro:
+          error?.message ||
+          "Erro interno",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }
 
-// PUT: Atualizar produto existente
+// PUT: Atualizar um produto existente
 export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const resolvedParams = await params
-    const { id } = resolvedParams
-    const body = await request.json()
+    const { id } = await params;
+
+    const body = await req.json();
 
     const {
       nome,
@@ -75,200 +113,308 @@ export async function PUT(
       estoque,
       tamanhos,
       estoquePorTamanho,
+      cores,
+      estoquePorCor,
+      coresDetalhes,
       genero,
       faixaEtaria,
       ativo,
       localCard,
       categoriaId,
-      categoriaNome,
-    } = body
+      categoria,
+    } = body;
 
-    // Validações dos campos obrigatórios
-    if (!nome || typeof nome !== "string" || !nome.trim()) {
-      return NextResponse.json({ error: "O campo Nome é obrigatório." }, { status: 400 })
-    }
+    // ==========================================
+    // CATEGORIA
+    // ==========================================
 
-    if (!descricao || typeof descricao !== "string" || !descricao.trim()) {
-      return NextResponse.json({ error: "O campo Descrição é obrigatório." }, { status: 400 })
-    }
+    let idCategoriaFinal: string | null = null;
 
-    if (preco === undefined || preco === null || preco === "" || isNaN(Number(String(preco).replace(',', '.')))) {
-      return NextResponse.json({ error: "O campo Preço é obrigatório e deve ser um número válido." }, { status: 400 })
-    }
+    const termoCategoria = String(
+      categoriaId || categoria || ""
+    ).trim();
 
-    if (!imagemUrl || typeof imagemUrl !== "string" || !imagemUrl.trim()) {
-      return NextResponse.json({ error: "A imagem principal do produto é obrigatória." }, { status: 400 })
-    }
+    if (termoCategoria) {
+      const categoriasBanco =
+        await prisma.categoria.findMany();
 
-    // Tratamento dos tamanhos e estoque
-    const tamanhosOrdenados = processarTamanhos(tamanhos)
-    let estoqueTotalNum = parseInt(estoque) || 0
-    let estoquePorTamanhoFinal = estoquePorTamanho
+      const termoNorm = normalizar(termoCategoria);
 
-    if (estoquePorTamanhoFinal && typeof estoquePorTamanhoFinal === "object" && !Array.isArray(estoquePorTamanhoFinal)) {
-      const estoqueFiltrado: Record<string, number> = {}
-      for (const tam of tamanhosOrdenados) {
-        if (tam in estoquePorTamanhoFinal) {
-          estoqueFiltrado[tam] = Number(estoquePorTamanhoFinal[tam]) || 0
-        } else {
-          estoqueFiltrado[tam] = 0
-        }
+      let categoriaEncontrada =
+        categoriasBanco.find((cat) => {
+          const catIdNorm = cat.id
+            .toLowerCase();
+
+          const catNomeNorm =
+            normalizar(cat.nome);
+
+          return (
+            catIdNorm === termoNorm ||
+            catNomeNorm === termoNorm
+          );
+        });
+
+      // Se não existir, cria automaticamente
+      if (!categoriaEncontrada) {
+        const nomeFormatado =
+          formatarNomeCategoria(
+            termoCategoria
+          );
+
+        console.log(
+          `✨ Categoria "${nomeFormatado}" não encontrada. Criando no banco...`
+        );
+
+        categoriaEncontrada =
+          await prisma.categoria.create({
+            data: {
+              nome: nomeFormatado,
+            },
+          });
       }
-      estoquePorTamanhoFinal = estoqueFiltrado
 
-      const somaVariacoes = Object.values(estoquePorTamanhoFinal).reduce(
-        (acc, curr) => acc + (Number(curr) || 0), 0
-      )
-      estoqueTotalNum = somaVariacoes
-    } else if (
-      tamanhosOrdenados.length === 1 && 
-      tamanhosOrdenados[0] === 'Único' && 
-      (!estoquePorTamanhoFinal || Object.keys(estoquePorTamanhoFinal).length === 0)
+      idCategoriaFinal =
+        categoriaEncontrada.id;
+    }
+
+    // ==========================================
+    // FOTO POR COR
+    // ==========================================
+
+    let coresDetalhesFinal: Record<
+      string,
+      string
+    > | undefined = undefined;
+
+    if (
+      coresDetalhes !== undefined &&
+      coresDetalhes !== null &&
+      typeof coresDetalhes === "object" &&
+      !Array.isArray(coresDetalhes)
     ) {
-      estoquePorTamanhoFinal = { 'Único': estoqueTotalNum }
-    }
+      const coresPermitidas = Array.isArray(cores)
+        ? cores
+        : [];
 
-    // Formatação segura de valores numéricos
-    const precoNum = parseFloat(String(preco).replace(',', '.'))
-    const precoPromoNum = precoPromocional ? parseFloat(String(precoPromocional).replace(',', '.')) : null
+      coresDetalhesFinal = {};
 
-    // Resolução da Categoria (Modelo usa 'nome' como chave primária)
-    let categoriaNomeReal: string | null = null
-    const valorCategoria = categoriaNome || categoriaId
+      for (const [cor, valor] of Object.entries(
+        coresDetalhes
+      )) {
+        // Aceita:
+        // "Azul": "https://..."
+        //
+        // e também:
+        // "Azul": {
+        //   imagemUrl: "https://..."
+        // }
 
-    if (valorCategoria) {
-      let nomeBusca = ""
-      if (typeof valorCategoria === "object") {
-        nomeBusca = String(valorCategoria.nome || valorCategoria.id || "").trim()
-      } else {
-        nomeBusca = String(valorCategoria).trim()
-      }
+        let imagem = "";
 
-      const valoresNulos = ["null", "undefined", "none", "0", "sem-categoria", "selecione", ""]
-      if (nomeBusca && !valoresNulos.includes(nomeBusca.toLowerCase())) {
-        let categoriaEncontrada = await prisma.categoria.findFirst({
-          where: { nome: { equals: nomeBusca, mode: "insensitive" } }
-        })
-
-        if (!categoriaEncontrada) {
-          const nomeFormatado = nomeBusca
-            .replace(/_/g, " ")
-            .toLowerCase()
-            .replace(/(^\w|\s\w)/g, (l) => l.toUpperCase())
-
-          try {
-            categoriaEncontrada = await prisma.categoria.create({
-              data: { nome: nomeFormatado }
-            })
-          } catch {
-            categoriaEncontrada = await prisma.categoria.findFirst({
-              where: { nome: { equals: nomeFormatado, mode: "insensitive" } }
-            })
-          }
+        if (typeof valor === "string") {
+          imagem = valor.trim();
+        } else if (
+          valor &&
+          typeof valor === "object" &&
+          "imagemUrl" in valor
+        ) {
+          imagem = String(
+            (valor as any).imagemUrl || ""
+          ).trim();
         }
 
-        if (categoriaEncontrada) {
-          categoriaNomeReal = categoriaEncontrada.nome
+        // Só salva foto se a cor ainda existir no produto
+        if (
+          imagem &&
+          (
+            coresPermitidas.length === 0 ||
+            coresPermitidas.includes(cor)
+          )
+        ) {
+          coresDetalhesFinal[cor] = imagem;
         }
       }
     }
 
-    // Montagem dos dados para atualização
-    const updateData: any = {
-      nome: nome.trim(),
-      descricao: descricao.trim(),
-      preco: precoNum,
-      precoPromocional: precoPromoNum,
-      imagemUrl: imagemUrl.trim(),
-      imagens: Array.isArray(imagens) ? imagens : [],
-      estoque: estoqueTotalNum,
-      tamanhos: tamanhosOrdenados,
-      estoquePorTamanho: estoquePorTamanhoFinal ?? null,
-      genero: genero || "masculino",
-      faixaEtaria: faixaEtaria || "INFANTIL",
-      ativo: ativo !== undefined ? Boolean(ativo) : true,
-      localCard: localCard || "HOME_DESTAQUE",
-      categoriaNome: categoriaNomeReal,
-    }
+    // ==========================================
+    // ATUALIZA PRODUTO
+    // ==========================================
 
-    const produtoAtualizado = await prisma.produto.update({
-      where: { id },
-      data: updateData,
-      include: {
-        categoria: true,
-      },
-    })
+    const produtoAtualizado =
+      await prisma.produto.update({
+        where: { id },
 
-    return NextResponse.json(produtoAtualizado)
-  } catch (error: any) {
-    console.error("Erro detalhado ao atualizar produto:", error)
+        data: {
+          ...(nome !== undefined && {
+            nome: String(nome),
+          }),
+
+          ...(descricao !== undefined && {
+            descricao: String(descricao),
+          }),
+
+          ...(preco !== undefined && {
+            preco: Number(preco) || 0,
+          }),
+
+          ...(precoPromocional !== undefined && {
+            precoPromocional:
+              precoPromocional === null ||
+              precoPromocional === ""
+                ? null
+                : Number(precoPromocional),
+          }),
+
+          ...(imagemUrl !== undefined && {
+            imagemUrl: String(imagemUrl || ""),
+          }),
+
+          ...(imagens !== undefined && {
+            imagens: Array.isArray(imagens)
+              ? imagens.filter(
+                  (item: unknown) =>
+                    typeof item === "string"
+                )
+              : [],
+          }),
+
+          ...(estoque !== undefined && {
+            estoque:
+              Number.parseInt(
+                String(estoque),
+                10
+              ) || 0,
+          }),
+
+          ...(tamanhos !== undefined && {
+            tamanhos: Array.isArray(tamanhos)
+              ? tamanhos
+              : [],
+          }),
+
+          ...(estoquePorTamanho !== undefined && {
+            estoquePorTamanho,
+          }),
+
+          ...(cores !== undefined && {
+            cores: Array.isArray(cores)
+              ? cores
+              : [],
+          }),
+
+          ...(estoquePorCor !== undefined && {
+            estoquePorCor,
+          }),
+
+          // ======================================
+          // NOVO: FOTO ESPECÍFICA DE CADA COR
+          // ======================================
+          ...(coresDetalhesFinal !== undefined && {
+            coresDetalhes:
+              coresDetalhesFinal,
+          }),
+
+          ...(genero !== undefined && {
+            genero: genero
+              ? String(genero)
+              : null,
+          }),
+
+          ...(faixaEtaria !== undefined && {
+            faixaEtaria: faixaEtaria
+              ? String(faixaEtaria)
+              : null,
+          }),
+
+          ...(ativo !== undefined && {
+            ativo: Boolean(ativo),
+          }),
+
+          ...(localCard !== undefined && {
+            localCard: localCard
+              ? String(localCard)
+              : null,
+          }),
+
+          ...(idCategoriaFinal && {
+            categoriaNome:
+              (
+                await prisma.categoria.findUnique(
+                  {
+                    where: {
+                      id: idCategoriaFinal,
+                    },
+                  }
+                )
+              )?.nome,
+          }),
+        },
+
+        include: {
+          categoria: true,
+        },
+      });
+
     return NextResponse.json(
-      { error: `Erro no Banco de Dados: ${error.message || error}` },
-      { status: 500 }
-    )
+      {
+        ...produtoAtualizado,
+        imagem:
+          produtoAtualizado.imagemUrl,
+      },
+      {
+        status: 200,
+      }
+    );
+  } catch (error: any) {
+    console.error(
+      "🔥 ERRO FATAL na API de produtos [id] (PUT):",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        erro:
+          error?.message ||
+          "Erro interno",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }
 
-// DELETE: Deletar produto pelo ID (Trata relações e histórico de vendas)
+// DELETE: Remover um produto
 export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const resolvedParams = await params
-    const { id } = resolvedParams
+    const { id } = await params;
 
-    const produtoExistente = await prisma.produto.findUnique({
-      where: { id },
-      include: {
-        _count: {
-          select: { itensPedido: true }
-        }
-      }
-    })
-
-    if (!produtoExistente) {
-      return NextResponse.json({ error: "Produto não encontrado." }, { status: 404 })
-    }
-
-    // 1. Limpa relações descartáveis em transação
-    await prisma.$transaction([
-      prisma.itemCarrinho.deleteMany({ where: { produtoId: id } }),
-      prisma.favorito.deleteMany({ where: { produtoId: id } }),
-      prisma.avisoEstoque.deleteMany({ where: { produtoId: id } }),
-    ])
-
-    // 2. Se o produto possui histórico de vendas (ItemPedido), realiza Soft Delete (Inativa)
-    if (produtoExistente._count.itensPedido > 0) {
-      await prisma.produto.update({
-        where: { id },
-        data: {
-          ativo: false,
-          estoque: 0,
-        }
-      })
-
-      return NextResponse.json({
-        mensagem: "Produto desativado com sucesso. Ele foi ocultado da loja para preservar o histórico de pedidos existentes.",
-        softDelete: true
-      })
-    }
-
-    // 3. Se não tem histórico de pedidos, exclui permanentemente do Banco de Dados
     await prisma.produto.delete({
       where: { id },
-    })
+    });
 
     return NextResponse.json({
-      mensagem: "Produto excluído permanentemente com sucesso.",
-      softDelete: false
-    })
+      mensagem:
+        "Produto excluído com sucesso",
+    });
   } catch (error: any) {
-    console.error("Erro ao deletar produto:", error)
+    console.error(
+      "🔥 ERRO FATAL na API de produtos [id] (DELETE):",
+      error
+    );
 
     return NextResponse.json(
-      { error: `Erro interno ao deletar produto: ${error.message || error}` },
-      { status: 500 }
-    )
+      {
+        erro:
+          error?.message ||
+          "Erro interno",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }
