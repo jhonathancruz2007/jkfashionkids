@@ -1,43 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// Função para normalizar strings (remove acentos, espaços e caixa alta)
-function normalizar(texto: string = ""): string {
-  return texto
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-// Formata o nome para salvar no banco com boa apresentação
-function formatarNomeCategoria(slugOuNome: string): string {
-  const mapaNomes: Record<string, string> = {
-    CONJUNTOS: "Conjuntos",
-    VESTIDOS: "Vestidos",
-    BLUSAS: "Blusas e Camisetas",
-    CAMISETAS: "Blusas e Camisetas",
-    BLUSAS_CAMISETAS: "Blusas e Camisetas",
-    CALCAS_SHORTS: "Calças e Shorts",
-    CALCAS: "Calças e Shorts",
-    SHORTS: "Calças e Shorts",
-    CALCADOS: "Calçados",
-    ACESSORIOS: "Acessórios",
-  };
-
-  const chave = slugOuNome.toUpperCase().trim();
-  if (mapaNomes[chave]) return mapaNomes[chave];
-
-  return slugOuNome
-    .toLowerCase()
-    .split(" ")
-    .map((palavra) => palavra.charAt(0).toUpperCase() + palavra.slice(1))
-    .join(" ");
-}
-
-// GET: Buscar um produto específico por ID
+// GET - Busca um produto específico
 export async function GET(
-  req: Request,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -45,28 +11,37 @@ export async function GET(
 
     const produto = await prisma.produto.findUnique({
       where: { id },
-      include: { categoria: true },
+      include: {
+        categoria: true,
+      },
     });
 
     if (!produto) {
-      return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Produto não encontrado" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({ ...produto, imagem: produto.imagemUrl });
-  } catch (error: any) {
-    console.error("🔥 ERRO FATAL na API de produtos [id] (GET):", error);
-    return NextResponse.json({ erro: error.message || "Erro interno" }, { status: 500 });
+    return NextResponse.json(produto);
+  } catch (error) {
+    console.error("Erro ao buscar produto:", error);
+
+    return NextResponse.json(
+      { error: "Erro ao buscar produto" },
+      { status: 500 }
+    );
   }
 }
 
-// PUT: Atualizar um produto existente
+// PUT - Atualiza um produto específico
 export async function PUT(
-  req: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const body = await req.json();
+    const body = await request.json();
 
     const {
       nome,
@@ -77,6 +52,10 @@ export async function PUT(
       estoque,
       tamanhos,
       estoquePorTamanho,
+      cores,
+      estoquePorCor,
+      coresDetalhes,
+      faixaEtaria,
       genero,
       ativo,
       localCard,
@@ -84,67 +63,135 @@ export async function PUT(
       categoria,
     } = body;
 
-    let idCategoriaFinal: string | null = null;
-    const termoCategoria = String(categoriaId || categoria || "").trim();
+    // Mantém a lógica atual de categoria: aceita categoriaId
+    // diretamente ou tenta localizar/criar a categoria pelo nome enviado.
+    let idCategoriaFinal = categoriaId;
 
-    if (termoCategoria) {
-      const categoriasBanco = await prisma.categoria.findMany();
-      const termoNorm = normalizar(termoCategoria);
+    if (!idCategoriaFinal && categoria) {
+      if (typeof categoria === "string") {
+        const categoriaTrimmed = categoria.trim();
 
-      // 1. Procura se a categoria já existe (por ID ou por Nome)
-      let categoriaEncontrada = categoriasBanco.find((cat) => {
-        const catIdNorm = cat.id.toLowerCase();
-        const catNomeNorm = normalizar(cat.nome);
-        return catIdNorm === termoNorm || catNomeNorm === termoNorm;
-      });
+        if (categoriaTrimmed) {
+          const categoriaExistente = await prisma.categoria.findFirst({
+            where: {
+              nome: {
+                equals: categoriaTrimmed,
+                mode: "insensitive",
+              },
+            },
+          });
 
-      // 2. Se a categoria não existir no banco, CRIA ELA AUTOMATICAMENTE
-      if (!categoriaEncontrada) {
-        const nomeFormatado = formatarNomeCategoria(termoCategoria);
-        console.log(`✨ Categoria "${nomeFormatado}" não encontrada. Criando no banco...`);
+          if (categoriaExistente) {
+            idCategoriaFinal = categoriaExistente.id;
+          } else {
+            const novaCategoria = await prisma.categoria.create({
+              data: {
+                nome: categoriaTrimmed,
+              },
+            });
 
-        categoriaEncontrada = await prisma.categoria.create({
-          data: {
-            nome: nomeFormatado,
-          },
-        });
+            idCategoriaFinal = novaCategoria.id;
+          }
+        }
+      } else if (typeof categoria === "object" && categoria !== null) {
+        if (typeof categoria.id === "string" && categoria.id.trim()) {
+          idCategoriaFinal = categoria.id;
+        } else if (
+          typeof categoria.nome === "string" &&
+          categoria.nome.trim()
+        ) {
+          const categoriaTrimmed = categoria.nome.trim();
+
+          const categoriaExistente = await prisma.categoria.findFirst({
+            where: {
+              nome: {
+                equals: categoriaTrimmed,
+                mode: "insensitive",
+              },
+            },
+          });
+
+          if (categoriaExistente) {
+            idCategoriaFinal = categoriaExistente.id;
+          } else {
+            const novaCategoria = await prisma.categoria.create({
+              data: {
+                nome: categoriaTrimmed,
+              },
+            });
+
+            idCategoriaFinal = novaCategoria.id;
+          }
+        }
       }
-
-      idCategoriaFinal = categoriaEncontrada.id;
     }
 
-    // 3. Atualiza o produto com o ID real da categoria
-    const produtoAtualizado = await prisma.produto.update({
+    // Só envia para o Prisma os campos que realmente foram informados.
+    // Isso evita sobrescrever dados existentes por undefined.
+    const data: Record<string, unknown> = {
+      ...(nome !== undefined && { nome }),
+      ...(descricao !== undefined && { descricao }),
+      ...(preco !== undefined && {
+        preco: typeof preco === "number" ? preco : parseFloat(preco),
+      }),
+      ...(precoPromocional !== undefined && {
+        precoPromocional:
+          precoPromocional === null || precoPromocional === ""
+            ? null
+            : typeof precoPromocional === "number"
+              ? precoPromocional
+              : parseFloat(precoPromocional),
+      }),
+      ...(imagemUrl !== undefined && { imagemUrl }),
+      ...(estoque !== undefined && {
+        estoque: typeof estoque === "number" ? estoque : parseInt(estoque, 10),
+      }),
+      ...(tamanhos !== undefined && {
+        tamanhos: Array.isArray(tamanhos) ? tamanhos : [],
+      }),
+      ...(estoquePorTamanho !== undefined && { estoquePorTamanho }),
+      ...(cores !== undefined && {
+        cores: Array.isArray(cores) ? cores : [],
+      }),
+      ...(estoquePorCor !== undefined && { estoquePorCor }),
+      ...(coresDetalhes !== undefined && { coresDetalhes }),
+      ...(faixaEtaria !== undefined && {
+        faixaEtaria:
+          faixaEtaria === null || faixaEtaria === ""
+            ? null
+            : String(faixaEtaria),
+      }),
+      ...(genero !== undefined && { genero }),
+      ...(ativo !== undefined && { ativo: Boolean(ativo) }),
+      ...(localCard !== undefined && { localCard }),
+      ...(idCategoriaFinal && { categoriaId: idCategoriaFinal }),
+    };
+
+    const produto = await prisma.produto.update({
       where: { id },
-      data: {
-        ...(nome && { nome }),
-        ...(descricao !== undefined && { descricao }),
-        ...(preco !== undefined && { preco: parseFloat(preco) }),
-        ...(precoPromocional !== undefined && {
-          precoPromocional: precoPromocional ? parseFloat(precoPromocional) : null,
-        }),
-        ...(imagemUrl && { imagemUrl }),
-        ...(estoque !== undefined && { estoque: parseInt(estoque) }),
-        ...(tamanhos && { tamanhos: Array.isArray(tamanhos) ? tamanhos : [] }),
-        ...(estoquePorTamanho !== undefined && { estoquePorTamanho }),
-        ...(genero && { genero }),
-        ...(ativo !== undefined && { ativo: Boolean(ativo) }),
-        ...(localCard && { localCard }),
-        ...(idCategoriaFinal && { categoriaId: idCategoriaFinal }),
+      data,
+      include: {
+        categoria: true,
       },
-      include: { categoria: true },
     });
 
-    return NextResponse.json(produtoAtualizado);
-  } catch (error: any) {
-    console.error("🔥 ERRO FATAL na API de produtos [id] (PUT):", error);
-    return NextResponse.json({ erro: error.message || "Erro interno" }, { status: 500 });
+    return NextResponse.json(produto);
+  } catch (error) {
+    console.error("Erro ao atualizar produto:", error);
+
+    return NextResponse.json(
+      {
+        error: "Erro ao atualizar produto",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 
-// DELETE: Remover um produto
+// DELETE - Exclui um produto específico
 export async function DELETE(
-  req: Request,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -154,9 +201,19 @@ export async function DELETE(
       where: { id },
     });
 
-    return NextResponse.json({ mensagem: "Produto excluído com sucesso" });
-  } catch (error: any) {
-    console.error("🔥 ERRO FATAL na API de produtos [id] (DELETE):", error);
-    return NextResponse.json({ erro: error.message || "Erro interno" }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      message: "Produto excluído com sucesso",
+    });
+  } catch (error) {
+    console.error("Erro ao excluir produto:", error);
+
+    return NextResponse.json(
+      {
+        error: "Erro ao excluir produto",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }
