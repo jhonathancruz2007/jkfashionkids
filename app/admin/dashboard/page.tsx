@@ -67,7 +67,6 @@ interface Produto {
   localCard?: string
   categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
   categoriaId?: string
-  categoriaNome?: string
   faixaEtaria?: string
 }
 
@@ -131,22 +130,90 @@ const CORES_INICIAIS: string[] = [
 ]
 
 const CATEGORIAS_INICIAIS: CategoriaItem[] = [
-  { value: "Conjuntos", label: "Conjuntos" },
-  { value: "Vestidos", label: "Vestidos" },
-  { value: "Blusas e Camisetas", label: "Blusas e Camisetas" },
-  { value: "Calças e Shorts", label: "Calças e Shorts" },
-  { value: "Calçados", label: "Calçados" },
-  { value: "Acessórios", label: "Acessórios" },
+  { value: "CONJUNTOS", label: "Conjuntos" },
+  { value: "VESTIDOS", label: "Vestidos" },
+  { value: "BLUSAS", label: "Blusas e Camisetas" },
+  { value: "CALCAS_SHORTS", label: "Calças e Shorts" },
+  { value: "CALCADOS", label: "Calçados" },
+  { value: "ACESSORIOS", label: "Acessórios" },
 ]
 
 const OPCOES_FAIXA_ETARIA = [
-  { value: "todas", label: "Todas as idades" },
-  { value: "0-1", label: "até 1 ano" },
+  { value: "0-1", label: "Até 1 ano" },
   { value: "1-2", label: "1 a 2 anos" },
   { value: "3-5", label: "3 a 5 anos" },
   { value: "6-8", label: "6 a 8 anos" },
   { value: "9-plus", label: "+9 anos" },
 ]
+
+const TODAS_FAIXAS_ETARIAS = OPCOES_FAIXA_ETARIA.map(
+  (opcao) => opcao.value
+)
+
+function normalizarFaixasEtarias(valor: unknown): string[] {
+  if (Array.isArray(valor)) {
+    const valores = valor.flatMap((item) =>
+      normalizarFaixasEtarias(item)
+    )
+
+    return [...new Set(valores)]
+  }
+
+  if (valor === null || valor === undefined) {
+    return []
+  }
+
+  const bruto = String(valor).trim()
+
+  if (!bruto) {
+    return []
+  }
+
+  // Compatibilidade com o antigo valor "todas".
+  if (
+    bruto.toLowerCase() === "todas" ||
+    bruto.toUpperCase() === "INFANTIL"
+  ) {
+    return [...TODAS_FAIXAS_ETARIAS]
+  }
+
+  const valores = bruto
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return [
+    ...new Set(
+      valores.filter((item) =>
+        TODAS_FAIXAS_ETARIAS.includes(item)
+      )
+    ),
+  ]
+}
+
+function formatarFaixasEtarias(valor: unknown): string {
+  const valores = normalizarFaixasEtarias(valor)
+
+  if (valores.length === 0) {
+    return "Não definida"
+  }
+
+  if (
+    valores.length ===
+    TODAS_FAIXAS_ETARIAS.length
+  ) {
+    return "Todas as faixas"
+  }
+
+  return valores
+    .map(
+      (valorFaixa) =>
+        OPCOES_FAIXA_ETARIA.find(
+          (opcao) => opcao.value === valorFaixa
+        )?.label || valorFaixa
+    )
+    .join(" • ")
+}
 
 const OPCOES_LOCAIS = [
   { value: "HOME_DESTAQUE", label: "Vitrine Destaques (Home)" },
@@ -154,15 +221,6 @@ const OPCOES_LOCAIS = [
   { value: "HOME_PROMOCOES", label: "Seção Promoções (Home)" },
   { value: "CATALOGO_GERAL", label: "Apenas no Catálogo Geral" },
 ]
-
-// Normaliza textos com segurança para comparações de categoria.
-function normalizar(texto: unknown = ""): string {
-  return String(texto ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-}
 
 const formatarMoeda = (valor: number): string => {
   return new Intl.NumberFormat("pt-BR", {
@@ -235,8 +293,8 @@ export default function PaginaDashboardAdmin() {
   const [formImagensPorCor, setFormImagensPorCor] = useState<Record<string, string>>({})
 
   const [formGenero, setFormGenero] = useState<string>("masculino")
-  const [formCategoria, setFormCategoria] = useState<string>("Conjuntos")
-  const [formFaixaEtaria, setFormFaixaEtaria] = useState<string>("0-1") 
+  const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
+  const [formFaixaEtaria, setFormFaixaEtaria] = useState<string[]>(["0-1"]) 
   const [formLocalCard, setFormLocalCard] = useState<string>("HOME_DESTAQUE")
 
   // Refs para inputs de arquivo e câmera
@@ -487,27 +545,11 @@ export default function PaginaDashboardAdmin() {
       if (res.ok) {
         const data: ApiCategoria[] = await res.json()
         if (Array.isArray(data) && data.length > 0) {
-          const catsFormatadas: CategoriaItem[] = data
-            .map((cat) => {
-              // No schema atual, Categoria não possui id.
-              // O campo identificador é "nome", que também é usado
-              // pelo Produto através de "categoriaNome".
-              const nome = String(
-                cat.nome || cat.value || cat.label || ""
-              ).trim()
-
-              if (!nome) return null
-
-              return {
-                // Mantemos id somente por compatibilidade com respostas antigas.
-                id: typeof cat.id === "string" ? cat.id : undefined,
-                value: nome,
-                label: nome,
-              }
-            })
-            .filter(
-              (cat): cat is CategoriaItem => cat !== null
-            )
+          const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
+            id: cat.id,
+            value: cat.id || cat.value || cat.nome || "",
+            label: cat.nome || cat.label || cat.value || ""
+          }))
           setCategorias(catsFormatadas)
         }
       }
@@ -569,21 +611,10 @@ export default function PaginaDashboardAdmin() {
 
       if (res.ok) {
         const novaCatBanco: ApiCategoria = await res.json()
-        // Categoria usa "nome" como chave primária no Prisma.
-        const nomeCategoria = String(
-          novaCatBanco.nome ||
-          novaCatBanco.value ||
-          novaCatBanco.label ||
-          nomeFormatado
-        ).trim()
-
         const catItem: CategoriaItem = {
-          id:
-            typeof novaCatBanco.id === "string"
-              ? novaCatBanco.id
-              : undefined,
-          value: nomeCategoria,
-          label: nomeCategoria,
+          id: novaCatBanco.id,
+          value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
+          label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
         }
 
         setCategorias((prev) => {
@@ -1214,8 +1245,8 @@ export default function PaginaDashboardAdmin() {
     setTamanhoManualInput("")
     setCorManualInput("")
     setFormGenero("masculino")
-    setFormCategoria(categorias[0]?.value || "Conjuntos")
-    setFormFaixaEtaria("0-1")
+    setFormCategoria(categorias[0]?.value || "CONJUNTOS")
+    setFormFaixaEtaria(["0-1"])
     setFormLocalCard("HOME_DESTAQUE")
     setModalProduto(true)
   }
@@ -1243,45 +1274,19 @@ export default function PaginaDashboardAdmin() {
     setFormCores(prod.cores || [])
     setFormGenero(prod.genero || "masculino")
     
-    // No schema atual, a categoria real do produto está em categoriaNome.
-    // Mantemos compatibilidade com dados antigos que possam trazer categoria,
-    // categoriaId ou um objeto de categoria.
-    let catValor =
-      String(prod.categoriaNome || "").trim()
-
-    if (!catValor) {
-      if (
-        typeof prod.categoria === "object" &&
-        prod.categoria !== null
-      ) {
-        catValor = String(
-          prod.categoria.nome ||
-          prod.categoria.value ||
-          prod.categoria.label ||
-          prod.categoria.id ||
-          ""
-        ).trim()
-      } else if (typeof prod.categoria === "string") {
-        catValor = prod.categoria.trim()
-      } else if (prod.categoriaId) {
-        catValor = String(prod.categoriaId).trim()
-      }
+    let catValor = ""
+    if (typeof prod.categoria === "object" && prod.categoria !== null) {
+      catValor = prod.categoria.id || prod.categoria.value || prod.categoria.nome || ""
+    } else if (typeof prod.categoria === "string") {
+      catValor = prod.categoria
+    } else if (prod.categoriaId) {
+      catValor = prod.categoriaId
     }
 
-    const catExiste = categorias.find(
-      (c) =>
-        normalizar(c.value) === normalizar(catValor) ||
-        normalizar(c.label) === normalizar(catValor)
-    )
+    const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
+    setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
 
-    setFormCategoria(
-      catExiste?.value ||
-      catValor ||
-      categorias[0]?.value ||
-      "Conjuntos"
-    )
-
-    setFormFaixaEtaria(prod.faixaEtaria || "0-1") 
+    setFormFaixaEtaria(normalizarFaixasEtarias(prod.faixaEtaria).length > 0 ? normalizarFaixasEtarias(prod.faixaEtaria) : ["0-1"]) 
     setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
 
     // Nunca distribua o estoque total artificialmente.
@@ -1380,7 +1385,7 @@ export default function PaginaDashboardAdmin() {
           coresDetalhes: formImagensPorCor,
           genero: formGenero,
           categoriaId: formCategoria,
-          faixaEtaria: formFaixaEtaria,
+          faixaEtaria: formFaixaEtaria.join(","),
           localCard: formLocalCard,
         }),
       })
@@ -1501,7 +1506,7 @@ export default function PaginaDashboardAdmin() {
   )
   const pedidosFiltrados = pedidos.filter(
     (p) =>
-      (p.id || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
+      p.id.toLowerCase().includes(buscaPedido.toLowerCase()) ||
       (p.cliente?.nome || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
       (p.cliente?.email || "").toLowerCase().includes(buscaPedido.toLowerCase())
   )
@@ -1512,39 +1517,19 @@ export default function PaginaDashboardAdmin() {
     let catVal = ""
     let catLabel = ""
 
-    // A chave oficial da relação é Produto.categoriaNome.
-    catVal = String(prod.categoriaNome || "").trim()
-
-    if (!catVal) {
-      if (
-        typeof prod.categoria === "object" &&
-        prod.categoria !== null
-      ) {
-        catVal = String(
-          prod.categoria.nome ||
-          prod.categoria.value ||
-          prod.categoria.label ||
-          prod.categoria.id ||
-          ""
-        ).trim()
-      } else if (typeof prod.categoria === "string") {
-        catVal = prod.categoria.trim()
-      } else if (prod.categoriaId) {
-        catVal = String(prod.categoriaId).trim()
-      }
-
-      catLabel = catVal
-    } else {
-      catLabel = catVal
+    if (typeof prod.categoria === "object" && prod.categoria !== null) {
+      catVal = prod.categoria.id || prod.categoria.value || ""
+      catLabel = prod.categoria.nome || prod.categoria.label || catVal
+    } else if (typeof prod.categoria === "string") {
+      catVal = prod.categoria
+      catLabel = prod.categoria
+    } else if (prod.categoriaId) {
+      catVal = prod.categoriaId
+      catLabel = prod.categoriaId
     }
 
-    const enc = categorias.find(
-      (c) =>
-        normalizar(c.value) === normalizar(catVal) ||
-        normalizar(c.label) === normalizar(catLabel)
-    )
-
-    return enc?.label || catLabel || catVal || "Sem Categoria"
+    const enc = categorias.find((c) => c.value === catVal || c.label === catLabel || c.value === prod.categoriaId)
+    return enc ? enc.label : catLabel || catVal || "Sem Categoria"
   }
 
   return (
@@ -1856,7 +1841,7 @@ export default function PaginaDashboardAdmin() {
                                   {obterLabelCategoria(prod)}
                                 </span>
                                 <span className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 text-[10px] font-semibold">
-                                  {OPCOES_FAIXA_ETARIA.find(f => f.value === prod.faixaEtaria)?.label || prod.faixaEtaria || "até 1 ano"}
+                                  {formatarFaixasEtarias(prod.faixaEtaria)}
                                 </span>
                               </div>
                             </td>
@@ -2569,20 +2554,88 @@ export default function PaginaDashboardAdmin() {
               </div>
 
               <div>
-                <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-                  <Baby className="h-3.5 w-3.5 text-rose-500" /> Faixa Etária
-                </label>
-                <select
-                  value={formFaixaEtaria}
-                  onChange={(e) => setFormFaixaEtaria(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 cursor-pointer font-medium"
-                >
-                  {OPCOES_FAIXA_ETARIA.map((opcao) => (
-                    <option key={opcao.value} value={opcao.value}>
-                      {opcao.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                    <Baby className="h-3.5 w-3.5 text-rose-500" /> Faixa Etária
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todasSelecionadas =
+                        formFaixaEtaria.length === TODAS_FAIXAS_ETARIAS.length
+
+                      setFormFaixaEtaria(
+                        todasSelecionadas
+                          ? []
+                          : [...TODAS_FAIXAS_ETARIAS]
+                      )
+                    }}
+                    className="text-[10px] font-bold text-rose-400 hover:text-rose-300 transition-colors"
+                  >
+                    {formFaixaEtaria.length === TODAS_FAIXAS_ETARIAS.length
+                      ? "Desmarcar todas"
+                      : "Selecionar todas"}
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Selecione uma ou mais faixas de idade para este produto.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950 p-3">
+                  {OPCOES_FAIXA_ETARIA.map((opcao) => {
+                    const selecionada =
+                      formFaixaEtaria.includes(opcao.value)
+
+                    return (
+                      <label
+                        key={opcao.value}
+                        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
+                          selecionada
+                            ? "border-rose-500/50 bg-rose-500/10 text-white"
+                            : "border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selecionada}
+                          onChange={() => {
+                            setFormFaixaEtaria((atual) =>
+                              atual.includes(opcao.value)
+                                ? atual.filter(
+                                    (valor) => valor !== opcao.value
+                                  )
+                                : [...atual, opcao.value]
+                            )
+                          }}
+                          className="h-4 w-4 accent-rose-600"
+                        />
+
+                        <span className="text-xs font-semibold">
+                          {opcao.label}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-2 min-h-[22px]">
+                  {formFaixaEtaria.length === 0 ? (
+                    <span className="text-[10px] text-amber-400">
+                      Nenhuma faixa selecionada.
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400">
+                      Selecionadas:{" "}
+                      <span className="text-slate-200 font-semibold">
+                        {formatarFaixasEtarias(
+                          formFaixaEtaria.join(",")
+                        )}
+                      </span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div>
