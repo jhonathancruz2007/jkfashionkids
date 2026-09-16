@@ -131,40 +131,59 @@ export async function PUT(
     // ==========================================
     // CATEGORIA
     // ==========================================
+    //
+    // ATENÇÃO AO SCHEMA ATUAL:
+    // Categoria NÃO possui um campo "id".
+    // O campo @id da tabela Categoria é "nome" e
+    // Produto se relaciona através de "categoriaNome".
+    // Portanto, nunca devemos tentar salvar categoriaId.
 
-    let idCategoriaFinal: string | null = null;
+    let categoriaNomeFinal: string | null = null;
 
-    const termoCategoria = String(
-      categoriaId || categoria || ""
-    ).trim();
+    // O frontend atualmente envia categoriaId, mas esse valor
+    // corresponde ao valor da opção do select e, no schema atual,
+    // deve ser tratado como o nome/chave da categoria.
+    let termoCategoria = "";
+
+    if (typeof categoriaId === "string" || typeof categoriaId === "number") {
+      termoCategoria = String(categoriaId).trim();
+    } else if (typeof categoria === "string" || typeof categoria === "number") {
+      termoCategoria = String(categoria).trim();
+    } else if (categoria && typeof categoria === "object") {
+      if (typeof categoria.nome === "string") {
+        termoCategoria = categoria.nome.trim();
+      } else if (typeof categoria.label === "string") {
+        termoCategoria = categoria.label.trim();
+      }
+    }
 
     if (termoCategoria) {
-      const categoriasBanco =
-        await prisma.categoria.findMany();
-
-      const termoNorm = normalizar(termoCategoria);
-
+      // Primeiro tenta encontrar pela chave "nome" exata.
       let categoriaEncontrada =
-        categoriasBanco.find((cat) => {
-          // IMPORTANTE:
-          // cat.id pode estar ausente em algum registro inconsistente.
-          // Nunca chamar .toLowerCase() diretamente em um valor possivelmente undefined.
-          const catIdNorm = normalizar(cat?.id);
-
-          const catNomeNorm = normalizar(cat?.nome);
-
-          return (
-            catIdNorm === termoNorm ||
-            catNomeNorm === termoNorm
-          );
+        await prisma.categoria.findUnique({
+          where: {
+            nome: termoCategoria,
+          },
         });
 
-      // Se não existir, cria automaticamente
+      // Depois tenta uma busca sem diferenciar maiúsculas/minúsculas
+      // e acentos, para manter compatibilidade com categorias antigas.
+      if (!categoriaEncontrada) {
+        const categoriasBanco =
+          await prisma.categoria.findMany();
+
+        const termoNorm = normalizar(termoCategoria);
+
+        categoriaEncontrada =
+          categoriasBanco.find((cat) =>
+            normalizar(cat?.nome) === termoNorm
+          ) ?? null;
+      }
+
+      // Se a categoria ainda não existir, cria automaticamente.
       if (!categoriaEncontrada) {
         const nomeFormatado =
-          formatarNomeCategoria(
-            termoCategoria
-          );
+          formatarNomeCategoria(termoCategoria);
 
         console.log(
           `✨ Categoria "${nomeFormatado}" não encontrada. Criando no banco...`
@@ -178,8 +197,7 @@ export async function PUT(
           });
       }
 
-      idCategoriaFinal =
-        categoriaEncontrada.id;
+      categoriaNomeFinal = categoriaEncontrada.nome;
     }
 
     // ==========================================
@@ -357,21 +375,10 @@ export async function PUT(
               : null,
           }),
 
-          ...(idCategoriaFinal && {
-            // Salva a relação real com a categoria
-            categoriaId: idCategoriaFinal,
-
-            // Mantém também o nome da categoria para compatibilidade
-            categoriaNome:
-              (
-                await prisma.categoria.findUnique(
-                  {
-                    where: {
-                      id: idCategoriaFinal,
-                    },
-                  }
-                )
-              )?.nome,
+          ...(categoriaNomeFinal && {
+            // No schema atual, a relação com Categoria é feita
+            // através de Produto.categoriaNome -> Categoria.nome.
+            categoriaNome: categoriaNomeFinal,
           }),
         },
 
