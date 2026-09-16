@@ -1,57 +1,184 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { StatusPedido } from "@prisma/client"
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { StatusPedido } from "@prisma/client";
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get("id")
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
 
   if (!id) {
-    return NextResponse.json({ error: "ID do pedido não fornecido" }, { status: 400 })
+    return NextResponse.json(
+      { error: "ID do pedido não fornecido" },
+      { status: 400 }
+    );
   }
 
   try {
-    const pedidoId = Number(id)
-
     const pedido = await prisma.pedido.findUnique({
-      where: { id: pedidoId },
+      where: {
+        id: String(id),
+      },
       include: {
         itens: true,
       },
-    })
+    });
 
     if (!pedido) {
-      return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 })
+      return NextResponse.json(
+        { error: "Pedido não encontrado" },
+        { status: 404 }
+      );
     }
 
-    // Se o pedido ainda estiver PENDENTE e for PIX, verifica se expirou (5 minutos)
-    if (pedido.status === StatusPedido.PENDENTE && pedido.metodoPagamento === "pix") {
-      const dataCriacao = pedido.criadoEm ? new Date(pedido.criadoEm) : new Date()
-      const tempoExpiracao = new Date(dataCriacao.getTime() + 5 * 60 * 1000)
-      const agora = new Date()
+    // =========================================================
+    // EXPIRAÇÃO DO PIX
+    // =========================================================
+
+    if (
+      pedido.status === StatusPedido.PENDENTE &&
+      pedido.metodoPagamento === "pix"
+    ) {
+      const dataCriacao = new Date(
+        pedido.createdAt
+      );
+
+      const tempoExpiracao = new Date(
+        dataCriacao.getTime() +
+          5 * 60 * 1000
+      );
+
+      const agora = new Date();
 
       if (agora > tempoExpiracao) {
-        // Estorna o estoque dos produtos
-        for (const item of pedido.itens) {
-          await prisma.produto.update({
-            where: { id: item.produtoId },
-            data: { estoque: { increment: item.quantidade } },
-          })
-        }
+        await prisma.$transaction(
+          async (tx) => {
+            const pedidoAtual = await tx.pedido.findUnique({
+              where: { id: String(id) },
+              include: {
+                itens: true,
+              },
+            });
 
-        // Atualiza o pedido para CANCELADO
-        const pedidoAtualizado = await prisma.pedido.update({
-          where: { id: pedidoId },
-          data: { status: StatusPedido.CANCELADO },
-        })
+            if (!pedidoAtual) {
+              throw new Error(
+                "Pedido não encontrado durante o estorno."
+              );
+            }
 
-        return NextResponse.json({ status: pedidoAtualizado.status })
+            if (
+              pedidoAtual.status !==
+              StatusPedido.PENDENTE
+            ) {
+              return;
+            }
+
+            for (const item of pedidoAtual.itens) {
+              const produto =
+                await tx.produto.findUnique({
+                  where: {
+                    id: item.produtoId,
+                  },
+                });
+
+              if (!produto) continue;
+
+              const estoqueAtual = Number(
+                produto.estoque || 0
+              );
+
+              const quantidade = Number(
+                item.quantidade || 0
+              );
+
+              const estoquePorTamanho =
+                produto.estoquePorTamanho &&
+                typeof produto.estoquePorTamanho === "object" &&
+                !Array.isArray(
+                  produto.estoquePorTamanho
+                )
+                  ? {
+                      ...(produto.estoquePorTamanho as Record<
+                        string,
+                        number
+                      >),
+                    }
+                  : {};
+
+              const tamanho =
+                item.tamanho?.trim() || "";
+
+              let novoEstoquePorTamanho =
+                estoquePorTamanho;
+
+              if (
+                tamanho &&
+                Object.prototype.hasOwnProperty.call(
+                  novoEstoquePorTamanho,
+                  tamanho
+                )
+              ) {
+                novoEstoquePorTamanho[tamanho] =
+                  Number(
+                    novoEstoquePorTamanho[
+                      tamanho
+                    ] || 0
+                  ) + quantidade;
+              }
+
+              const novoEstoque =
+                estoqueAtual + quantidade;
+
+              await tx.produto.update({
+                where: {
+                  id: item.produtoId,
+                },
+                data: {
+                  estoque: novoEstoque,
+                  ...(Object.keys(
+                    novoEstoquePorTamanho
+                  ).length > 0
+                    ? {
+                        estoquePorTamanho:
+                          novoEstoquePorTamanho,
+                      }
+                    : {}),
+                },
+              });
+            }
+
+            await tx.pedido.update({
+              where: {
+                id: String(id),
+              },
+              data: {
+                status: StatusPedido.CANCELADO,
+              },
+            });
+          }
+        );
+
+        return NextResponse.json({
+          status: StatusPedido.CANCELADO,
+        });
       }
     }
 
-    return NextResponse.json({ status: pedido.status })
-  } catch (error) {
-    console.error("Erro ao consultar status do pedido:", error)
-    return NextResponse.json({ error: "Erro ao consultar status" }, { status: 500 })
+    return NextResponse.json({
+      status: pedido.status,
+    });
+  } catch (error: any) {
+    console.error(
+      "Erro ao consultar status do pedido:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error:
+          error?.message ||
+          "Erro ao consultar status",
+      },
+      { status: 500 }
+    );
   }
 }
