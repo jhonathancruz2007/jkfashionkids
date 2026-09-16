@@ -67,6 +67,7 @@ interface Produto {
   localCard?: string
   categoria?: string | { value?: string; label?: string; id?: string; nome?: string }
   categoriaId?: string
+  categoriaNome?: string
   faixaEtaria?: string
 }
 
@@ -130,12 +131,12 @@ const CORES_INICIAIS: string[] = [
 ]
 
 const CATEGORIAS_INICIAIS: CategoriaItem[] = [
-  { value: "CONJUNTOS", label: "Conjuntos" },
-  { value: "VESTIDOS", label: "Vestidos" },
-  { value: "BLUSAS", label: "Blusas e Camisetas" },
-  { value: "CALCAS_SHORTS", label: "Calças e Shorts" },
-  { value: "CALCADOS", label: "Calçados" },
-  { value: "ACESSORIOS", label: "Acessórios" },
+  { value: "Conjuntos", label: "Conjuntos" },
+  { value: "Vestidos", label: "Vestidos" },
+  { value: "Blusas e Camisetas", label: "Blusas e Camisetas" },
+  { value: "Calças e Shorts", label: "Calças e Shorts" },
+  { value: "Calçados", label: "Calçados" },
+  { value: "Acessórios", label: "Acessórios" },
 ]
 
 const OPCOES_FAIXA_ETARIA = [
@@ -225,7 +226,7 @@ export default function PaginaDashboardAdmin() {
   const [formImagensPorCor, setFormImagensPorCor] = useState<Record<string, string>>({})
 
   const [formGenero, setFormGenero] = useState<string>("masculino")
-  const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
+  const [formCategoria, setFormCategoria] = useState<string>("Conjuntos")
   const [formFaixaEtaria, setFormFaixaEtaria] = useState<string>("0-1") 
   const [formLocalCard, setFormLocalCard] = useState<string>("HOME_DESTAQUE")
 
@@ -477,11 +478,27 @@ export default function PaginaDashboardAdmin() {
       if (res.ok) {
         const data: ApiCategoria[] = await res.json()
         if (Array.isArray(data) && data.length > 0) {
-          const catsFormatadas: CategoriaItem[] = data.map((cat) => ({
-            id: cat.id,
-            value: cat.id || cat.value || cat.nome || "",
-            label: cat.nome || cat.label || cat.value || ""
-          }))
+          const catsFormatadas: CategoriaItem[] = data
+            .map((cat) => {
+              // No schema atual, Categoria não possui id.
+              // O campo identificador é "nome", que também é usado
+              // pelo Produto através de "categoriaNome".
+              const nome = String(
+                cat.nome || cat.value || cat.label || ""
+              ).trim()
+
+              if (!nome) return null
+
+              return {
+                // Mantemos id somente por compatibilidade com respostas antigas.
+                id: typeof cat.id === "string" ? cat.id : undefined,
+                value: nome,
+                label: nome,
+              }
+            })
+            .filter(
+              (cat): cat is CategoriaItem => cat !== null
+            )
           setCategorias(catsFormatadas)
         }
       }
@@ -543,10 +560,21 @@ export default function PaginaDashboardAdmin() {
 
       if (res.ok) {
         const novaCatBanco: ApiCategoria = await res.json()
+        // Categoria usa "nome" como chave primária no Prisma.
+        const nomeCategoria = String(
+          novaCatBanco.nome ||
+          novaCatBanco.value ||
+          novaCatBanco.label ||
+          nomeFormatado
+        ).trim()
+
         const catItem: CategoriaItem = {
-          id: novaCatBanco.id,
-          value: novaCatBanco.id || novaCatBanco.value || novaCatBanco.nome || nomeFormatado,
-          label: novaCatBanco.nome || novaCatBanco.label || nomeFormatado
+          id:
+            typeof novaCatBanco.id === "string"
+              ? novaCatBanco.id
+              : undefined,
+          value: nomeCategoria,
+          label: nomeCategoria,
         }
 
         setCategorias((prev) => {
@@ -1177,7 +1205,7 @@ export default function PaginaDashboardAdmin() {
     setTamanhoManualInput("")
     setCorManualInput("")
     setFormGenero("masculino")
-    setFormCategoria(categorias[0]?.value || "CONJUNTOS")
+    setFormCategoria(categorias[0]?.value || "Conjuntos")
     setFormFaixaEtaria("0-1")
     setFormLocalCard("HOME_DESTAQUE")
     setModalProduto(true)
@@ -1206,17 +1234,43 @@ export default function PaginaDashboardAdmin() {
     setFormCores(prod.cores || [])
     setFormGenero(prod.genero || "masculino")
     
-    let catValor = ""
-    if (typeof prod.categoria === "object" && prod.categoria !== null) {
-      catValor = prod.categoria.id || prod.categoria.value || prod.categoria.nome || ""
-    } else if (typeof prod.categoria === "string") {
-      catValor = prod.categoria
-    } else if (prod.categoriaId) {
-      catValor = prod.categoriaId
+    // No schema atual, a categoria real do produto está em categoriaNome.
+    // Mantemos compatibilidade com dados antigos que possam trazer categoria,
+    // categoriaId ou um objeto de categoria.
+    let catValor =
+      String(prod.categoriaNome || "").trim()
+
+    if (!catValor) {
+      if (
+        typeof prod.categoria === "object" &&
+        prod.categoria !== null
+      ) {
+        catValor = String(
+          prod.categoria.nome ||
+          prod.categoria.value ||
+          prod.categoria.label ||
+          prod.categoria.id ||
+          ""
+        ).trim()
+      } else if (typeof prod.categoria === "string") {
+        catValor = prod.categoria.trim()
+      } else if (prod.categoriaId) {
+        catValor = String(prod.categoriaId).trim()
+      }
     }
 
-    const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
-    setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
+    const catExiste = categorias.find(
+      (c) =>
+        normalizar(c.value) === normalizar(catValor) ||
+        normalizar(c.label) === normalizar(catValor)
+    )
+
+    setFormCategoria(
+      catExiste?.value ||
+      catValor ||
+      categorias[0]?.value ||
+      "Conjuntos"
+    )
 
     setFormFaixaEtaria(prod.faixaEtaria || "0-1") 
     setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
@@ -1449,19 +1503,39 @@ export default function PaginaDashboardAdmin() {
     let catVal = ""
     let catLabel = ""
 
-    if (typeof prod.categoria === "object" && prod.categoria !== null) {
-      catVal = prod.categoria.id || prod.categoria.value || ""
-      catLabel = prod.categoria.nome || prod.categoria.label || catVal
-    } else if (typeof prod.categoria === "string") {
-      catVal = prod.categoria
-      catLabel = prod.categoria
-    } else if (prod.categoriaId) {
-      catVal = prod.categoriaId
-      catLabel = prod.categoriaId
+    // A chave oficial da relação é Produto.categoriaNome.
+    catVal = String(prod.categoriaNome || "").trim()
+
+    if (!catVal) {
+      if (
+        typeof prod.categoria === "object" &&
+        prod.categoria !== null
+      ) {
+        catVal = String(
+          prod.categoria.nome ||
+          prod.categoria.value ||
+          prod.categoria.label ||
+          prod.categoria.id ||
+          ""
+        ).trim()
+      } else if (typeof prod.categoria === "string") {
+        catVal = prod.categoria.trim()
+      } else if (prod.categoriaId) {
+        catVal = String(prod.categoriaId).trim()
+      }
+
+      catLabel = catVal
+    } else {
+      catLabel = catVal
     }
 
-    const enc = categorias.find((c) => c.value === catVal || c.label === catLabel || c.value === prod.categoriaId)
-    return enc ? enc.label : catLabel || catVal || "Sem Categoria"
+    const enc = categorias.find(
+      (c) =>
+        normalizar(c.value) === normalizar(catVal) ||
+        normalizar(c.label) === normalizar(catLabel)
+    )
+
+    return enc?.label || catLabel || catVal || "Sem Categoria"
   }
 
   return (
