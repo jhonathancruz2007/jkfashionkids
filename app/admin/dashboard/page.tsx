@@ -155,6 +155,15 @@ const OPCOES_LOCAIS = [
   { value: "CATALOGO_GERAL", label: "Apenas no Catálogo Geral" },
 ]
 
+// Normaliza textos com segurança para comparações de categoria.
+function normalizar(texto: unknown = ""): string {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
 const formatarMoeda = (valor: number): string => {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -1492,7 +1501,7 @@ export default function PaginaDashboardAdmin() {
   )
   const pedidosFiltrados = pedidos.filter(
     (p) =>
-      p.id.toLowerCase().includes(buscaPedido.toLowerCase()) ||
+      (p.id || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
       (p.cliente?.nome || "").toLowerCase().includes(buscaPedido.toLowerCase()) ||
       (p.cliente?.email || "").toLowerCase().includes(buscaPedido.toLowerCase())
   )
