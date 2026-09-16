@@ -139,6 +139,7 @@ const CATEGORIAS_INICIAIS: CategoriaItem[] = [
 ]
 
 const OPCOES_FAIXA_ETARIA = [
+  { value: "todas", label: "Todas as idades" },
   { value: "0-1", label: "até 1 ano" },
   { value: "1-2", label: "1 a 2 anos" },
   { value: "3-5", label: "3 a 5 anos" },
