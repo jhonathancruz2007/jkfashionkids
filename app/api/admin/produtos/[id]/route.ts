@@ -307,7 +307,7 @@ export async function PUT(
           }),
 
           // ======================================
-          // NOVO: FOTO ESPECÍFICA DE CADA COR
+          // FOTO ESPECÍFICA DE CADA COR
           // ======================================
           ...(coresDetalhesFinal !== undefined && {
             coresDetalhes:
@@ -320,10 +320,22 @@ export async function PUT(
               : null,
           }),
 
+          // ======================================
+          // FAIXA ETÁRIA
+          // ======================================
+          // Exemplos aceitos:
+          // "0-1"
+          // "1-2"
+          // "3-5"
+          // "6-8"
+          // "9-plus"
+          // "todas"
           ...(faixaEtaria !== undefined && {
-            faixaEtaria: faixaEtaria
-              ? String(faixaEtaria)
-              : null,
+            faixaEtaria:
+              faixaEtaria === null ||
+              faixaEtaria === ""
+                ? null
+                : String(faixaEtaria),
           }),
 
           ...(ativo !== undefined && {
