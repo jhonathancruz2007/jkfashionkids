@@ -146,8 +146,27 @@ type TinyResponse = {
   };
 };
 
+/*
+ * =========================================================
+ * MAPA DE VARIAÇÕES SALVO NO BANCO
+ * =========================================================
+ *
+ * É esse objeto que será utilizado posteriormente
+ * pela confirmação do pedido para descobrir:
+ *
+ * tamanho + cor -> ID da variação no Tiny
+ */
+
+type TinyVariationMapping = {
+  id: string;
+  codigo: string;
+  tamanho: string;
+  cor: string;
+};
+
 type StartVariation = {
   id: string;
+  codigo: string;
   tamanho: string;
   cor: string;
 };
@@ -1021,12 +1040,6 @@ async function searchAllProducts(): Promise<{
       >(
         "produtos.pesquisa.php",
         {
-          /*
-           * Não filtramos por A.
-           *
-           * Assim pegamos todo o catálogo
-           * não excluído.
-           */
           pesquisa: "",
           pagina: page,
         }
@@ -1069,6 +1082,7 @@ async function searchAllProducts(): Promise<{
 
       /*
        * Excluídos não entram.
+       *
        * Ativos e inativos entram.
        */
       if (
@@ -1097,9 +1111,6 @@ async function searchAllProducts(): Promise<{
       page <=
       totalPages
     ) {
-      /*
-       * Espaço entre páginas.
-       */
       await sleep(
         1500
       );
@@ -1169,12 +1180,6 @@ function limitFromHeaders(
 
 /* =========================================================
  * START
- *
- * IMPORTANTE:
- *
- * Aqui NÃO tentamos agrupar V.
- *
- * Somente:
  *
  * N = produto simples
  * P = produto pai
@@ -1283,6 +1288,11 @@ function buildStartGroups(
       variations: [
         {
           id,
+
+          codigo:
+            text(
+              product.codigo
+            ),
 
           tamanho:
             grade.tamanho,
@@ -1525,6 +1535,16 @@ function buildDetailedGroup(
 
     normalized.push({
       id,
+
+      /*
+       * NOVO:
+       * guardamos também o código
+       * exato da variação no Tiny.
+       */
+      codigo:
+        text(
+          variation.codigo
+        ),
 
       tamanho:
         grade.tamanho,
@@ -1839,6 +1859,84 @@ function aggregateStock(
 }
 
 /* =========================================================
+ * MONTA O MAPA DAS VARIAÇÕES
+ * =======================================================*/
+
+function buildTinyVariationMap(
+  group: StartGroup
+): TinyVariationMapping[] {
+  return (
+    group.variations ?? []
+  )
+    .map(
+      (variation) => ({
+        id:
+          text(
+            variation.id
+          ),
+
+        codigo:
+          text(
+            variation.codigo
+          ),
+
+        tamanho:
+          text(
+            variation.tamanho
+          ),
+
+        cor:
+          text(
+            variation.cor
+          ),
+      })
+    )
+    .filter(
+      (variation) =>
+        Boolean(
+          variation.id
+        )
+    );
+}
+
+/* =========================================================
+ * SALVA O VÍNCULO TINY NO PRODUTO
+ * =======================================================*/
+
+function buildTinyFields(
+  group: StartGroup
+) {
+  const tinyVariacoes =
+    buildTinyVariationMap(
+      group
+    );
+
+  return {
+    /*
+     * ID do produto pai/normal no Tiny.
+     *
+     * Para P:
+     *   é o ID do produto pai.
+     *
+     * Para N:
+     *   é o próprio ID do produto.
+     */
+    tinyId:
+      group.id,
+
+    /*
+     * Mapeamento:
+     *
+     * tamanho + cor
+     * ->
+     * ID da variação no Tiny
+     */
+    tinyVariacoes:
+      tinyVariacoes,
+  };
+}
+
+/* =========================================================
  * POST
  * =======================================================*/
 
@@ -1940,10 +2038,6 @@ export async function POST(
             variacoes:
               result.variacoes,
 
-            /*
-             * O start NÃO tenta agrupar
-             * as V.
-             */
             variacoesAgrupadas:
               0,
 
@@ -2355,8 +2449,18 @@ export async function POST(
             ];
 
       /*
-       * Primeiro tentamos localizar
-       * pelo ID do Tiny.
+       * ===================================================
+       * MAPA DE VARIAÇÕES TINY
+       * ===================================================
+       */
+      const tinyFields =
+        buildTinyFields(
+          group
+        );
+
+      /*
+       * Procuramos primeiro
+       * pelo ID atual do produto.
        */
       const existentePorId =
         await prisma.produto.findUnique(
@@ -2395,6 +2499,28 @@ export async function POST(
         if (
           existente
         ) {
+          /*
+           * Mesmo quando o produto já existe,
+           * aproveitamos a sincronização para
+           * atualizar o vínculo com o Tiny.
+           *
+           * Isso é importante para produtos
+           * antigos que ainda não possuíam
+           * tinyVariacoes.
+           */
+          await prisma.produto.update(
+            {
+              where: {
+                id:
+                  existente.id,
+              },
+
+              data: {
+                ...tinyFields,
+              },
+            }
+          );
+
           return NextResponse.json(
             {
               success:
@@ -2405,6 +2531,11 @@ export async function POST(
 
               status:
                 "ignored",
+
+              tinyVariacoes:
+                tinyFields
+                  .tinyVariacoes
+                  .length,
             }
           );
         }
@@ -2450,6 +2581,11 @@ export async function POST(
 
               ativo:
                 true,
+
+              /*
+               * NOVOS CAMPOS
+               */
+              ...tinyFields,
             },
           }
         );
@@ -2464,6 +2600,11 @@ export async function POST(
 
             status:
               "created",
+
+            tinyVariacoes:
+              tinyFields
+                .tinyVariacoes
+                .length,
           }
         );
       }
@@ -2515,6 +2656,12 @@ export async function POST(
 
               estoquePorCor:
                 aggregate.estoquePorCor,
+
+              /*
+               * Mesmo no modo estoque,
+               * mantemos o vínculo Tiny.
+               */
+              ...tinyFields,
             },
           }
         );
@@ -2529,6 +2676,11 @@ export async function POST(
 
             status:
               "updated",
+
+            tinyVariacoes:
+              tinyFields
+                .tinyVariacoes
+                .length,
           }
         );
       }
@@ -2585,6 +2737,12 @@ export async function POST(
                       imageData,
                   }
                 : {}),
+
+              /*
+               * NOVOS CAMPOS:
+               * vínculo com Tiny.
+               */
+              ...tinyFields,
             },
           }
         );
@@ -2599,6 +2757,11 @@ export async function POST(
 
             status:
               "updated",
+
+            tinyVariacoes:
+              tinyFields
+                .tinyVariacoes
+                .length,
           }
         );
       }
@@ -2647,6 +2810,11 @@ export async function POST(
 
             ativo:
               true,
+
+            /*
+             * NOVOS CAMPOS
+             */
+            ...tinyFields,
           },
         }
       );
@@ -2661,6 +2829,11 @@ export async function POST(
 
           status:
             "created",
+
+          tinyVariacoes:
+            tinyFields
+              .tinyVariacoes
+              .length,
         }
       );
     }
