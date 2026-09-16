@@ -157,6 +157,8 @@ type TinyResponse = {
  * tamanho + cor -> ID da variação no Tiny
  */
 
+
+
 type StartVariation = {
   id: string;
   codigo: string;
@@ -683,119 +685,47 @@ function gradeFromTiny(
     rawKey: unknown,
     rawValue: unknown
   ) => {
-    const key =
-      normalize(
-        text(
-          rawKey
-        )
-      );
+    const key = normalize(text(rawKey));
+    const value = text(rawValue);
 
-    const value =
-      text(
-        rawValue
-      );
+    if (!key || !value) return;
 
-    if (
-      !key ||
-      !value
-    ) {
+    const isTamanho =
+      key.includes("tamanho") ||
+      key === "tam" ||
+      key.includes("size");
+
+    const isCor =
+      key.includes("cor") ||
+      key.includes("color") ||
+      key.includes("colour");
+
+    if (!tamanho && isTamanho) tamanho = value;
+    if (!cor && isCor) cor = value;
+  };
+
+  const inspectGradeObject = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === "object") {
+          for (const [key, val] of Object.entries(item)) {
+            inspect(key, val);
+          }
+        }
+      }
       return;
     }
 
-    if (
-      !tamanho &&
-      (
-        key.includes(
-          "tamanho"
-        ) ||
-        key ===
-          "tam" ||
-        key.includes(
-          "size"
-        )
-      )
-    ) {
-      tamanho =
-        value;
-    }
-
-    if (
-      !cor &&
-      (
-        key.includes(
-          "cor"
-        ) ||
-        key.includes(
-          "color"
-        ) ||
-        key.includes(
-          "colour"
-        )
-      )
-    ) {
-      cor =
-        value;
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      inspect(key, val);
     }
   };
 
-  if (
-    Array.isArray(
-      grade
-    )
-  ) {
-    for (
-      const item of
-      grade
-    ) {
-      if (
-        !item ||
-        typeof item !==
-          "object" ||
-        Array.isArray(
-          item
-        )
-      ) {
-        continue;
-      }
+  inspectGradeObject(grade);
 
-      for (
-        const [
-          key,
-          value,
-        ] of Object.entries(
-          item
-        )
-      ) {
-        inspect(
-          key,
-          value
-        );
-      }
-    }
-  } else if (
-    grade &&
-    typeof grade ===
-      "object"
-  ) {
-    for (
-      const [
-        key,
-        value,
-      ] of Object.entries(
-        grade
-      )
-    ) {
-      inspect(
-        key,
-        value
-      );
-    }
-  }
-
-  return {
-    tamanho,
-    cor,
-  };
+  return { tamanho, cor };
 }
 
 function gradeFromName(
@@ -877,130 +807,67 @@ function baseName(
 function normalizeVariations(
   raw: unknown
 ): TinyVariation[] {
-  if (!raw) {
-    return [];
-  }
+  const result: TinyVariation[] = [];
 
-  const result:
-    TinyVariation[] = [];
+  const pushCandidate = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
 
-  const pushCandidate = (
-    value: unknown
-  ) => {
-    if (
-      !value ||
-      typeof value !==
-        "object" ||
-      Array.isArray(
-        value
-      )
-    ) {
+    if (Array.isArray(value)) {
+      for (const item of value) pushCandidate(item);
       return;
     }
 
-    const obj =
-      value as Record<
-        string,
-        unknown
-      >;
+    const obj = value as Record<string, unknown>;
 
-    let candidate:
-      unknown = value;
-
-    if (
-      obj.variacao &&
-      typeof obj.variacao ===
-        "object" &&
-      !Array.isArray(
-        obj.variacao
-      )
-    ) {
-      candidate =
-        obj.variacao;
-    }
-
-    if (
-      !candidate ||
-      typeof candidate !==
-        "object" ||
-      Array.isArray(
-        candidate
-      )
-    ) {
+    // Formato documentado pelo Tiny:
+    // { variacao: { id, codigo, grade: { Tamanho, Cor } } }
+    if (obj.variacao) {
+      pushCandidate(obj.variacao);
       return;
     }
 
-    const variation =
-      candidate as
-        TinyVariation;
-
-    const id =
-      text(
-        variation.id
-      );
-
-    if (!id) {
+    // Alguns retornos podem encapsular a variação em produto/item/variant.
+    if (obj.produto && typeof obj.produto === "object") {
+      pushCandidate(obj.produto);
       return;
     }
 
-    result.push(
-      variation
-    );
+    if (obj.item && typeof obj.item === "object") {
+      pushCandidate(obj.item);
+      return;
+    }
+
+    if (obj.variante && typeof obj.variante === "object") {
+      pushCandidate(obj.variante);
+      return;
+    }
+
+    // Aqui finalmente temos a própria variação.
+    const id = text(obj.id);
+    if (!id) return;
+
+    result.push({
+      id,
+      codigo: text(obj.codigo),
+      nome: text(obj.nome),
+      preco: obj.preco as string | number | undefined,
+      preco_promocional:
+        obj.preco_promocional as string | number | undefined,
+      estoque_atual:
+        obj.estoque_atual as string | number | undefined,
+      grade: obj.grade as TinyGrade,
+    });
   };
 
-  if (
-    Array.isArray(
-      raw
-    )
-  ) {
-    for (
-      const item of
-      raw
-    ) {
-      pushCandidate(
-        item
-      );
-    }
-  } else if (
-    typeof raw ===
-      "object"
-  ) {
-    for (
-      const item of
-      Object.values(
-        raw as Record<
-          string,
-          unknown
-        >
-      )
-    ) {
-      pushCandidate(
-        item
-      );
-    }
+  pushCandidate(raw);
+
+  const unique = new Map<string, TinyVariation>();
+  for (const item of result) {
+    const id = text(item.id);
+    if (id) unique.set(id, item);
   }
 
-  const unique =
-    new Map<
-      string,
-      TinyVariation
-    >();
-
-  for (
-    const item of
-    result
-  ) {
-    unique.set(
-      text(
-        item.id
-      ),
-      item
-    );
-  }
-
-  return [
-    ...unique.values(),
-  ];
+  return [...unique.values()];
 }
 
 /* =========================================================
@@ -1746,108 +1613,89 @@ function aggregateStock(
     saldo: number;
   }>
 ) {
-  const porTamanho =
-    new Map<
-      string,
-      number
-    >();
+  const porTamanho = new Map<string, number>();
+  const porCor = new Map<string, number>();
+  const porCorTamanho = new Map<string, Map<string, number>>();
 
-  const porCor =
-    new Map<
-      string,
-      number
-    >();
+  let estoque = 0;
 
-  let estoque =
-    0;
+  for (const item of values) {
+    const saldo = Number(item.saldo) || 0;
+    const tamanho = text(item.tamanho);
+    const cor = text(item.cor);
 
-  for (
-    const item of
-    values
-  ) {
-    estoque +=
-      item.saldo;
+    estoque += saldo;
 
-    if (
-      item.tamanho
-    ) {
+    if (tamanho) {
       porTamanho.set(
-        item.tamanho,
-        (
-          porTamanho.get(
-            item.tamanho
-          ) ?? 0
-        ) +
-          item.saldo
+        tamanho,
+        (porTamanho.get(tamanho) ?? 0) + saldo
       );
     }
 
-    if (
-      item.cor
-    ) {
+    if (cor) {
       porCor.set(
-        item.cor,
-        (
-          porCor.get(
-            item.cor
-          ) ?? 0
-        ) +
-          item.saldo
+        cor,
+        (porCor.get(cor) ?? 0) + saldo
+      );
+    }
+
+    // Mantém exatamente a matriz COR -> TAMANHO -> quantidade.
+    if (cor && tamanho) {
+      if (!porCorTamanho.has(cor)) {
+        porCorTamanho.set(cor, new Map<string, number>());
+      }
+
+      const tamanhosDaCor = porCorTamanho.get(cor)!;
+      tamanhosDaCor.set(
+        tamanho,
+        (tamanhosDaCor.get(tamanho) ?? 0) + saldo
       );
     }
   }
 
-  const tamanhos =
-    ordenarTamanhos(
-      [
-        ...porTamanho.keys(),
-      ]
-    );
+  const tamanhos = ordenarTamanhos([...porTamanho.keys()]);
 
-  const cores =
-    [
-      ...porCor.keys(),
-    ].sort(
-      (a, b) =>
-        a.localeCompare(
-          b,
-          "pt-BR"
-        )
-    );
+  const cores = [...porCor.keys()].sort((a, b) =>
+    a.localeCompare(b, "pt-BR")
+  );
+
+  const estoquePorTamanho = Object.fromEntries(
+    tamanhos.map((tamanho) => [
+      tamanho,
+      Math.round(porTamanho.get(tamanho) ?? 0),
+    ])
+  );
+
+  const estoquePorCor = Object.fromEntries(
+    cores.map((cor) => {
+      const matriz = porCorTamanho.get(cor);
+
+      // Produtos antigos/simples sem dimensão de tamanho continuam
+      // usando o formato numérico legado.
+      if (!matriz || matriz.size === 0) {
+        return [cor, Math.round(porCor.get(cor) ?? 0)];
+      }
+
+      const linha = Object.fromEntries(
+        tamanhos
+          .filter((tamanho) => matriz.has(tamanho))
+          .map((tamanho) => [
+            tamanho,
+            Math.round(matriz.get(tamanho) ?? 0),
+          ])
+      );
+
+      return [cor, linha];
+    })
+  );
 
   return {
-    estoque:
-      Math.round(
-        estoque
-      ),
-
+    estoque: Math.round(estoque),
     tamanhos,
-
     cores,
-
-    estoquePorTamanho:
-      Object.fromEntries(
-        tamanhos.map(
-          (tamanho) => [
-            tamanho,
-            porTamanho.get(
-              tamanho
-            ) ?? 0,
-          ]
-        )
-      ),
-
-    estoquePorCor:
-      Object.fromEntries(
-        cores.map(
-          (cor) => [
-            cor,
-            porCor.get(
-              cor
-            ) ?? 0,
-          ]
-        )
-      ),
+    estoquePorTamanho,
+    estoquePorCor,
   };
 }
 
@@ -2058,6 +1906,20 @@ export async function POST(
           group,
           product
         );
+
+      console.log(
+        `[TINY DETAILS] ${group.nome} (${group.id}) -> variações recebidas: ${Array.isArray(product.variacoes) ? product.variacoes.length : 0}; variações reconhecidas: ${detailedGroup.variations.length}`
+      );
+
+      if (
+        detailedGroup.variations.length === 0 &&
+        Array.isArray(product.variacoes) &&
+        product.variacoes.length > 0
+      ) {
+        console.warn(
+          `[TINY DETAILS] Variações retornadas pelo Tiny, mas nenhuma foi normalizada para ${group.nome} (${group.id}).`
+        );
+      }
 
       return NextResponse.json(
         {
@@ -2337,9 +2199,47 @@ export async function POST(
           }
         );
 
+      let stocksFinais = stocks;
+
+      // Fallback de segurança: caso o frontend chegue ao FINISH sem
+      // consultar estoque, recuperamos as variações e seus saldos aqui.
+      // Normalmente este trecho não é executado, pois a etapa STOCK
+      // já deve ter preenchido `stocks`.
+      if (
+        stocksFinais.length === 0 &&
+        String(group.tipoVariacao || "").toUpperCase() === "P"
+      ) {
+        try {
+          const detalhe = await getProductDetails(group.id);
+          const grupoDetalhado = buildDetailedGroup(group, detalhe);
+
+          if (grupoDetalhado.variations.length > 0) {
+            const recuperados: Array<{ id: string; saldo: number; tamanho: string; cor: string }> = [];
+
+            for (const variation of grupoDetalhado.variations) {
+              const stock = await getStock(variation.id);
+              recuperados.push({
+                id: variation.id,
+                saldo: stock.saldo,
+                tamanho: variation.tamanho,
+                cor: variation.cor,
+              });
+              await sleep(2000);
+            }
+
+            stocksFinais = recuperados;
+          }
+        } catch (fallbackError) {
+          console.warn(
+            `[TINY FINISH] Falha no fallback de estoque para ${group.nome}:`,
+            fallbackError
+          );
+        }
+      }
+
       const aggregate =
         aggregateStock(
-          stocks
+          stocksFinais
         );
 
       const imagens =
@@ -2404,25 +2304,8 @@ export async function POST(
         if (
           existente
         ) {
-          /*
-           * Mesmo quando o produto já existe,
-           * aproveitamos a sincronização para
-           * atualizar o vínculo com o Tiny.
-           *
-           * Isso é importante para produtos
-           * antigos que ainda não possuíam
-           * tinyVariacoes.
-           */
-          await prisma.produto.update(
-            {
-              where: {
-                id:
-                  existente.id,
-              },
-
-              data: {},
-            }
-          );
+          // O produto já existe; nesta modalidade não sobrescrevemos
+          // os dados manuais, apenas consideramos a sincronização concluída.
 
           return NextResponse.json(
             {
@@ -2434,7 +2317,6 @@ export async function POST(
 
               status:
                 "ignored",
-
             }
           );
         }
