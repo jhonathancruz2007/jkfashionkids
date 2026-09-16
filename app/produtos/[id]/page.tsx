@@ -224,7 +224,7 @@ export default function ProdutoDetalhePage() {
         : Array.isArray(produto?.tamanhosDisponiveis) &&
           produto.tamanhosDisponiveis.length > 0
         ? produto.tamanhosDisponiveis
-        : ["P", "M", "G", "GG"];
+        : [];
 
     return ordenarTamanhos(base);
   }, [produto]);
@@ -324,7 +324,22 @@ export default function ProdutoDetalhePage() {
 
   const getEstoqueDisponivel = (tam: string) => {
     if (estoqueTinyReal !== null) {
-      return estoqueTinyReal;
+      return Math.max(0, Number(estoqueTinyReal) || 0);
+    }
+
+    // Produto sem tamanhos: o estoque fica no campo geral `estoque`.
+    // Nesses produtos não existe tamanho para selecionar e, portanto,
+    // eles devem continuar compráveis enquanto o estoque geral for maior que zero.
+    if (!tam && listaTamanhos.length === 0) {
+      return Math.max(
+        0,
+        Number(
+          produto?.estoque ??
+            produto?.quantidade ??
+            produto?.qtd ??
+            0
+        ) || 0
+      );
     }
 
     if (!tam) return 0;
@@ -346,9 +361,11 @@ export default function ProdutoDetalhePage() {
   };
 
   const qtdNoCarrinho = useMemo(() => {
-    if (!Array.isArray(carrinho) || !idProd || !tamanhoSelecionado) {
+    if (!Array.isArray(carrinho) || !idProd) {
       return 0;
     }
+
+    const produtoSemTamanho = listaTamanhos.length === 0;
 
     const item = carrinho.find((i: any) => {
       const itemProdId = String(
@@ -360,19 +377,24 @@ export default function ProdutoDetalhePage() {
         .trim()
         .toUpperCase();
 
-      const mesmoTam =
-        itemTam === String(tamanhoSelecionado).trim().toUpperCase();
+      const mesmoTam = produtoSemTamanho
+        ? true
+        : itemTam === String(tamanhoSelecionado).trim().toUpperCase();
       const mesmaCor = !corAtual || itemCor === corAtual;
 
       return itemProdId === idProd && mesmoTam && mesmaCor;
     });
 
     return Number(item?.quantidade || item?.qtd || 0);
-  }, [carrinho, idProd, tamanhoSelecionado, corSelecionada]);
+  }, [carrinho, idProd, tamanhoSelecionado, corSelecionada, listaTamanhos]);
 
   const estoqueMaxAtual = getEstoqueDisponivel(tamanhoSelecionado);
   const tamanhoAtualEsgotado =
     estoqueMaxAtual <= 0 || qtdNoCarrinho >= estoqueMaxAtual;
+
+  const produtoSemTamanhos = listaTamanhos.length === 0;
+  const produtoSemCores = listaCores.length === 0;
+  const produtoSemVariacoes = produtoSemTamanhos && produtoSemCores;
 
   const isTamanhoEsgotado = (tam: string) => {
     const max = getEstoqueDisponivel(tam);
@@ -450,10 +472,11 @@ export default function ProdutoDetalhePage() {
         setImagemIndex(0);
 
         const tamanhosProduto = ordenarTamanhos(
-          Array.isArray(produtoEncontrado.tamanhos) &&
-            produtoEncontrado.tamanhos.length > 0
+          Array.isArray(produtoEncontrado.tamanhos)
             ? produtoEncontrado.tamanhos
-            : ["P", "M", "G", "GG"]
+            : Array.isArray(produtoEncontrado.tamanhosDisponiveis)
+            ? produtoEncontrado.tamanhosDisponiveis
+            : []
         );
 
         setTamanhoSelecionado(tamanhosProduto[0] || "");
@@ -938,51 +961,53 @@ export default function ProdutoDetalhePage() {
             )}
 
             {/* SELEÇÃO DE TAMANHOS */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold uppercase text-slate-700">
-                  Selecione o Tamanho:
-                </span>
+            {listaTamanhos.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase text-slate-700">
+                    Selecione o Tamanho:
+                  </span>
 
-                <button
-                  type="button"
-                  onClick={() => setModalGuiaTamanhos(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
-                >
-                  <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setModalGuiaTamanhos(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
+                  >
+                    <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
+                  </button>
+                </div>
 
-              <div className="flex gap-2.5 flex-wrap">
-                {listaTamanhos.map((tam: string) => {
-                  const esgotado = isTamanhoEsgotado(tam);
-                  const selecionado = tamanhoSelecionado === tam;
+                <div className="flex gap-2.5 flex-wrap">
+                  {listaTamanhos.map((tam: string) => {
+                    const esgotado = isTamanhoEsgotado(tam);
+                    const selecionado = tamanhoSelecionado === tam;
 
-                  return (
-                    <button
-                      key={tam}
-                      type="button"
-                      onClick={() => setTamanhoSelecionado(tam)}
-                      className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
-                        selecionado
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
-                      }`}
-                    >
-                      <span
-                        className={
-                          esgotado && !selecionado
-                            ? "line-through opacity-50"
-                            : ""
-                        }
+                    return (
+                      <button
+                        key={tam}
+                        type="button"
+                        onClick={() => setTamanhoSelecionado(tam)}
+                        className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
+                          selecionado
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                        }`}
                       >
-                        {tam}
-                      </span>
-                    </button>
-                  );
-                })}
+                        <span
+                          className={
+                            esgotado && !selecionado
+                              ? "line-through opacity-50"
+                              : ""
+                          }
+                        >
+                          {tam}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* AÇÃO E VERIFICAÇÃO DE ESTOQUE */}
             <div className="space-y-3 pt-2">
