@@ -1,66 +1,34 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
-// Ordem customizada de tamanhos
-const ORDEM_TAMANHOS = [
-  'RN', 'P', 'M', 'G', 'GG', 
-  '1', '2', '3', '4', '6', '8', '10', '12', '14', '16',
-  'ÚNICO', 'UNICO'
-]
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Função para tratar e ordenar os tamanhos
-function processarTamanhos(tamanhosInput: any): string[] {
-  if (!Array.isArray(tamanhosInput)) {
-    return ['Único']
-  }
-
-  const filtrados = tamanhosInput
-    .map((t: any) => String(t).trim())
-    .filter((t: string) => t !== '')
-
-  if (filtrados.length === 0) {
-    return ['Único']
-  }
-
-  return [...filtrados].sort((a, b) => {
-    const idxA = ORDEM_TAMANHOS.indexOf(a.toUpperCase())
-    const idxB = ORDEM_TAMANHOS.indexOf(b.toUpperCase())
-
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB
-    if (idxA !== -1) return -1
-    if (idxB !== -1) return 1
-    return a.localeCompare(b, undefined, { numeric: true })
-  })
-}
-
-// GET: Listar todos os produtos
+// GET: Buscar todos os produtos
 export async function GET() {
   try {
     const produtos = await prisma.produto.findMany({
-      include: {
-        categoria: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    })
-    return NextResponse.json(produtos)
-  } catch (error) {
-    console.error("Erro ao buscar produtos:", error)
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json(produtos, { status: 200 });
+  } catch (erro) {
+    console.error("Erro ao carregar produtos do banco:", erro);
+
     return NextResponse.json(
-      { error: "Erro interno ao buscar produtos." },
+      { error: "Erro ao buscar produtos" },
       { status: 500 }
-    )
+    );
   }
 }
 
-// POST: Cadastrar novo produto
-export async function POST(request: Request) {
+// POST: Criar novo produto
+export async function POST(req: Request) {
   try {
-    const body = await request.json()
-    console.log("📦 DADOS RECEBIDOS NA API:", body)
+    const body = await req.json();
 
     const {
+      id,
       nome,
       descricao,
       preco,
@@ -71,113 +39,141 @@ export async function POST(request: Request) {
       tamanhos,
       estoquePorTamanho,
       cores,
+      estoquePorCor,
       coresDetalhes,
       genero,
       faixaEtaria,
       ativo,
       localCard,
-      categoriaId, // Pode vir o nome da categoria vindo do frontend
-    } = body
+      categoriaId,
+      categoria,
+    } = body;
 
-    // Validações individuais
-    if (!nome || typeof nome !== "string" || nome.trim() === "") {
-      return NextResponse.json({ error: "O campo Nome é obrigatório e não pode estar vazio." }, { status: 400 })
-    }
-    
-    if (!descricao || typeof descricao !== "string" || descricao.trim() === "") {
-      return NextResponse.json({ error: "O campo Descrição é obrigatório e não pode estar vazio." }, { status: 400 })
-    }
-
-    if (preco === undefined || preco === null || preco === "" || isNaN(Number(preco))) {
-      return NextResponse.json({ error: "O campo Preço é obrigatório e deve ser um número válido." }, { status: 400 })
+    if (!nome || !descricao || preco === undefined) {
+      return NextResponse.json(
+        {
+          error: "Nome, descrição e preço são obrigatórios.",
+        },
+        { status: 400 }
+      );
     }
 
-    if (!imagemUrl || typeof imagemUrl !== "string" || imagemUrl.trim() === "") {
-      return NextResponse.json({ error: "A imagem principal do produto é obrigatória. Adicione ou selecione uma foto." }, { status: 400 })
-    }
+    let categoriaNome: string | undefined = undefined;
 
-    // Tratamento de tamanhos e estoque por variação
-    const tamanhosOrdenados = processarTamanhos(tamanhos)
-    const estoqueTotalNum = parseInt(estoque) || 0
+    const categoriaInformada = String(
+      categoriaId || categoria || ""
+    ).trim();
 
-    let estoquePorTamanhoFinal = estoquePorTamanho
+    if (categoriaInformada) {
+      const categorias = await prisma.categoria.findMany();
 
-    if (
-      tamanhosOrdenados.length === 1 && 
-      tamanhosOrdenados[0] === 'Único' && 
-      (!estoquePorTamanhoFinal || Object.keys(estoquePorTamanhoFinal).length === 0)
-    ) {
-      estoquePorTamanhoFinal = { 'Único': estoqueTotalNum }
-    }
+      const normalizar = (texto: string) =>
+        texto
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .trim();
 
-    // RESOLUÇÃO DA CATEGORIA (Atrelando pelo campo `nome`)
-    let categoriaNomeFinal: string | null = null;
-
-    if (categoriaId && typeof categoriaId === "string" && categoriaId.trim() !== "") {
-      const valorBusca = categoriaId.trim();
-
-      let categoriaEncontrada = await prisma.categoria.findFirst({
-        where: {
-          nome: { equals: valorBusca, mode: "insensitive" }
-        }
+      const categoriaEncontrada = categorias.find((cat) => {
+        return (
+          cat.id.toLowerCase() === categoriaInformada.toLowerCase() ||
+          normalizar(cat.nome) === normalizar(categoriaInformada)
+        );
       });
 
-      if (!categoriaEncontrada) {
-        const nomeFormatado = valorBusca
-          .replace(/_/g, " ")
-          .toLowerCase()
-          .replace(/(^\w|\s\w)/g, (l) => l.toUpperCase());
-
-        try {
-          categoriaEncontrada = await prisma.categoria.create({
-            data: {
-              nome: nomeFormatado,
-            }
-          });
-        } catch (err) {
-          categoriaEncontrada = await prisma.categoria.findFirst({
-            where: { nome: { equals: nomeFormatado, mode: "insensitive" } }
-          });
-        }
-      }
-
       if (categoriaEncontrada) {
-        categoriaNomeFinal = categoriaEncontrada.nome;
+        categoriaNome = categoriaEncontrada.nome;
       }
     }
 
-    // Criação do produto no banco de dados
-    const novoProduto = await prisma.produto.create({
+    const produto = await prisma.produto.create({
       data: {
-        nome: nome.trim(),
-        descricao: descricao.trim(),
-        preco: parseFloat(preco),
-        precoPromocional: precoPromocional ? parseFloat(precoPromocional) : null,
-        imagemUrl: imagemUrl.trim(),
-        imagens: Array.isArray(imagens) ? imagens : [],
-        estoque: estoqueTotalNum,
-        tamanhos: tamanhosOrdenados,
-        estoquePorTamanho: estoquePorTamanhoFinal ?? null,
-        cores: Array.isArray(cores) ? cores : [],
-        coresDetalhes: coresDetalhes ?? null,
-        genero: genero || "masculino",
-        faixaEtaria: faixaEtaria || "INFANTIL",
-        ativo: ativo !== undefined ? Boolean(ativo) : true,
-        localCard: localCard || "HOME_DESTAQUE",
-        categoriaNome: categoriaNomeFinal,
-      },
-      include: {
-        categoria: true,
-      },
-    })
+        ...(id ? { id: String(id) } : {}),
 
-    return NextResponse.json(novoProduto, { status: 201 })
+        nome: String(nome),
+        descricao: String(descricao),
+
+        preco: Number(preco) || 0,
+
+        precoPromocional:
+          precoPromocional === null ||
+          precoPromocional === undefined ||
+          precoPromocional === ""
+            ? null
+            : Number(precoPromocional),
+
+        imagemUrl: String(imagemUrl || ""),
+
+        imagens: Array.isArray(imagens)
+          ? imagens.filter((item: unknown) => typeof item === "string")
+          : [],
+
+        estoque:
+          estoque !== undefined && estoque !== null
+            ? Number.parseInt(String(estoque), 10) || 0
+            : 0,
+
+        tamanhos: Array.isArray(tamanhos) ? tamanhos : [],
+
+        estoquePorTamanho:
+          estoquePorTamanho !== undefined
+            ? estoquePorTamanho
+            : null,
+
+        cores: Array.isArray(cores) ? cores : [],
+
+        estoquePorCor:
+          estoquePorCor !== undefined
+            ? estoquePorCor
+            : null,
+
+        // FOTO ESPECÍFICA DE CADA COR
+        coresDetalhes:
+          coresDetalhes &&
+          typeof coresDetalhes === "object" &&
+          !Array.isArray(coresDetalhes)
+            ? coresDetalhes
+            : {},
+
+        genero: genero ? String(genero) : "masculino",
+
+        faixaEtaria: faixaEtaria
+          ? String(faixaEtaria)
+          : "INFANTIL",
+
+        ativo:
+          ativo !== undefined
+            ? Boolean(ativo)
+            : true,
+
+        localCard: localCard
+          ? String(localCard)
+          : "HOME_DESTAQUE",
+
+        ...(categoriaNome
+          ? { categoriaNome }
+          : {}),
+      },
+    });
+
+    return NextResponse.json(produto, {
+      status: 201,
+    });
   } catch (error: any) {
-    console.error("Erro detalhado ao cadastrar produto:", error)
-    
+    console.error(
+      "🔥 ERRO FATAL na API de produtos (POST):",
+      error
+    );
+
     return NextResponse.json(
-      { error: `Erro no Banco de Dados: ${error.message || error}` },
-      { status: 500 }
-    )
+      {
+        error:
+          error?.message ||
+          "Erro interno ao criar produto.",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }
