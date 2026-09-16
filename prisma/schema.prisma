@@ -64,38 +64,37 @@ model Cor {
 }
 
 model Produto {
-  id               String   @id @default(uuid())
+  id               String         @id @default(uuid())
   nome             String
   descricao        String
   preco            Float
   precoPromocional Float?
   imagemUrl        String
   imagens          String[]
-  estoque          Int      @default(0)
-
-  tamanhos          String[] @default([])
+  estoque          Int            @default(0)
+  tamanhos         String[]       @default([])
   estoquePorTamanho Json?
+  cores            String[]       @default([])
+  estoquePorCor    Json?
+  coresDetalhes    Json?
 
-  cores         String[] @default([])
-  estoquePorCor Json?
-  coresDetalhes Json?
+  tinyId           String?
+  tinyVariacoes    Json?
 
-  genero      String? @default("masculino")
-  faixaEtaria String? @default("INFANTIL")
-  ativo       Boolean @default(true)
-  localCard   String? @default("HOME_DESTAQUE")
-
-  categoriaNome String?
-  categoria     Categoria? @relation(fields: [categoriaNome], references: [nome], onDelete: SetNull, onUpdate: Cascade)
-
-  itensPedido   ItemPedido[]
-  itensCarrinho ItemCarrinho[]
-  favoritos     Favorito[]
-  avisosEstoque AvisoEstoque[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  genero           String?        @default("masculino")
+  faixaEtaria      String?        @default("INFANTIL")
+  ativo            Boolean        @default(true)
+  localCard        String?        @default("HOME_DESTAQUE")
+  categoriaNome    String?
+  categoria        Categoria?     @relation(fields: [categoriaNome], references: [nome], onDelete: SetNull, onUpdate: Cascade)
+  itensPedido      ItemPedido[]
+  itensCarrinho    ItemCarrinho[]
+  favoritos        Favorito[]
+  avisosEstoque    AvisoEstoque[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
+
 
 model AvisoEstoque {
   id        String  @id @default(uuid())
