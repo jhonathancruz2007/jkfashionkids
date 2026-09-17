@@ -2111,6 +2111,17 @@ async function getStock(
   }
 
   /*
+   * Se o Tiny não devolveu nem saldo nem a estrutura de depósitos,
+   * não é seguro assumir zero. Um zero só pode ser gravado quando
+   * recebemos um saldo explícito ou uma lista de depósitos válida.
+   */
+  if (!Array.isArray(produto.depositos)) {
+    throw new Error(
+      `O Tiny retornou o produto ${id} sem saldo de estoque.`
+    );
+  }
+
+  /*
    * Fallback por depósitos.
    */
   let total =
@@ -3417,7 +3428,8 @@ function buildStartGroupFromDetailedProduct(
 }
 
 async function prepareFastSyncCatalog(): Promise<FastCatalogResponse> {
-  const catalog = await searchAllProducts();
+  const limiter = new TinyRequestLimiter(DEFAULT_LIMIT_PER_MINUTE);
+  const catalog = await searchAllProductsFast(limiter);
 
   const ids = new Set<string>();
 
@@ -3439,7 +3451,8 @@ async function prepareFastSyncCatalog(): Promise<FastCatalogResponse> {
 }
 
 async function getTinyDetailedProduct(
-  id: string
+  id: string,
+  limiter?: TinyRequestLimiter
 ): Promise<{
   product: TinyDetailedProduct;
   apiLimit: number;
@@ -3447,6 +3460,7 @@ async function getTinyDetailedProduct(
   const result = await tinyPost<TinyResponse>(
     "produto.obter.php",
     { id },
+    limiter
   );
 
   const product =
@@ -3469,7 +3483,8 @@ async function getTinyDetailedProduct(
 }
 
 async function processFastSyncBatch(
-  ids: string[]
+  ids: string[],
+  requestedApiLimit?: number
 ): Promise<{
   criados: number;
   atualizados: number;
@@ -3480,10 +3495,17 @@ async function processFastSyncBatch(
   apiLimit: number;
   waitMs: number;
 }> {
-  const cleanIds = uniqueStrings(ids).slice(
-    0,
-    MAX_TINY_CONCURRENCY
-  );
+  /*
+   * REGRA DE SEGURANÇA:
+   * nunca usamos produto.obter.php para inferir estoque.
+   * A documentação oficial do Tiny lista as variações nesse endpoint,
+   * mas o campo de saldo fica no endpoint produto.obter.estoque.php.
+   * A versão anterior tratava estoque ausente como 0 e zerou os produtos.
+   *
+   * Nesta versão o estoque só é gravado quando recebemos um saldo real
+   * e validado do endpoint de estoque.
+   */
+  const cleanIds = uniqueStrings(ids).slice(0, 3);
 
   if (cleanIds.length === 0) {
     return {
@@ -3499,14 +3521,16 @@ async function processFastSyncBatch(
   }
 
   const startedAt = Date.now();
-  let apiLimit = DEFAULT_LIMIT_PER_MINUTE;
+  const initialLimit =
+    Number.isFinite(Number(requestedApiLimit)) && Number(requestedApiLimit) > 0
+      ? Number(requestedApiLimit)
+      : DEFAULT_LIMIT_PER_MINUTE;
+  const limiter = new TinyRequestLimiter(initialLimit);
 
   const results = await Promise.all(
     cleanIds.map(async (id) => {
       try {
-        const result = await getTinyDetailedProduct(id);
-        apiLimit = Math.min(apiLimit, result.apiLimit || DEFAULT_LIMIT_PER_MINUTE);
-
+        const result = await getTinyDetailedProduct(id, limiter);
         return {
           id,
           product: result.product,
@@ -3516,28 +3540,157 @@ async function processFastSyncBatch(
         return {
           id,
           product: null as TinyDetailedProduct | null,
-          error:
-            error instanceof Error
-              ? error.message
-              : String(error),
+          error: error instanceof Error ? error.message : String(error),
         };
       }
     })
   );
 
-  const okResults = results.filter(
-    (item) => item.product !== null
-  );
+  const falhas: Array<{ id: string; erro: string }> = results
+    .filter((item) => item.error)
+    .map((item) => ({ id: item.id, erro: item.error }));
+
+  type SafeSnapshot = {
+    stockTotal: number;
+    mappedValues: Array<{ tamanho: string; cor: string; saldo: number }>;
+    variationCount: number;
+    mappedVariationCount: number;
+    completeVariationMapping: boolean;
+    explicitStockResults: number;
+  };
+
+  const snapshotForProduct = async (
+    product: TinyDetailedProduct
+  ): Promise<SafeSnapshot> => {
+    const tipo = tipoVariacaoTiny(product);
+    const variations = normalizeVariations(product.variacoes);
+
+    /* Produto simples: uma consulta de estoque, saldo explícito. */
+    if (tipo !== "P" || variations.length === 0) {
+      const id = text(product.id);
+      const stock = await getStock(id, limiter);
+      const grade = gradeFromTiny(product.grade);
+
+      return {
+        stockTotal: stock.saldo,
+        mappedValues:
+          grade.tamanho || grade.cor
+            ? [{ tamanho: grade.tamanho, cor: grade.cor, saldo: stock.saldo }]
+            : [],
+        variationCount: 1,
+        mappedVariationCount: grade.tamanho || grade.cor ? 1 : 0,
+        completeVariationMapping: true,
+        explicitStockResults: 1,
+      };
+    }
+
+    /*
+     * Produto pai: produto.obter.php fornece os IDs/grades das variações,
+     * enquanto produto.obter.estoque.php fornece o saldo de cada ID.
+     */
+    const stockResults = await Promise.all(
+      variations.map(async (variation) => {
+        const id = text(variation.id);
+        try {
+          const stock = await getStock(id, limiter);
+          return {
+            id,
+            ok: true,
+            saldo: stock.saldo,
+            grade: gradeFromTiny(variation.grade),
+            nome: text(variation.nome),
+            erro: "",
+          };
+        } catch (error) {
+          return {
+            id,
+            ok: false,
+            saldo: 0,
+            grade: gradeFromTiny(variation.grade),
+            nome: text(variation.nome),
+            erro: error instanceof Error ? error.message : String(error),
+          };
+        }
+      })
+    );
+
+    const failed = stockResults.find((item) => !item.ok);
+    if (failed) {
+      throw new Error(
+        `Não foi possível confirmar o estoque de todas as variações do produto ${text(product.id)}. ${failed.erro}`
+      );
+    }
+
+    let stockTotal = 0;
+    const mappedValues: Array<{ tamanho: string; cor: string; saldo: number }> = [];
+    let mappedVariationCount = 0;
+
+    for (const item of stockResults) {
+      stockTotal += item.saldo;
+
+      let grade = item.grade;
+      if ((!grade.tamanho || !grade.cor) && item.nome) {
+        const byName = gradeFromName(item.nome);
+        if (!grade.tamanho) grade.tamanho = byName.tamanho;
+        if (!grade.cor) grade.cor = byName.cor;
+      }
+
+      if (grade.tamanho || grade.cor) {
+        mappedVariationCount += 1;
+        mappedValues.push({
+          tamanho: grade.tamanho,
+          cor: grade.cor,
+          saldo: item.saldo,
+        });
+      }
+    }
+
+    return {
+      stockTotal: Math.max(0, Math.round(stockTotal)),
+      mappedValues,
+      variationCount: variations.length,
+      mappedVariationCount,
+      completeVariationMapping:
+        mappedVariationCount === variations.length,
+      explicitStockResults: stockResults.length,
+    };
+  };
+
+  type Prepared = {
+    id: string;
+    product: TinyDetailedProduct;
+    snapshot: SafeSnapshot;
+  };
+
+  const prepared: Prepared[] = [];
+
+  /*
+   * PRIMEIRO lemos e validamos todo o estoque do lote.
+   * Só depois disso escrevemos no banco.
+   * Assim um erro do Tiny jamais vira estoque 0 no site.
+   */
+  for (const result of results) {
+    if (!result.product) continue;
+
+    try {
+      const snapshot = await snapshotForProduct(result.product);
+      prepared.push({
+        id: result.id,
+        product: result.product,
+        snapshot,
+      });
+    } catch (error) {
+      falhas.push({
+        id: result.id,
+        erro: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   const existentes = await prisma.produto.findMany({
     select: {
       id: true,
       nome: true,
-      estoque: true,
-      tamanhos: true,
-      cores: true,
-      estoquePorTamanho: true,
-      estoquePorCor: true,
     },
   });
 
@@ -3546,15 +3699,10 @@ async function processFastSyncBatch(
 
   for (const item of existentes) {
     byId.set(String(item.id), item);
-    const exactName = normalize(String(item.nome ?? ""));
-    if (exactName && !byName.has(exactName)) {
-      byName.set(exactName, item);
-    }
-
+    const exact = normalize(String(item.nome ?? ""));
+    if (exact && !byName.has(exact)) byName.set(exact, item);
     const base = normalize(baseName(String(item.nome ?? "")));
-    if (base && !byName.has(base)) {
-      byName.set(base, item);
-    }
+    if (base && !byName.has(base)) byName.set(base, item);
   }
 
   let criados = 0;
@@ -3562,27 +3710,21 @@ async function processFastSyncBatch(
   let ignorados = 0;
   let variacoesProcessadas = 0;
 
-  const falhas = results
-    .filter((item) => item.error)
-    .map((item) => ({
-      id: item.id,
-      erro: item.error,
-    }));
-
+  /*
+   * Revalidamos a lista antes da gravação para impedir corrida/duplicidade.
+   */
   await prisma.$transaction(async (tx) => {
-    for (const item of okResults) {
-      const product = item.product!;
+    for (const item of prepared) {
+      const product = item.product;
       const id = text(product.id);
       const nome = text(product.nome);
-
       if (!id || !nome) {
         ignorados += 1;
         continue;
       }
 
-      const snapshot = buildStockSnapshot(product);
-      const variations = normalizeVariations(product.variacoes);
-      variacoesProcessadas += variations.length;
+      const snapshot = item.snapshot;
+      variacoesProcessadas += snapshot.explicitStockResults;
 
       const existente =
         byId.get(id) ||
@@ -3591,38 +3733,52 @@ async function processFastSyncBatch(
 
       if (existente) {
         /*
-         * PRODUTO EXISTENTE:
-         * somente estoque + estrutura de variações.
+         * Produto existente: TOTAL sempre vem de saldos explícitos.
+         * Matriz só é substituída quando TODOS os IDs de variação foram
+         * consultados e todos puderam ser mapeados por grade.
          */
+        const data: Record<string, unknown> = {
+          estoque: snapshot.stockTotal,
+        };
+
+        if (
+          tipoVariacaoTiny(product) === "P" &&
+          snapshot.variationCount > 0 &&
+          snapshot.completeVariationMapping
+        ) {
+          const aggregate = aggregateStock(snapshot.mappedValues);
+          data.tamanhos = aggregate.tamanhos;
+          data.estoquePorTamanho = aggregate.estoquePorTamanho;
+          data.cores = aggregate.cores;
+          data.estoquePorCor = aggregate.estoquePorCor;
+        }
+
         await tx.produto.update({
           where: { id: existente.id },
-          data: {
-            estoque: snapshot.estoque,
-            tamanhos: snapshot.tamanhos,
-            estoquePorTamanho: snapshot.estoquePorTamanho,
-            cores: snapshot.cores,
-            estoquePorCor: snapshot.estoquePorCor,
-          },
+          data,
         });
 
         atualizados += 1;
         continue;
       }
 
-      /*
-       * PRODUTO NOVO:
-       * usamos os dados do Tiny somente na criação.
-       * Categoria/faixaEtaria ficam vazias para preenchimento manual.
-       */
+      /* Produto novo: usa dados do Tiny apenas na criação. */
+      const aggregate = snapshot.completeVariationMapping
+        ? aggregateStock(snapshot.mappedValues)
+        : {
+            estoque: snapshot.stockTotal,
+            tamanhos: [],
+            estoquePorTamanho: {},
+            cores: [],
+            estoquePorCor: {},
+          };
+
       const imagens = extractImages(product);
       const imagemUrl = imagens[0] || PLACEHOLDER_IMAGE;
 
       const alreadyCreated = await tx.produto.findFirst({
         where: {
-          OR: [
-            { id },
-            { nome },
-          ],
+          OR: [{ id }, { nome }],
         },
         select: { id: true },
       });
@@ -3643,11 +3799,11 @@ async function processFastSyncBatch(
           preco: toNumber(product.preco),
           precoPromocional:
             optionalNumber(product.preco_promocional) ?? null,
-          estoque: snapshot.estoque,
-          tamanhos: snapshot.tamanhos,
-          estoquePorTamanho: snapshot.estoquePorTamanho,
-          cores: snapshot.cores,
-          estoquePorCor: snapshot.estoquePorCor,
+          estoque: aggregate.estoque,
+          tamanhos: aggregate.tamanhos,
+          estoquePorTamanho: aggregate.estoquePorTamanho,
+          cores: aggregate.cores,
+          estoquePorCor: aggregate.estoquePorCor,
           imagemUrl,
           imagens: imagens.length > 0 ? imagens : [PLACEHOLDER_IMAGE],
           ativo: normalize(text(product.situacao)) !== "i",
@@ -3659,18 +3815,21 @@ async function processFastSyncBatch(
   });
 
   const elapsedMs = Date.now() - startedAt;
-  const intervaloNecessario =
-    Math.ceil((cleanIds.length * 60000) / Math.max(1, apiLimit)) + RATE_LIMIT_SAFETY_MS;
+  const apiLimit = limiter.getLimit();
+  const minimumWindowMs =
+    cleanIds.length > 0
+      ? Math.ceil((cleanIds.length * 60000) / Math.max(1, apiLimit))
+      : 0;
 
   return {
     criados,
     atualizados,
     ignorados,
     falhas,
-    produtosProcessados: okResults.length,
+    produtosProcessados: prepared.length,
     variacoesProcessadas,
     apiLimit,
-    waitMs: Math.max(0, intervaloNecessario - elapsedMs),
+    waitMs: Math.max(0, minimumWindowMs - elapsedMs),
   };
 }
 
@@ -3726,7 +3885,7 @@ export async function POST(
     }
 
     /* =====================================================
-     * SYNC V5 — PREPARAR CATÁLOGO
+     * SYNC V6 — PREPARAR CATÁLOGO
      * ===================================================*/
 
     if (action === "catalog") {
@@ -3742,7 +3901,7 @@ export async function POST(
     }
 
     /* =====================================================
-     * SYNC V5 — PROCESSAR LOTE
+     * SYNC V6 — PROCESSAR LOTE
      * ===================================================*/
 
     if (action === "batch") {
@@ -3770,7 +3929,8 @@ export async function POST(
         );
       }
 
-      const result = await processFastSyncBatch(ids);
+      const requestedApiLimit = Number(body?.apiLimit) || DEFAULT_LIMIT_PER_MINUTE;
+      const result = await processFastSyncBatch(ids, requestedApiLimit);
 
       return NextResponse.json({
         success: true,
@@ -3784,6 +3944,14 @@ export async function POST(
      * ===================================================*/
 
     if (action === "sync") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "A sincronização incremental antiga foi desativada por segurança. Use a ação catalog/batch.",
+        },
+        { status: 410 }
+      );
+
       const result = await syncIncrementalFast();
 
       return NextResponse.json({
@@ -4560,7 +4728,7 @@ export async function POST(
           false,
 
         error:
-          "Ação de sincronização inválida. Use catalog, batch, sync, start, details, stock ou finish.",
+          "Ação de sincronização inválida. Use catalog ou batch.",
       },
       {
         status:
