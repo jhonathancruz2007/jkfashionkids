@@ -393,6 +393,7 @@ export default function PaginaDashboardAdmin() {
       let atualizados = 0
       let ignorados = 0
       let falhas = 0
+      let estoqueAlterado = 0
       let variacoes = 0
       let processados = 0
 
@@ -438,21 +439,28 @@ export default function PaginaDashboardAdmin() {
         atualizados += Number(batchData.atualizados) || 0
         ignorados += Number(batchData.ignorados) || 0
         falhas += Number(batchData.falhas) || 0
+        estoqueAlterado += Number(batchData.estoqueAlterado) || 0
         variacoes += Number(batchData.variacoesProcessadas) || 0
+
+        if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
+          console.table(batchData.diagnosticos)
+        }
         processados += Number(batchData.processados) || lote.length
       }
 
       await carregarProdutos()
 
       const mensagem =
-        `Sincronização concluída: ${criados} novos, ${atualizados} atualizados, ` +
-        `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
+        `Sincronização concluída: ${criados} novos, ${atualizados} verificados, ` +
+        `${estoqueAlterado} estoques realmente alterados, ${ignorados} ignorados, ` +
+        `${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
 
       exibirToast(mensagem, falhas > 0 ? "error" : "success")
       console.log("=== SINCRONIZAÇÃO OLIST/TINY V3 CONCLUÍDA ===", {
         totalProdutos: entries.length,
         criados,
         atualizados,
+        estoqueAlterado,
         ignorados,
         falhas,
         variacoes,
