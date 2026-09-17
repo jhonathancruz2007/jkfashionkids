@@ -642,13 +642,27 @@ class TinyRequestLimiter {
   }
 }
 
+function isTinyEmptyQueueError(data: TinyResponse): boolean {
+  const codigo = toNumber(data.retorno?.codigo_erro);
+  const message = normalize(tinyErrorMessage(data, ""));
+
+  return (
+    codigo === 20 ||
+    message.includes("consulta nao retornou registros") ||
+    message.includes("nao retornou registros")
+  );
+}
+
 async function tinyPost<T>(
   endpoint: string,
   params: Record<
     string,
     string | number
   >,
-  limiter?: TinyRequestLimiter
+  limiter?: TinyRequestLimiter,
+  options?: {
+    allowEmptyQueue?: boolean;
+  }
 ): Promise<{
   data: T;
   headers: Headers;
@@ -790,9 +804,11 @@ async function tinyPost<T>(
       ?.status ===
       "Erro"
   ) {
-    throw new Error(
-      message
-    );
+    const emptyQueue = isTinyEmptyQueueError(typedData);
+
+    if (!emptyQueue || !options?.allowEmptyQueue) {
+      throw new Error(message);
+    }
   }
 
   return {
@@ -2608,11 +2624,38 @@ async function syncAllProductsFast(): Promise<{
  * fila e marcados como processados.
  * =======================================================*/
 
-const TINY_SYNC_START_DATE =
-  process.env.TINY_SYNC_START_DATE?.trim() ||
-  "01/01/2026 00:00:00";
+/*
+ * A API de filas do Tiny aceita somente registros dentro dos
+ * últimos 30 dias. Nunca usamos uma data fixa antiga aqui.
+ * Usamos uma janela ligeiramente menor que 30 dias para evitar
+ * problemas de borda de horário/fuso.
+ */
+const TINY_SYNC_LOOKBACK_HOURS = 29 * 24 + 23;
+const MAX_UPDATE_QUEUE_PAGES = 10;
 
-const MAX_UPDATE_QUEUE_PAGES = 5;
+function formatTinyDateAlteracao(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return `${get("day")}/${get("month")}/${get("year")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
+function getTinySyncDataAlteracao(): string {
+  return formatTinyDateAlteracao(
+    new Date(Date.now() - TINY_SYNC_LOOKBACK_HOURS * 60 * 60 * 1000)
+  );
+}
 
 interface TinyQueueReturn<T> {
   retorno?: {
@@ -2667,58 +2710,57 @@ async function readTinyUpdateQueue<T>(
   paginasProcessadas: number;
   temMais: boolean;
 }> {
-  const first = await tinyPost<TinyQueueReturn<T>>(
-    endpoint,
-    {
-      dataAlteracao,
-      pagina: 1,
-    }
-  );
-
-  const firstReturn = first.data.retorno;
-  if (text(firstReturn?.status).toUpperCase() !== "OK") {
-    throw new Error(tinyErrorMessage(first.data as TinyResponse));
-  }
-
   const output: T[] = [];
-  for (const item of firstReturn?.produtos ?? []) {
-    if (item?.produto) output.push(item.produto);
-  }
+  let paginasProcessadas = 0;
+  let ultimaPaginaCheia = false;
 
-  const paginasTotal = Math.max(
-    1,
-    toNumber(firstReturn?.numero_paginas) || 1
-  );
-
-  const paginasParaLer = Math.min(
-    paginasTotal,
-    MAX_UPDATE_QUEUE_PAGES
-  );
-
-  for (let pagina = 2; pagina <= paginasParaLer; pagina += 1) {
+  /*
+   * Os registros da fila são removidos/marcados como processados
+   * quando obtidos. Portanto, para consumir a fila corretamente,
+   * repetimos a PAGINA 1. Não avançamos para a página 2 enquanto
+   * os próprios registros estão saindo da fila.
+   */
+  for (
+    let tentativa = 0;
+    tentativa < MAX_UPDATE_QUEUE_PAGES;
+    tentativa += 1
+  ) {
     const response = await tinyPost<TinyQueueReturn<T>>(
       endpoint,
       {
         dataAlteracao,
-        pagina,
-      }
+        pagina: 1,
+      },
+      undefined,
+      { allowEmptyQueue: true }
     );
 
-    const retorno = response.data.retorno;
-    if (text(retorno?.status).toUpperCase() !== "OK") {
-      throw new Error(tinyErrorMessage(response.data as TinyResponse));
+    paginasProcessadas += 1;
+
+    if (isTinyEmptyQueueError(response.data as TinyResponse)) {
+      ultimaPaginaCheia = false;
+      break;
     }
 
-    for (const item of retorno?.produtos ?? []) {
-      if (item?.produto) output.push(item.produto);
+    const retorno = response.data.retorno;
+    const items = (retorno?.produtos ?? [])
+      .map((item) => item?.produto)
+      .filter(Boolean) as T[];
+
+    output.push(...items);
+
+    ultimaPaginaCheia = items.length >= 100;
+
+    if (items.length < 100) {
+      break;
     }
   }
 
   return {
     products: output,
-    paginasTotal,
-    paginasProcessadas: paginasParaLer,
-    temMais: paginasTotal > paginasParaLer,
+    paginasTotal: paginasProcessadas,
+    paginasProcessadas,
+    temMais: ultimaPaginaCheia,
   };
 }
 
@@ -2911,6 +2953,8 @@ async function syncIncrementalFast(): Promise<{
 }> {
   const startedAt = Date.now();
 
+  const dataCorte = getTinySyncDataAlteracao();
+
   let estoqueQueue: Awaited<
     ReturnType<typeof readTinyUpdateQueue<TinyUpdatedStockProduct>>
   >;
@@ -2921,7 +2965,7 @@ async function syncIncrementalFast(): Promise<{
   try {
     estoqueQueue = await readTinyUpdateQueue<TinyUpdatedStockProduct>(
       "lista.atualizacoes.estoque",
-      TINY_SYNC_START_DATE
+      dataCorte
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2930,13 +2974,18 @@ async function syncIncrementalFast(): Promise<{
         "A sincronização rápida exige a extensão 'API para estoque em tempo real' no Tiny. Instale essa extensão no Tiny e tente novamente."
       );
     }
+    if (normalize(message).includes("ultimos 30 dias")) {
+      throw new Error(
+        "O Tiny recusou a data da fila. O sistema já calcula automaticamente uma janela de menos de 30 dias; confira a data/hora do servidor."
+      );
+    }
     throw error;
   }
 
   try {
     produtosQueue = await readTinyUpdateQueue<TinyUpdatedProduct>(
       "lista.atualizacoes.produtos",
-      TINY_SYNC_START_DATE
+      dataCorte
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -3219,7 +3268,7 @@ async function syncIncrementalFast(): Promise<{
     temMaisEstoque: estoqueQueue.temMais,
     temMaisProdutos: produtosQueue.temMais,
     duracaoMs: Date.now() - startedAt,
-    dataCorte: TINY_SYNC_START_DATE,
+    dataCorte,
   };
 }
 
