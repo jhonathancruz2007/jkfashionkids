@@ -334,9 +334,11 @@ export default function PaginaDashboardAdmin() {
   // ============================================================
   // SINCRONIZAÇÃO OLIST/TINY API V3
   // ============================================================
-  // A sincronização rápida consulta somente produtos criados/alterados
-  // desde a última execução. A reconciliação completa é separada e
-  // processa lotes pequenos para não gerar timeout.
+  // A API V3 não usa dataAlteracao para refletir necessariamente mudanças
+  // de estoque. Por isso, a sincronização de estoque consulta os produtos do
+  // site em lotes de até 28 detalhes por minuto, respeitando o limite de 30
+  // leituras/minuto do plano Construa. A listagem de novos produtos usa
+  // uma leitura adicional no primeiro passo.
   const handleSincronizarTiny = async () => {
     if (sincronizandoTiny) return
 
@@ -345,87 +347,12 @@ export default function PaginaDashboardAdmin() {
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO OLIST/TINY V3 ===")
 
-      const res = await fetch(
-        "/api/admin/produtos/sincronizar-tiny",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "quick" }),
-          cache: "no-store",
-        }
-      )
-
-      const raw = await res.text()
-      let data: any = {}
-
-      try {
-        data = raw ? JSON.parse(raw) : {}
-      } catch {
-        throw new Error(
-          `O servidor não retornou JSON válido. HTTP ${res.status}`
-        )
-      }
-
-      if (data.code === "NOT_CONNECTED") {
-        exibirToast(
-          "Conecte o Olist/Tiny primeiro. Abrindo autorização...",
-          "error"
-        )
-        window.location.href = "/api/tiny/oauth"
-        return
-      }
-
-      if (!res.ok || !data.success) {
-        throw new Error(
-          data.error ||
-          data.details ||
-          `Erro HTTP ${res.status} na sincronização.`
-        )
-      }
-
-      await carregarProdutos()
-
-      const pendentes = Number(data.pendentes) || 0
-      const mensagem =
-        pendentes > 0
-          ? `${data.message || "Há muitas alterações para processar em uma única execução."}`
-          : `Sincronização rápida concluída: ${Number(data.criados) || 0} novos, ${Number(data.atualizados) || 0} atualizados, ${Number(data.falhas) || 0} falhas em ${((Number(data.duracaoMs) || 0) / 1000).toFixed(1)}s.`
-
-      exibirToast(
-        mensagem,
-        pendentes > 0 || Number(data.falhas) > 0 ? "error" : "success"
-      )
-
-      console.log("=== SINCRONIZAÇÃO OLIST/TINY V3 CONCLUÍDA ===", data)
-    } catch (error) {
-      console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===")
-      console.error(error)
-
-      exibirToast(
-        error instanceof Error
-          ? error.message
-          : "Erro de conexão ao sincronizar com Olist/Tiny.",
-        "error"
-      )
-    } finally {
-      setSincronizandoTiny(false)
-    }
-  }
-
-  const handleReconcilacaoCompletaTiny = async () => {
-    if (sincronizandoTiny) return
-
-    setSincronizandoTiny(true)
-
-    try {
-      console.log("=== INÍCIO DA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
-
       const prepareRes = await fetch(
         "/api/admin/produtos/sincronizar-tiny",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "prepare-full" }),
+          body: JSON.stringify({ mode: "prepare-quick" }),
           cache: "no-store",
         }
       )
@@ -437,7 +364,7 @@ export default function PaginaDashboardAdmin() {
         prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
       } catch {
         throw new Error(
-          `O servidor não retornou JSON válido ao preparar a reconciliação. HTTP ${prepareRes.status}`
+          `O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`
         )
       }
 
@@ -453,7 +380,7 @@ export default function PaginaDashboardAdmin() {
       if (!prepareRes.ok || !prepareData.success) {
         throw new Error(
           prepareData.error ||
-          `Erro HTTP ${prepareRes.status} ao preparar a reconciliação.`
+          `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`
         )
       }
 
@@ -462,29 +389,44 @@ export default function PaginaDashboardAdmin() {
         : []
 
       if (ids.length === 0) {
-        exibirToast("Nenhum produto foi encontrado no Olist/Tiny.")
+        exibirToast("Nenhum produto foi encontrado para sincronizar.")
         return
       }
 
-      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const batchSize = Math.max(1, Math.min(28, Number(prepareData.batchSize) || 28))
+      const totalBatches = Math.ceil(ids.length / batchSize)
+
       let criados = 0
       let atualizados = 0
+      let ignorados = 0
       let falhas = 0
       let variacoes = 0
+      let processados = 0
 
       for (let inicio = 0; inicio < ids.length; inicio += batchSize) {
         const lote = ids.slice(inicio, inicio + batchSize)
         const loteNumero = Math.floor(inicio / batchSize) + 1
-        const totalLotes = Math.ceil(ids.length / batchSize)
 
-        console.log(`=== RECONCILIAÇÃO LOTE ${loteNumero}/${totalLotes} ===`, lote)
+        if (loteNumero > 1) {
+          const esperaMs = 62000
+          exibirToast(
+            `Aguardando o limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
+          )
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+        }
+
+        exibirToast(
+          `Sincronizando lote ${loteNumero}/${totalBatches}: ${processados}/${ids.length} produtos processados...`
+        )
+
+        console.log(`=== SINCRONIZAÇÃO LOTE ${loteNumero}/${totalBatches} ===`, lote)
 
         const batchRes = await fetch(
           "/api/admin/produtos/sincronizar-tiny",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "full-batch", ids: lote }),
+            body: JSON.stringify({ mode: "stock-batch", ids: lote }),
             cache: "no-store",
           }
         )
@@ -496,44 +438,57 @@ export default function PaginaDashboardAdmin() {
           batchData = batchRaw ? JSON.parse(batchRaw) : {}
         } catch {
           throw new Error(
-            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalLotes}. HTTP ${batchRes.status}`
+            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`
           )
+        }
+
+        if (batchData.code === "NOT_CONNECTED") {
+          exibirToast(
+            "A conexão com Olist/Tiny expirou. Reconecte a conta.",
+            "error"
+          )
+          return
         }
 
         if (!batchRes.ok || !batchData.success) {
           throw new Error(
             batchData.error ||
-            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalLotes}.`
+            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`
           )
         }
 
         criados += Number(batchData.criados) || 0
         atualizados += Number(batchData.atualizados) || 0
+        ignorados += Number(batchData.ignorados) || 0
         falhas += Number(batchData.falhas) || 0
         variacoes += Number(batchData.variacoesProcessadas) || 0
+        processados += Number(batchData.processados) || lote.length
       }
 
       await carregarProdutos()
 
-      exibirToast(
-        `Reconciliação completa concluída: ${criados} novos, ${atualizados} atualizados, ${falhas} falhas e ${variacoes} variações.`
-      )
+      const mensagem =
+        `Sincronização concluída: ${criados} novos, ${atualizados} atualizados, ` +
+        `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
 
-      console.log("=== RECONCILIAÇÃO COMPLETA OLIST/TINY V3 CONCLUÍDA ===", {
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+
+      console.log("=== SINCRONIZAÇÃO OLIST/TINY V3 CONCLUÍDA ===", {
         totalProdutos: ids.length,
         criados,
         atualizados,
+        ignorados,
         falhas,
         variacoes,
       })
     } catch (error) {
-      console.error("=== ERRO NA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+      console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===")
       console.error(error)
 
       exibirToast(
         error instanceof Error
           ? error.message
-          : "Erro de conexão durante a reconciliação completa.",
+          : "Erro de conexão ao sincronizar com Olist/Tiny.",
         "error"
       )
     } finally {
@@ -1750,7 +1705,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. A sincronização rápida verifica produtos novos e alterações recentes sem varrer todo o catálogo; a reconciliação completa pode ser usada para conferir todo o estoque.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. A sincronização consulta o saldo real dos produtos em lotes controlados pela API V3 e também cadastra produtos novos encontrados no Tiny.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
