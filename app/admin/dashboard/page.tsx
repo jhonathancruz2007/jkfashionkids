@@ -347,54 +347,47 @@ export default function PaginaDashboardAdmin() {
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO OLIST/TINY V3 ===")
 
-      const prepareRes = await fetch(
-        "/api/admin/produtos/sincronizar-tiny",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "prepare-quick" }),
-          cache: "no-store",
-        }
-      )
+      const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "prepare-quick" }),
+        cache: "no-store",
+      })
 
       const prepareRaw = await prepareRes.text()
       let prepareData: any = {}
-
       try {
         prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
       } catch {
-        throw new Error(
-          `O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`
-        )
+        throw new Error(`O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`)
       }
 
       if (prepareData.code === "NOT_CONNECTED") {
-        exibirToast(
-          "Conecte o Olist/Tiny primeiro. Abrindo autorização...",
-          "error"
-        )
+        exibirToast("Conecte o Olist/Tiny primeiro. Abrindo autorização...", "error")
         window.location.href = "/api/tiny/oauth"
         return
       }
 
       if (!prepareRes.ok || !prepareData.success) {
-        throw new Error(
-          prepareData.error ||
-          `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`
-        )
+        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`)
       }
 
-      const ids: string[] = Array.isArray(prepareData.ids)
-        ? prepareData.ids.map((id: unknown) => String(id)).filter(Boolean)
-        : []
+      const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
 
-      if (ids.length === 0) {
-        exibirToast("Nenhum produto foi encontrado para sincronizar.")
+      if (entries.length === 0) {
+        const detalhe = [
+          Number(prepareData.unmatchedExisting) > 0 ? `${prepareData.unmatchedExisting} produtos do site sem correspondência` : "",
+          Number(prepareData.ambiguousExisting) > 0 ? `${prepareData.ambiguousExisting} correspondências ambíguas` : "",
+        ].filter(Boolean).join("; ")
+        exibirToast(
+          detalhe || "Nenhum produto foi encontrado no catálogo do Olist/Tiny.",
+          detalhe ? "error" : "success"
+        )
         return
       }
 
-      const batchSize = Math.max(1, Math.min(28, Number(prepareData.batchSize) || 28))
-      const totalBatches = Math.ceil(ids.length / batchSize)
+      const batchSize = Math.max(1, Math.min(7, Number(prepareData.batchSize) || 7))
+      const totalBatches = Math.ceil(entries.length / batchSize)
 
       let criados = 0
       let atualizados = 0
@@ -403,58 +396,42 @@ export default function PaginaDashboardAdmin() {
       let variacoes = 0
       let processados = 0
 
-      for (let inicio = 0; inicio < ids.length; inicio += batchSize) {
-        const lote = ids.slice(inicio, inicio + batchSize)
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
         const loteNumero = Math.floor(inicio / batchSize) + 1
 
         if (loteNumero > 1) {
-          const esperaMs = 62000
-          exibirToast(
-            `Aguardando o limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
-          )
+          // Construa: 30 leituras/min. 7 detalhes por lote + intervalo de ~14s mantém margem.
+          const esperaMs = 14000
+          exibirToast(`Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`)
           await new Promise((resolve) => setTimeout(resolve, esperaMs))
         }
 
-        exibirToast(
-          `Sincronizando lote ${loteNumero}/${totalBatches}: ${processados}/${ids.length} produtos processados...`
-        )
-
+        exibirToast(`Sincronizando lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos processados...`)
         console.log(`=== SINCRONIZAÇÃO LOTE ${loteNumero}/${totalBatches} ===`, lote)
 
-        const batchRes = await fetch(
-          "/api/admin/produtos/sincronizar-tiny",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "stock-batch", ids: lote }),
-            cache: "no-store",
-          }
-        )
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "stock-batch", entries: lote }),
+          cache: "no-store",
+        })
 
         const batchRaw = await batchRes.text()
         let batchData: any = {}
-
         try {
           batchData = batchRaw ? JSON.parse(batchRaw) : {}
         } catch {
-          throw new Error(
-            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`
-          )
+          throw new Error(`O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`)
         }
 
         if (batchData.code === "NOT_CONNECTED") {
-          exibirToast(
-            "A conexão com Olist/Tiny expirou. Reconecte a conta.",
-            "error"
-          )
+          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
           return
         }
 
         if (!batchRes.ok || !batchData.success) {
-          throw new Error(
-            batchData.error ||
-            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`
-          )
+          throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`)
         }
 
         criados += Number(batchData.criados) || 0
@@ -472,23 +449,21 @@ export default function PaginaDashboardAdmin() {
         `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
 
       exibirToast(mensagem, falhas > 0 ? "error" : "success")
-
       console.log("=== SINCRONIZAÇÃO OLIST/TINY V3 CONCLUÍDA ===", {
-        totalProdutos: ids.length,
+        totalProdutos: entries.length,
         criados,
         atualizados,
         ignorados,
         falhas,
         variacoes,
+        semCorrespondencia: prepareData.unmatchedExisting || 0,
+        ambiguos: prepareData.ambiguousExisting || 0,
       })
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===")
       console.error(error)
-
       exibirToast(
-        error instanceof Error
-          ? error.message
-          : "Erro de conexão ao sincronizar com Olist/Tiny.",
+        error instanceof Error ? error.message : "Erro de conexão ao sincronizar com Olist/Tiny.",
         "error"
       )
     } finally {
