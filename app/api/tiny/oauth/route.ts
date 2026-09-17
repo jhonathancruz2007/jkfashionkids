@@ -8,12 +8,31 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const FALLBACK_ADMIN_URL = "https://www.jkfashionkids.com.br/admin";
+
+function getAdminUrlSafe(): URL {
+  const configured = (process.env.NEXT_PUBLIC_SITE_URL || "").trim();
+
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return new URL("/admin", parsed.origin);
+      }
+    } catch {
+      // Use the known production URL below.
+    }
+  }
+
+  return new URL(FALLBACK_ADMIN_URL);
+}
+
+export async function GET() {
   try {
     const state = createOAuthState();
     const authorizationUrl = getAuthorizationUrl(state);
 
-    const response = NextResponse.redirect(authorizationUrl);
+    const response = NextResponse.redirect(authorizationUrl, { status: 303 });
     response.cookies.set({
       name: getOAuthStateCookieName(),
       value: state,
@@ -31,12 +50,10 @@ export async function GET(request: Request) {
         ? error.message
         : "Não foi possível iniciar a conexão com o Olist/Tiny.";
 
-    const fallback = new URL(
-      "/admin",
-      process.env.NEXT_PUBLIC_SITE_URL || "https://www.jkfashionkids.com.br"
-    );
-    fallback.searchParams.set("tinyError", message);
+    console.error("[OAUTH START] Falha ao iniciar conexão:", error);
 
+    const fallback = getAdminUrlSafe();
+    fallback.searchParams.set("tinyError", message);
     return NextResponse.redirect(fallback, { status: 303 });
   }
 }
