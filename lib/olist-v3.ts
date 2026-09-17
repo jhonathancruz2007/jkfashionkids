@@ -123,6 +123,23 @@ export async function redisDelete(key: string): Promise<void> {
   await redisCommand(["DEL", key]);
 }
 
+export async function redisSetNx(
+  key: string,
+  value: string,
+  ttlSeconds: number
+): Promise<boolean> {
+  const result = await redisCommand<string | number | null>([
+    "SET",
+    key,
+    value,
+    "EX",
+    ttlSeconds,
+    "NX",
+  ]);
+
+  return result === "OK" || result === "ok" || result === 1;
+}
+
 export function createOAuthState(): string {
   return crypto.randomBytes(32).toString("hex");
 }
