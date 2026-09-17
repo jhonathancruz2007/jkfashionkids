@@ -43,10 +43,10 @@ export function getOlistClientSecret(): string {
 }
 
 export function getOlistRedirectUri(): string {
-  return (
-    process.env.OLIST_V3_REDIRECT_URI?.trim() ||
-    `${siteUrl()}/api/tiny/oauth/callback`
-  );
+  const configured = (process.env.OLIST_V3_REDIRECT_URI || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+
+  return `${siteUrl()}/api/tiny/oauth/callback`;
 }
 
 function assertOAuthConfigured() {
