@@ -14,10 +14,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
-const QUICK_NEW_CURSOR_KEY = "jkfashion:olist:v3:sync:new-products-last";
-const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
-const API_READ_BATCH_SIZE = 28;
-const DETAIL_CONCURRENCY = 10;
+const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical";
+const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
+const API_READ_BATCH_SIZE = 26;
+const DETAIL_CONCURRENCY = 7;
 const FULL_BATCH_SIZE = 28;
 const PLACEHOLDER_IMAGE = "";
 
@@ -80,6 +80,14 @@ type StockAggregate = {
   estoquePorTamanho: Record<string, number>;
   estoquePorCor: Record<string, any>;
   variationCount: number;
+};
+
+type SiteSyncEntry = {
+  siteId: string | null;
+  tinyId: string;
+  nomeSite?: string;
+  nomeTiny?: string;
+  isNew?: boolean;
 };
 
 function str(value: unknown): string {
@@ -326,6 +334,29 @@ async function listAllProductHeaders(): Promise<TinyListItem[]> {
   return all;
 }
 
+async function listAllActiveProductHeaders(): Promise<TinyListItem[]> {
+  const all: TinyListItem[] = [];
+  const limit = 100;
+  let offset = 0;
+
+  for (;;) {
+    const data = await listProducts({
+      limit: String(limit),
+      offset: String(offset),
+      situacao: "A",
+    });
+
+    const items = Array.isArray(data.itens) ? data.itens : [];
+    all.push(...items);
+
+    const total = Number(data.paginacao?.total || 0);
+    if (items.length === 0 || items.length < limit || offset + items.length >= total) break;
+    offset += items.length;
+  }
+
+  return all;
+}
+
 function uniqueCanonicalHeaders(items: TinyListItem[]): TinyListItem[] {
   const seen = new Set<string>();
   const result: TinyListItem[] = [];
@@ -481,61 +512,164 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function prepareQuick() {
-  const siteProducts = await prisma.produto.findMany({
-    select: { id: true },
+async function buildTinyCanonicalMap() {
+  const cached = await redisGetJson<{
+    tinyHeaders: TinyListItem[];
+    cachedAt?: number;
+  }>(TINY_CATALOG_CACHE_KEY).catch(() => null);
+
+  if (cached && Array.isArray(cached.tinyHeaders) && cached.tinyHeaders.length > 0) {
+    const canonical = uniqueCanonicalHeaders(cached.tinyHeaders);
+    return buildCanonicalMaps(cached.tinyHeaders, canonical);
+  }
+
+  const tinyHeaders = await listAllActiveProductHeaders();
+  const canonical = uniqueCanonicalHeaders(tinyHeaders);
+
+  await redisSetJson(
+    TINY_CATALOG_CACHE_KEY,
+    { tinyHeaders, cachedAt: Date.now() },
+    TINY_CATALOG_CACHE_TTL
+  ).catch((error) => {
+    console.warn("[Olist V3] Não foi possível salvar cache do catálogo:", error);
   });
 
-  const siteIds = siteProducts
-    .map((p) => String(p.id))
-    .filter(Boolean);
-  const siteIdSet = new Set(siteIds);
+  return buildCanonicalMaps(tinyHeaders, canonical);
+}
 
-  const lastCreated = await redisGetJson<{ timestamp?: number }>(QUICK_NEW_CURSOR_KEY);
-  const now = Date.now();
-  const since = Math.max(
-    0,
-    (lastCreated?.timestamp || now - QUICK_NEW_LOOKBACK_MS)
-  );
+function buildCanonicalMaps(
+  tinyHeaders: TinyListItem[],
+  canonical: TinyListItem[]
+) {
+  const byId = new Map<string, TinyListItem>();
+  const byName = new Map<string, TinyListItem[]>();
 
-  // Stock changes do NOT reliably change dataAlteracao on the product listing.
-  // We therefore discover new products separately, then reconcile the actual
-  // stock by reading each canonical product detail in controlled batches.
-  const createdFirst = await listProducts({
+  for (const item of canonical) {
+    const id = canonicalId(item);
+    if (!id) continue;
+    byId.set(id, item);
+    const name = normalize(str(item.descricao));
+    if (!name) continue;
+    const arr = byName.get(name) || [];
+    arr.push(item);
+    byName.set(name, arr);
+  }
+
+  return { tinyHeaders, canonical, byId, byName };
+}
+
+function matchSiteProduct(
+  site: { id: string; nome: string },
+  maps: Awaited<ReturnType<typeof buildTinyCanonicalMap>>
+): { tinyId: string; tinyItem: TinyListItem; method: "id" | "nome" } | null {
+  const direct = maps.byId.get(site.id);
+  if (direct) {
+    return { tinyId: String(site.id), tinyItem: direct, method: "id" };
+  }
+
+  const name = normalize(site.nome);
+  if (!name) return null;
+
+  const candidates = maps.byName.get(name) || [];
+  if (candidates.length === 1) {
+    const id = canonicalId(candidates[0]);
+    if (id) return { tinyId: id, tinyItem: candidates[0], method: "nome" };
+  }
+
+  return null;
+}
+
+async function findNewTinyProducts(
+  siteTinyIds: Set<string>
+): Promise<SiteSyncEntry[]> {
+  // New products are discovered through a small recent window so this does
+  // not require scanning the entire Tiny catalog on every click.
+  const since = new Date(Date.now() - QUICK_NEW_LOOKBACK_MS);
+  const data = await listProducts({
     limit: "100",
     offset: "0",
-    dataCriacao: sinceDateString(since),
+    dataCriacao: sinceDateString(since.getTime()),
     situacao: "A",
   });
 
-  const createdHeaders = uniqueCanonicalHeaders(
-    Array.isArray(createdFirst.itens) ? createdFirst.itens : []
-  );
+  const headers = uniqueCanonicalHeaders(Array.isArray(data.itens) ? data.itens : []);
+  return headers
+    .map((item) => {
+      const tinyId = canonicalId(item);
+      if (!tinyId || siteTinyIds.has(tinyId)) return null;
+      return {
+        siteId: null,
+        tinyId,
+        nomeTiny: str(item.descricao),
+        isNew: true,
+      } satisfies SiteSyncEntry;
+    })
+    .filter((entry): entry is SiteSyncEntry => Boolean(entry));
+}
 
-  const newIds = createdHeaders
-    .map((item) => canonicalId(item))
-    .filter((id): id is string => Boolean(id) && !siteIdSet.has(id));
+async function prepareQuick() {
+  const siteProducts = await prisma.produto.findMany({
+    select: { id: true, nome: true },
+  });
 
-  const ids = [...new Set([...siteIds, ...newIds])];
+  const maps = await buildTinyCanonicalMap();
+  const entries: SiteSyncEntry[] = [];
+  const matchedTinyIds = new Set<string>();
+  let unmatchedExisting = 0;
+  let ambiguousExisting = 0;
+
+  for (const site of siteProducts) {
+    const match = matchSiteProduct(
+      { id: String(site.id), nome: String(site.nome || "") },
+      maps
+    );
+
+    if (!match) {
+      const name = normalize(String(site.nome || ""));
+      const candidates = maps.byName.get(name) || [];
+      if (candidates.length > 1) ambiguousExisting += 1;
+      else unmatchedExisting += 1;
+      continue;
+    }
+
+    matchedTinyIds.add(match.tinyId);
+    entries.push({
+      siteId: String(site.id),
+      tinyId: match.tinyId,
+      nomeSite: String(site.nome || ""),
+      nomeTiny: str(match.tinyItem.descricao),
+      isNew: false,
+    });
+  }
+
+  const newEntries = await findNewTinyProducts(matchedTinyIds);
+  const seen = new Set(entries.map((entry) => entry.tinyId));
+  for (const entry of newEntries) {
+    if (seen.has(entry.tinyId)) continue;
+    seen.add(entry.tinyId);
+    entries.push(entry);
+  }
 
   return {
     success: true,
     mode: "prepare-quick",
-    ids,
-    total: ids.length,
-    existingCount: siteIds.length,
-    newCount: newIds.length,
+    entries,
+    total: entries.length,
+    existingCount: entries.filter((entry) => !entry.isNew).length,
+    newCount: entries.filter((entry) => entry.isNew).length,
+    unmatchedExisting,
+    ambiguousExisting,
     batchSize: API_READ_BATCH_SIZE,
-    dataCorteNovos: new Date(since).toISOString(),
-    totalTinyNovosEncontrados: newIds.length,
+    catalogoConsultado: maps.tinyHeaders.length,
   };
 }
 
-async function stockBatch(ids: string[]) {
-  const cleanIds = [...new Set(ids.map(String).filter(Boolean))]
+async function stockBatch(entries: SiteSyncEntry[]) {
+  const cleanEntries = entries
+    .filter((entry) => entry && entry.tinyId)
     .slice(0, API_READ_BATCH_SIZE);
 
-  if (cleanIds.length === 0) {
+  if (cleanEntries.length === 0) {
     return {
       success: true,
       mode: "stock-batch",
@@ -556,35 +690,35 @@ async function stockBatch(ids: string[]) {
     let variacoesProcessadas = 0;
 
     const results = await mapWithConcurrency(
-      cleanIds,
+      cleanEntries,
       DETAIL_CONCURRENCY,
-      async (id) => {
+      async (entry) => {
         try {
-          const detail = await getDetail(id);
-          const existing = await prisma.produto.findUnique({
-            where: { id },
-            select: { id: true },
-          });
+          const detail = await getDetail(entry.tinyId);
 
-          if (existing) {
-            const result = await updateExistingProduct(id, detail);
-            return {
-              kind: result.updated ? "updated" : "ignored",
-              variationCount: result.variationCount,
-            };
+          if (entry.siteId) {
+            const existing = await prisma.produto.findUnique({
+              where: { id: entry.siteId },
+              select: { id: true },
+            });
+
+            if (!existing) {
+              const result = await createNewProduct(entry.tinyId, detail);
+              return { kind: result.created ? "created" : "ignored", variationCount: result.variationCount };
+            }
+
+            const result = await updateExistingProduct(entry.siteId, detail);
+            return { kind: result.updated ? "updated" : "ignored", variationCount: result.variationCount };
           }
 
           if (str(detail.situacao).toUpperCase() !== "E") {
-            const result = await createNewProduct(id, detail);
-            return {
-              kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
-            };
+            const result = await createNewProduct(entry.tinyId, detail);
+            return { kind: result.created ? "created" : "ignored", variationCount: result.variationCount };
           }
 
           return { kind: "ignored", variationCount: 0 };
         } catch (error) {
-          console.error(`[Olist V3] Falha no produto ${id}:`, error);
+          console.error(`[Olist V3] Falha no produto Tiny ${entry.tinyId}:`, error);
           return {
             kind: "failed",
             variationCount: 0,
@@ -610,25 +744,42 @@ async function stockBatch(ids: string[]) {
       ignorados,
       falhas,
       variacoesProcessadas,
-      processados: cleanIds.length,
+      processados: cleanEntries.length,
     };
   });
 }
 
 async function prepareFull() {
-  const siteProducts = await prisma.produto.findMany({ select: { id: true } });
-  const ids = siteProducts.map((p) => String(p.id)).filter(Boolean);
+  const siteProducts = await prisma.produto.findMany({ select: { id: true, nome: true } });
+  const maps = await buildTinyCanonicalMap();
+  const entries: SiteSyncEntry[] = [];
+
+  for (const site of siteProducts) {
+    const match = matchSiteProduct(
+      { id: String(site.id), nome: String(site.nome || "") },
+      maps
+    );
+    if (!match) continue;
+    entries.push({
+      siteId: String(site.id),
+      tinyId: match.tinyId,
+      nomeSite: String(site.nome || ""),
+      nomeTiny: str(match.tinyItem.descricao),
+      isNew: false,
+    });
+  }
+
   return {
     success: true,
     mode: "prepare-full",
-    ids,
-    total: ids.length,
+    entries,
+    total: entries.length,
     batchSize: API_READ_BATCH_SIZE,
   };
 }
 
-async function fullBatch(ids: string[]) {
-  return stockBatch(ids);
+async function fullBatch(entries: SiteSyncEntry[]) {
+  return stockBatch(entries);
 }
 
 export async function GET() {
@@ -663,18 +814,27 @@ export async function POST(request: Request) {
     }
 
     if (mode === "stock-batch" || mode === "quick" || mode === "sync") {
-      const ids = Array.isArray(body.ids)
-        ? body.ids.map((id) => str(id)).filter(Boolean)
+      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
+        ? body.entries
+            .filter((entry) => entry && typeof entry === "object")
+            .map((entry) => ({
+              siteId: entry.siteId ? str(entry.siteId) : null,
+              tinyId: str(entry.tinyId),
+              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
+              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
+              isNew: Boolean(entry.isNew),
+            }))
+            .filter((entry) => Boolean(entry.tinyId))
         : [];
 
-      if (ids.length === 0) {
+      if (entries.length === 0) {
         return NextResponse.json(
-          { success: false, error: "Nenhum ID de produto foi enviado para sincronização." },
+          { success: false, error: "Nenhuma associação entre produto do site e produto Tiny foi enviada para sincronização." },
           { status: 400 }
         );
       }
 
-      return NextResponse.json(await stockBatch(ids));
+      return NextResponse.json(await stockBatch(entries));
     }
 
     if (mode === "prepare-full") {
@@ -682,8 +842,25 @@ export async function POST(request: Request) {
     }
 
     if (mode === "full-batch") {
-      const ids = Array.isArray(body.ids) ? body.ids.map((id) => str(id)).filter(Boolean) : [];
-      return NextResponse.json(await fullBatch(ids));
+      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
+        ? body.entries
+            .filter((entry) => entry && typeof entry === "object")
+            .map((entry) => ({
+              siteId: entry.siteId ? str(entry.siteId) : null,
+              tinyId: str(entry.tinyId),
+              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
+              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
+              isNew: Boolean(entry.isNew),
+            }))
+            .filter((entry) => Boolean(entry.tinyId))
+        : [];
+      if (entries.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "Nenhuma associação de produto foi enviada para a reconciliação completa." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(await fullBatch(entries));
     }
 
     return NextResponse.json(
