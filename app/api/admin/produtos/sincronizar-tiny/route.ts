@@ -16,6 +16,9 @@ export const maxDuration = 45;
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical";
 const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
+// Janela usada apenas para descobrir produtos novos no modo rápido.
+// Não controla a atualização de estoque dos produtos já cadastrados.
+const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const API_READ_BATCH_SIZE = 26;
 const DETAIL_CONCURRENCY = 7;
 const FULL_BATCH_SIZE = 28;
