@@ -16,6 +16,7 @@ export const maxDuration = 45;
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical";
 const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
+const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 // Janela usada apenas para descobrir produtos novos no modo rápido.
 // Não controla a atualização de estoque dos produtos já cadastrados.
 const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
@@ -29,6 +30,7 @@ type AnyRecord = Record<string, any>;
 type TinyListItem = {
   id?: number;
   sku?: string | null;
+  codigo?: string | null;
   descricao?: string | null;
   tipo?: string | null;
   situacao?: string | null;
@@ -91,6 +93,7 @@ type SiteSyncEntry = {
   nomeSite?: string;
   nomeTiny?: string;
   isNew?: boolean;
+  matchMethod?: "redis" | "id" | "nome" | "similaridade" | "novo";
 };
 
 function str(value: unknown): string {
@@ -116,6 +119,39 @@ function normalize(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function tokenizeName(value: string): string[] {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((token) => token.length >= 2);
+}
+
+function nameSimilarity(a: string, b: string): number {
+  const aa = new Set(tokenizeName(a));
+  const bb = new Set(tokenizeName(b));
+  if (aa.size === 0 || bb.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of aa) if (bb.has(token)) intersection += 1;
+
+  const union = new Set([...aa, ...bb]).size;
+  const jaccard = union ? intersection / union : 0;
+
+  const na = normalize(a);
+  const nb = normalize(b);
+  const containsBonus = na.includes(nb) || nb.includes(na) ? 0.15 : 0;
+
+  return Math.min(1, jaccard + containsBonus);
+}
+
+async function getStoredTinyId(siteId: string): Promise<string | null> {
+  return redisGetJson<string>(`${SITE_TINY_MAP_PREFIX}${siteId}`).catch(() => null);
+}
+
+async function setStoredTinyId(siteId: string, tinyId: string): Promise<void> {
+  await redisSetJson(`${SITE_TINY_MAP_PREFIX}${siteId}`, tinyId, 365 * 24 * 60 * 60).catch(() => undefined);
 }
 
 function sortSizes(values: string[]): string[] {
@@ -412,11 +448,12 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; variationCount: number }> {
+async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; changed: boolean; siteStockBefore: number | null; tinyStock: number; variationCount: number }> {
   const existing = await prisma.produto.findUnique({
     where: { id },
     select: {
       id: true,
+      estoque: true,
       tamanhos: true,
       cores: true,
       estoquePorTamanho: true,
@@ -424,7 +461,7 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
     },
   });
 
-  if (!existing) return { updated: false, variationCount: 0 };
+  if (!existing) return { updated: false, changed: false, siteStockBefore: null, tinyStock: 0, variationCount: 0 };
 
   const aggregate = aggregateDetail(
     detail,
@@ -449,6 +486,9 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
 
   return {
     updated: true,
+    changed: existing.estoque !== aggregate.estoque,
+    siteStockBefore: existing.estoque,
+    tinyStock: aggregate.estoque,
     variationCount: aggregate.variationCount,
   };
 }
@@ -561,26 +601,69 @@ function buildCanonicalMaps(
   return { tinyHeaders, canonical, byId, byName };
 }
 
-function matchSiteProduct(
+async function matchSiteProduct(
   site: { id: string; nome: string },
   maps: Awaited<ReturnType<typeof buildTinyCanonicalMap>>
-): { tinyId: string; tinyItem: TinyListItem; method: "id" | "nome" } | null {
+): Promise<{ tinyId: string; tinyItem: TinyListItem; method: "redis" | "id" | "nome" | "similaridade" } | null> {
+  const storedTinyId = await getStoredTinyId(site.id);
+  if (storedTinyId) {
+    const storedItem = maps.byId.get(storedTinyId);
+    if (storedItem) {
+      return { tinyId: storedTinyId, tinyItem: storedItem, method: "redis" };
+    }
+  }
+
   const direct = maps.byId.get(site.id);
   if (direct) {
-    return { tinyId: String(site.id), tinyItem: direct, method: "id" };
+    const tinyId = String(site.id);
+    await setStoredTinyId(site.id, tinyId);
+    return { tinyId, tinyItem: direct, method: "id" };
   }
 
   const name = normalize(site.nome);
   if (!name) return null;
 
-  const candidates = maps.byName.get(name) || [];
-  if (candidates.length === 1) {
-    const id = canonicalId(candidates[0]);
-    if (id) return { tinyId: id, tinyItem: candidates[0], method: "nome" };
+  const exactCandidates = maps.byName.get(name) || [];
+  if (exactCandidates.length === 1) {
+    const tinyId = canonicalId(exactCandidates[0]);
+    if (tinyId) {
+      await setStoredTinyId(site.id, tinyId);
+      return { tinyId, tinyItem: exactCandidates[0], method: "nome" };
+    }
+  }
+
+  // Fallback local, sem gastar nenhuma leitura adicional da API V3.
+  // Isso permite associar produtos cujo nome foi editado manualmente no site.
+  let best: TinyListItem | null = null;
+  let bestScore = 0;
+  let secondScore = 0;
+
+  for (const candidate of maps.canonical) {
+    const candidateName = str(candidate.descricao);
+    if (!candidateName) continue;
+    const score = nameSimilarity(site.nome, candidateName);
+    if (score > bestScore) {
+      secondScore = bestScore;
+      bestScore = score;
+      best = candidate;
+    } else if (score > secondScore) {
+      secondScore = score;
+    }
+  }
+
+  // Exige uma margem mínima para não correr o risco de associar dois produtos
+  // parecidos incorretamente.
+  if (best && bestScore >= 0.72 && bestScore - secondScore >= 0.08) {
+    const tinyId = canonicalId(best);
+    if (tinyId) {
+      await setStoredTinyId(site.id, tinyId);
+      return { tinyId, tinyItem: best, method: "similaridade" };
+    }
   }
 
   return null;
 }
+
 
 async function findNewTinyProducts(
   siteTinyIds: Set<string>
@@ -596,18 +679,19 @@ async function findNewTinyProducts(
   });
 
   const headers = uniqueCanonicalHeaders(Array.isArray(data.itens) ? data.itens : []);
-  return headers
-    .map((item) => {
-      const tinyId = canonicalId(item);
-      if (!tinyId || siteTinyIds.has(tinyId)) return null;
-      return {
-        siteId: null,
-        tinyId,
-        nomeTiny: str(item.descricao),
-        isNew: true,
-      } satisfies SiteSyncEntry;
-    })
-    .filter((entry): entry is SiteSyncEntry => Boolean(entry));
+  const result: SiteSyncEntry[] = [];
+  for (const item of headers) {
+    const tinyId = canonicalId(item);
+    if (!tinyId || siteTinyIds.has(tinyId)) continue;
+    result.push({
+      siteId: null,
+      tinyId,
+      nomeTiny: str(item.descricao),
+      isNew: true,
+      matchMethod: "novo",
+    });
+  }
+  return result;
 }
 
 async function prepareQuick() {
@@ -622,7 +706,7 @@ async function prepareQuick() {
   let ambiguousExisting = 0;
 
   for (const site of siteProducts) {
-    const match = matchSiteProduct(
+    const match = await matchSiteProduct(
       { id: String(site.id), nome: String(site.nome || "") },
       maps
     );
@@ -642,6 +726,7 @@ async function prepareQuick() {
       nomeSite: String(site.nome || ""),
       nomeTiny: str(match.tinyItem.descricao),
       isNew: false,
+      matchMethod: match.method,
     });
   }
 
@@ -691,11 +776,27 @@ async function stockBatch(entries: SiteSyncEntry[]) {
     let ignorados = 0;
     let falhas = 0;
     let variacoesProcessadas = 0;
+    let estoqueAlterado = 0;
+    const diagnosticos: Array<Record<string, unknown>> = [];
 
-    const results = await mapWithConcurrency(
+    type BatchResult = {
+      kind: "created" | "updated" | "ignored" | "failed";
+      variationCount: number;
+      changed?: boolean;
+      siteStockBefore?: number | null;
+      tinyStock?: number;
+      siteId?: string | null;
+      tinyId?: string;
+      nomeSite?: string;
+      nomeTiny?: string;
+      matchMethod?: SiteSyncEntry["matchMethod"];
+      error?: string;
+    };
+
+    const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
       cleanEntries,
       DETAIL_CONCURRENCY,
-      async (entry) => {
+      async (entry): Promise<BatchResult> => {
         try {
           const detail = await getDetail(entry.tinyId);
 
@@ -736,6 +837,19 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       else if (result.kind === "updated") atualizados += 1;
       else if (result.kind === "ignored") ignorados += 1;
       else falhas += 1;
+      if (result.kind === "updated" && result.changed) estoqueAlterado += 1;
+      if (result.tinyId) {
+        diagnosticos.push({
+          siteId: result.siteId,
+          tinyId: result.tinyId,
+          nomeSite: result.nomeSite,
+          nomeTiny: result.nomeTiny,
+          matchMethod: result.matchMethod,
+          siteStockBefore: result.siteStockBefore,
+          tinyStock: result.tinyStock,
+          estoqueMudou: Boolean(result.changed),
+        });
+      }
       variacoesProcessadas += result.variationCount || 0;
     }
 
@@ -746,8 +860,10 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       atualizados,
       ignorados,
       falhas,
+      estoqueAlterado,
       variacoesProcessadas,
       processados: cleanEntries.length,
+      diagnosticos,
     };
   });
 }
@@ -758,7 +874,7 @@ async function prepareFull() {
   const entries: SiteSyncEntry[] = [];
 
   for (const site of siteProducts) {
-    const match = matchSiteProduct(
+    const match = await matchSiteProduct(
       { id: String(site.id), nome: String(site.nome || "") },
       maps
     );
@@ -769,6 +885,7 @@ async function prepareFull() {
       nomeSite: String(site.nome || ""),
       nomeTiny: str(match.tinyItem.descricao),
       isNew: false,
+      matchMethod: match.method,
     });
   }
 
@@ -826,6 +943,7 @@ export async function POST(request: Request) {
               nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
               nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
               isNew: Boolean(entry.isNew),
+              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
             }))
             .filter((entry) => Boolean(entry.tinyId))
         : [];
@@ -854,6 +972,7 @@ export async function POST(request: Request) {
               nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
               nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
               isNew: Boolean(entry.isNew),
+              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
             }))
             .filter((entry) => Boolean(entry.tinyId))
         : [];
