@@ -14,12 +14,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
-const QUICK_CURSOR_KEY = "jkfashion:olist:v3:sync:last";
-const DEFAULT_QUICK_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
-const OVERLAP_MS = 2 * 60 * 1000;
-const V3_READ_GAP_MS = 2050;
-const FULL_BATCH_SIZE = 5;
-const QUICK_MAX_DETAILS = 10;
+const QUICK_NEW_CURSOR_KEY = "jkfashion:olist:v3:sync:new-products-last";
+const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const API_READ_BATCH_SIZE = 28;
+const DETAIL_CONCURRENCY = 10;
+const FULL_BATCH_SIZE = 28;
 const PLACEHOLDER_IMAGE = "";
 
 type AnyRecord = Record<string, any>;
@@ -354,10 +353,29 @@ async function getDetail(id: string): Promise<TinyDetail> {
   return getOlistV3<TinyDetail>(`/produtos/${encodeURIComponent(id)}`);
 }
 
-async function delayForNextRead(lastReadAt: number): Promise<number> {
-  const wait = Math.max(0, V3_READ_GAP_MS - (Date.now() - lastReadAt));
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  return Date.now();
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  };
+
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    () => worker()
+  );
+
+  await Promise.all(workers);
+  return results;
 }
 
 async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; variationCount: number }> {
@@ -463,195 +481,130 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function quickSync() {
-  const started = Date.now();
-  const cursor = await redisGetJson<{ timestamp?: number }>(QUICK_CURSOR_KEY);
+async function prepareQuick() {
+  const siteProducts = await prisma.produto.findMany({
+    select: { id: true },
+  });
+
+  const siteIds = siteProducts
+    .map((p) => String(p.id))
+    .filter(Boolean);
+  const siteIdSet = new Set(siteIds);
+
+  const lastCreated = await redisGetJson<{ timestamp?: number }>(QUICK_NEW_CURSOR_KEY);
   const now = Date.now();
   const since = Math.max(
     0,
-    (cursor?.timestamp || now - DEFAULT_QUICK_LOOKBACK_MS) - OVERLAP_MS
+    (lastCreated?.timestamp || now - QUICK_NEW_LOOKBACK_MS)
   );
 
-  // 1) Incremental stock/product changes since the last successful quick sync.
-  // We intentionally do NOT scan the entire catalog here: that would make the
-  // normal button slow and consume the V3 read quota.
-  const siteIds = new Set(
-    (
-      await prisma.produto.findMany({
-        select: { id: true },
-      })
-    ).map((p) => String(p.id))
-  );
-
-  const changedFirst = await listProducts({
-    limit: "100",
-    offset: "0",
-    dataAlteracao: sinceDateString(since),
-  });
-
-  // New products are detected by dataCriacao. We do not need another catalog
-  // scan: the creation filter is enough to discover products created since the
-  // last successful quick sync.
+  // Stock changes do NOT reliably change dataAlteracao on the product listing.
+  // We therefore discover new products separately, then reconcile the actual
+  // stock by reading each canonical product detail in controlled batches.
   const createdFirst = await listProducts({
     limit: "100",
     offset: "0",
     dataCriacao: sinceDateString(since),
+    situacao: "A",
   });
 
-  const changedHeaders = Array.isArray(changedFirst.itens) ? changedFirst.itens : [];
-  const createdHeaders = Array.isArray(createdFirst.itens) ? createdFirst.itens : [];
+  const createdHeaders = uniqueCanonicalHeaders(
+    Array.isArray(createdFirst.itens) ? createdFirst.itens : []
+  );
 
-  const newHeaders = createdHeaders.filter((item) => {
-    const id = canonicalId(item);
-    return id && !siteIds.has(id) && str(item.situacao).toUpperCase() !== "E";
-  });
+  const newIds = createdHeaders
+    .map((item) => canonicalId(item))
+    .filter((id): id is string => Boolean(id) && !siteIdSet.has(id));
 
-  const candidates = uniqueCanonicalHeaders([...changedHeaders, ...createdHeaders]);
+  const ids = [...new Set([...siteIds, ...newIds])];
 
-  const prioritized = candidates.sort((a, b) => {
-    const aNew = newHeaders.some((n) => String(n.id) === String(a.id));
-    const bNew = newHeaders.some((n) => String(n.id) === String(b.id));
-    return Number(bNew) - Number(aNew);
-  });
+  return {
+    success: true,
+    mode: "prepare-quick",
+    ids,
+    total: ids.length,
+    existingCount: siteIds.length,
+    newCount: newIds.length,
+    batchSize: API_READ_BATCH_SIZE,
+    dataCorteNovos: new Date(since).toISOString(),
+    totalTinyNovosEncontrados: newIds.length,
+  };
+}
 
-  if (prioritized.length > QUICK_MAX_DETAILS) {
+async function stockBatch(ids: string[]) {
+  const cleanIds = [...new Set(ids.map(String).filter(Boolean))]
+    .slice(0, API_READ_BATCH_SIZE);
+
+  if (cleanIds.length === 0) {
     return {
       success: true,
-      mode: "quick",
+      mode: "stock-batch",
       criados: 0,
       atualizados: 0,
       ignorados: 0,
       falhas: 0,
       variacoesProcessadas: 0,
-      pendentes: prioritized.length,
-      message:
-        `Foram encontradas ${prioritized.length} alterações. Para evitar timeout e respeitar o limite da API, a sincronização rápida não iniciou a atualização automática. Use a reconciliação completa para processar tudo em lotes.`,
-      duracaoMs: Date.now() - started,
+      processados: 0,
     };
   }
 
-  let lastReadAt = Date.now();
-  let criados = 0;
-  let atualizados = 0;
-  let ignorados = 0;
-  let falhas = 0;
-  let variacoesProcessadas = 0;
-
-  for (const header of prioritized) {
-    const id = canonicalId(header);
-    if (!id) continue;
-
-    try {
-      lastReadAt = await delayForNextRead(lastReadAt);
-      const detail = await getDetail(id);
-
-      const exists = await prisma.produto.findUnique({
-        where: { id },
-        select: { id: true },
-      });
-
-      if (exists) {
-        const result = await updateExistingProduct(id, detail);
-        if (result.updated) atualizados += 1;
-        variacoesProcessadas += result.variationCount;
-      } else if (str(detail.situacao).toUpperCase() !== "E") {
-        const result = await createNewProduct(id, detail);
-        if (result.created) criados += 1;
-        variacoesProcessadas += result.variationCount;
-      } else {
-        ignorados += 1;
-      }
-    } catch (error) {
-      falhas += 1;
-      console.error(`[Tiny V3] Falha no produto ${id}:`, error);
-    }
-  }
-
-  // Only advance the cursor when every selected candidate was processed without
-  // error. If something failed, keep the previous cursor so the next quick sync
-  // retries that window instead of silently losing an update.
-  if (falhas === 0) {
-    await redisSetJson(QUICK_CURSOR_KEY, { timestamp: now });
-  }
-
-  return {
-    success: true,
-    mode: "quick",
-    criados,
-    atualizados,
-    ignorados,
-    falhas,
-    variacoesProcessadas,
-    pendentes: 0,
-    duracaoMs: Date.now() - started,
-    dataCorte: new Date(since).toISOString(),
-    candidatos: prioritized.length,
-  };
-}
-
-async function prepareFull() {
-  const headers = uniqueCanonicalHeaders(await listAllProductHeaders());
-  const ids = headers
-    .map((item) => canonicalId(item))
-    .filter((id): id is string => Boolean(id));
-
-  return {
-    success: true,
-    mode: "prepare-full",
-    ids,
-    total: ids.length,
-    batchSize: FULL_BATCH_SIZE,
-  };
-}
-
-async function fullBatch(ids: string[]) {
-  const cleanIds = [...new Set(ids.map(String).filter(Boolean))].slice(0, FULL_BATCH_SIZE);
-  if (cleanIds.length === 0) {
-    return { success: true, mode: "full-batch", criados: 0, atualizados: 0, falhas: 0, variacoesProcessadas: 0 };
-  }
-
   return withSyncLock(async () => {
-    let lastReadAt = Date.now();
     let criados = 0;
     let atualizados = 0;
     let ignorados = 0;
     let falhas = 0;
     let variacoesProcessadas = 0;
 
-    for (const id of cleanIds) {
-      try {
-        lastReadAt = await delayForNextRead(lastReadAt);
-        const detail = await getDetail(id);
+    const results = await mapWithConcurrency(
+      cleanIds,
+      DETAIL_CONCURRENCY,
+      async (id) => {
+        try {
+          const detail = await getDetail(id);
+          const existing = await prisma.produto.findUnique({
+            where: { id },
+            select: { id: true },
+          });
 
-        const existing = await prisma.produto.findUnique({
-          where: { id },
-          select: {
-            id: true,
-            tamanhos: true,
-            cores: true,
-          },
-        });
+          if (existing) {
+            const result = await updateExistingProduct(id, detail);
+            return {
+              kind: result.updated ? "updated" : "ignored",
+              variationCount: result.variationCount,
+            };
+          }
 
-        if (existing) {
-          const result = await updateExistingProduct(id, detail);
-          if (result.updated) atualizados += 1;
-          variacoesProcessadas += result.variationCount;
-        } else if (str(detail.situacao).toUpperCase() !== "E") {
-          const result = await createNewProduct(id, detail);
-          if (result.created) criados += 1;
-          variacoesProcessadas += result.variationCount;
-        } else {
-          ignorados += 1;
+          if (str(detail.situacao).toUpperCase() !== "E") {
+            const result = await createNewProduct(id, detail);
+            return {
+              kind: result.created ? "created" : "ignored",
+              variationCount: result.variationCount,
+            };
+          }
+
+          return { kind: "ignored", variationCount: 0 };
+        } catch (error) {
+          console.error(`[Olist V3] Falha no produto ${id}:`, error);
+          return {
+            kind: "failed",
+            variationCount: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
-      } catch (error) {
-        falhas += 1;
-        console.error(`[Tiny V3][FULL] Falha no produto ${id}:`, error);
       }
+    );
+
+    for (const result of results) {
+      if (result.kind === "created") criados += 1;
+      else if (result.kind === "updated") atualizados += 1;
+      else if (result.kind === "ignored") ignorados += 1;
+      else falhas += 1;
+      variacoesProcessadas += result.variationCount || 0;
     }
 
     return {
       success: true,
-      mode: "full-batch",
+      mode: "stock-batch",
       criados,
       atualizados,
       ignorados,
@@ -660,6 +613,22 @@ async function fullBatch(ids: string[]) {
       processados: cleanIds.length,
     };
   });
+}
+
+async function prepareFull() {
+  const siteProducts = await prisma.produto.findMany({ select: { id: true } });
+  const ids = siteProducts.map((p) => String(p.id)).filter(Boolean);
+  return {
+    success: true,
+    mode: "prepare-full",
+    ids,
+    total: ids.length,
+    batchSize: API_READ_BATCH_SIZE,
+  };
+}
+
+async function fullBatch(ids: string[]) {
+  return stockBatch(ids);
 }
 
 export async function GET() {
@@ -689,8 +658,23 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as AnyRecord;
     const mode = str(body.mode || body.action || "quick").toLowerCase();
 
-    if (mode === "quick" || mode === "sync") {
-      return NextResponse.json(await withSyncLock(quickSync));
+    if (mode === "prepare-quick") {
+      return NextResponse.json(await withSyncLock(prepareQuick));
+    }
+
+    if (mode === "stock-batch" || mode === "quick" || mode === "sync") {
+      const ids = Array.isArray(body.ids)
+        ? body.ids.map((id) => str(id)).filter(Boolean)
+        : [];
+
+      if (ids.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "Nenhum ID de produto foi enviado para sincronização." },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json(await stockBatch(ids));
     }
 
     if (mode === "prepare-full") {
