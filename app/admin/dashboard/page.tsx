@@ -397,7 +397,7 @@ export default function PaginaDashboardAdmin() {
       const batchSize = Math.max(
         1,
         Math.min(
-          15,
+          3,
           Math.floor(apiLimit / 4) || 1
         )
       )
@@ -432,6 +432,7 @@ export default function PaginaDashboardAdmin() {
               action: "batch",
               tipo,
               ids: lote,
+              apiLimit,
             }),
             cache: "no-store",
           }
