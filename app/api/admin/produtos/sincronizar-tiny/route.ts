@@ -16,9 +16,12 @@ const DEFAULT_LIMIT_PER_MINUTE = 20;
 const MAX_SEARCH_PAGES = 100;
 
 /*
- * Consultamos poucos SKUs por lote.
+ * O Tiny permite concorrência de até 1/4 do limite por minuto.
+ * Mantemos um teto próprio para não abrir chamadas demais de uma vez.
  */
-const MAX_STOCK_BATCH = 3;
+const MAX_TINY_CONCURRENCY = 15;
+const MAX_STOCK_BATCH = MAX_TINY_CONCURRENCY;
+const RATE_LIMIT_SAFETY_MS = 250;
 
 const PLACEHOLDER_IMAGE =
   "https://via.placeholder.com/300";
@@ -156,8 +159,6 @@ type TinyResponse = {
  *
  * tamanho + cor -> ID da variação no Tiny
  */
-
-
 
 type StartVariation = {
   id: string;
@@ -297,12 +298,56 @@ function normalize(
 function sleep(
   ms: number
 ): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+
   return new Promise(
     (resolve) =>
       setTimeout(
         resolve,
         ms
       )
+  );
+}
+
+function concurrentLimit(
+  apiLimit: number
+): number {
+  const safeLimit =
+    Number.isFinite(apiLimit) &&
+    apiLimit > 0
+      ? Math.floor(apiLimit / 4)
+      : 1;
+
+  return Math.max(
+    1,
+    Math.min(
+      MAX_TINY_CONCURRENCY,
+      safeLimit
+    )
+  );
+}
+
+function waitForRateLimit(
+  calls: number,
+  apiLimit: number,
+  elapsedMs = 0
+): number {
+  if (calls <= 0 || apiLimit <= 0) {
+    return 0;
+  }
+
+  const intervaloNecessario =
+    Math.ceil(
+      (calls * 60000) /
+        apiLimit
+    ) + RATE_LIMIT_SAFETY_MS;
+
+  return Math.max(
+    0,
+    intervaloNecessario -
+      Math.max(0, elapsedMs)
   );
 }
 
@@ -685,47 +730,119 @@ function gradeFromTiny(
     rawKey: unknown,
     rawValue: unknown
   ) => {
-    const key = normalize(text(rawKey));
-    const value = text(rawValue);
+    const key =
+      normalize(
+        text(
+          rawKey
+        )
+      );
 
-    if (!key || !value) return;
+    const value =
+      text(
+        rawValue
+      );
 
-    const isTamanho =
-      key.includes("tamanho") ||
-      key === "tam" ||
-      key.includes("size");
-
-    const isCor =
-      key.includes("cor") ||
-      key.includes("color") ||
-      key.includes("colour");
-
-    if (!tamanho && isTamanho) tamanho = value;
-    if (!cor && isCor) cor = value;
-  };
-
-  const inspectGradeObject = (value: unknown) => {
-    if (!value || typeof value !== "object") return;
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item && typeof item === "object") {
-          for (const [key, val] of Object.entries(item)) {
-            inspect(key, val);
-          }
-        }
-      }
+    if (
+      !key ||
+      !value
+    ) {
       return;
     }
 
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      inspect(key, val);
+    if (
+      !tamanho &&
+      (
+        key.includes(
+          "tamanho"
+        ) ||
+        key ===
+          "tam" ||
+        key.includes(
+          "size"
+        )
+      )
+    ) {
+      tamanho =
+        value;
+    }
+
+    if (
+      !cor &&
+      (
+        key.includes(
+          "cor"
+        ) ||
+        key.includes(
+          "color"
+        ) ||
+        key.includes(
+          "colour"
+        )
+      )
+    ) {
+      cor =
+        value;
     }
   };
 
-  inspectGradeObject(grade);
+  if (
+    Array.isArray(
+      grade
+    )
+  ) {
+    for (
+      const item of
+      grade
+    ) {
+      if (
+        !item ||
+        typeof item !==
+          "object" ||
+        Array.isArray(
+          item
+        )
+      ) {
+        continue;
+      }
 
-  return { tamanho, cor };
+      for (
+        const [
+          key,
+          value,
+        ] of Object.entries(
+          item
+        )
+      ) {
+        inspect(
+          key,
+          value
+        );
+      }
+    }
+  } else if (
+    grade &&
+    typeof grade ===
+      "object"
+  ) {
+    for (
+      const [
+        key,
+        value,
+      ] of Object.entries(
+        grade
+      )
+    ) {
+      inspect(
+        key,
+        value
+      );
+    }
+  }
+
+  return {
+    tamanho,
+    cor,
+  };
 }
 
 function gradeFromName(
@@ -807,67 +924,130 @@ function baseName(
 function normalizeVariations(
   raw: unknown
 ): TinyVariation[] {
-  const result: TinyVariation[] = [];
-
-  const pushCandidate = (value: unknown) => {
-    if (!value || typeof value !== "object") return;
-
-    if (Array.isArray(value)) {
-      for (const item of value) pushCandidate(item);
-      return;
-    }
-
-    const obj = value as Record<string, unknown>;
-
-    // Formato documentado pelo Tiny:
-    // { variacao: { id, codigo, grade: { Tamanho, Cor } } }
-    if (obj.variacao) {
-      pushCandidate(obj.variacao);
-      return;
-    }
-
-    // Alguns retornos podem encapsular a variação em produto/item/variant.
-    if (obj.produto && typeof obj.produto === "object") {
-      pushCandidate(obj.produto);
-      return;
-    }
-
-    if (obj.item && typeof obj.item === "object") {
-      pushCandidate(obj.item);
-      return;
-    }
-
-    if (obj.variante && typeof obj.variante === "object") {
-      pushCandidate(obj.variante);
-      return;
-    }
-
-    // Aqui finalmente temos a própria variação.
-    const id = text(obj.id);
-    if (!id) return;
-
-    result.push({
-      id,
-      codigo: text(obj.codigo),
-      nome: text(obj.nome),
-      preco: obj.preco as string | number | undefined,
-      preco_promocional:
-        obj.preco_promocional as string | number | undefined,
-      estoque_atual:
-        obj.estoque_atual as string | number | undefined,
-      grade: obj.grade as TinyGrade,
-    });
-  };
-
-  pushCandidate(raw);
-
-  const unique = new Map<string, TinyVariation>();
-  for (const item of result) {
-    const id = text(item.id);
-    if (id) unique.set(id, item);
+  if (!raw) {
+    return [];
   }
 
-  return [...unique.values()];
+  const result:
+    TinyVariation[] = [];
+
+  const pushCandidate = (
+    value: unknown
+  ) => {
+    if (
+      !value ||
+      typeof value !==
+        "object" ||
+      Array.isArray(
+        value
+      )
+    ) {
+      return;
+    }
+
+    const obj =
+      value as Record<
+        string,
+        unknown
+      >;
+
+    let candidate:
+      unknown = value;
+
+    if (
+      obj.variacao &&
+      typeof obj.variacao ===
+        "object" &&
+      !Array.isArray(
+        obj.variacao
+      )
+    ) {
+      candidate =
+        obj.variacao;
+    }
+
+    if (
+      !candidate ||
+      typeof candidate !==
+        "object" ||
+      Array.isArray(
+        candidate
+      )
+    ) {
+      return;
+    }
+
+    const variation =
+      candidate as
+        TinyVariation;
+
+    const id =
+      text(
+        variation.id
+      );
+
+    if (!id) {
+      return;
+    }
+
+    result.push(
+      variation
+    );
+  };
+
+  if (
+    Array.isArray(
+      raw
+    )
+  ) {
+    for (
+      const item of
+      raw
+    ) {
+      pushCandidate(
+        item
+      );
+    }
+  } else if (
+    typeof raw ===
+      "object"
+  ) {
+    for (
+      const item of
+      Object.values(
+        raw as Record<
+          string,
+          unknown
+        >
+      )
+    ) {
+      pushCandidate(
+        item
+      );
+    }
+  }
+
+  const unique =
+    new Map<
+      string,
+      TinyVariation
+    >();
+
+  for (
+    const item of
+    result
+  ) {
+    unique.set(
+      text(
+        item.id
+      ),
+      item
+    );
+  }
+
+  return [
+    ...unique.values(),
+  ];
 }
 
 /* =========================================================
@@ -879,141 +1059,208 @@ async function searchAllProducts(): Promise<{
   apiLimit: number;
   paginas: number;
 }> {
-  const products:
-    TinyProduct[] = [];
-
-  let page = 1;
-
-  let totalPages = 1;
+  const products: TinyProduct[] = [];
 
   let apiLimit =
     DEFAULT_LIMIT_PER_MINUTE;
 
-  while (
-    page <= totalPages &&
-    page <=
-      MAX_SEARCH_PAGES
+  /*
+   * Primeira página: precisamos dela para descobrir
+   * quantas páginas existem.
+   */
+  const primeira =
+    await tinyPost<TinyResponse>(
+      "produtos.pesquisa.php",
+      {
+        pesquisa: "",
+        pagina: 1,
+      }
+    );
+
+  apiLimit =
+    limitFromHeaders(
+      primeira.headers
+    );
+
+  const retornoInicial =
+    primeira.data.retorno;
+
+  if (
+    !retornoInicial ||
+    retornoInicial.status !== "OK"
   ) {
-    const response =
-      await tinyPost<
-        TinyResponse
-      >(
-        "produtos.pesquisa.php",
-        {
-          pesquisa: "",
-          pagina: page,
-        }
-      );
+    throw new Error(
+      tinyErrorMessage(
+        primeira.data
+      )
+    );
+  }
 
-    apiLimit =
-      limitFromHeaders(
-        response.headers
-      );
-
-    const retorno =
-      response.data
-        .retorno;
-
-    if (
-      !retorno ||
-      retorno.status !==
-        "OK"
-    ) {
-      throw new Error(
-        tinyErrorMessage(
-          response.data
-        )
-      );
-    }
-
+  const adicionarProdutos = (
+    data: TinyResponse
+  ) => {
     for (
       const item of
-      retorno.produtos ??
-      []
+        data.retorno?.produtos ?? []
     ) {
       const product =
         item?.produto;
 
-      if (
-        !product?.id
-      ) {
+      if (!product?.id) {
         continue;
       }
 
-      /*
-       * Excluídos não entram.
-       *
-       * Ativos e inativos entram.
-       */
       if (
         normalize(
-          text(
-            product.situacao
-          )
+          text(product.situacao)
         ) === "e"
       ) {
         continue;
       }
 
-      products.push(
-        product
+      products.push(product);
+    }
+  };
+
+  adicionarProdutos(
+    primeira.data
+  );
+
+  const totalPages =
+    Math.min(
+      MAX_SEARCH_PAGES,
+      toNumber(
+        retornoInicial.numero_paginas
+      ) || 1
+    );
+
+  if (totalPages <= 1) {
+    return {
+      products: deduplicarProdutos(products),
+      apiLimit,
+      paginas: totalPages,
+    };
+  }
+
+  const concurrency =
+    concurrentLimit(apiLimit);
+
+  /*
+   * As páginas 2..N são independentes.
+   * Em vez de aguardar 1,5 s entre cada uma,
+   * buscamos em ondas respeitando a concorrência
+   * máxima do Tiny e aguardando o intervalo
+   * necessário entre ondas.
+   */
+  for (
+    let paginaInicial = 2;
+    paginaInicial <= totalPages;
+    paginaInicial += concurrency
+  ) {
+    const paginasDoLote =
+      Array.from(
+        { length: concurrency },
+        (_, index) =>
+          paginaInicial + index
+      ).filter(
+        (pagina) =>
+          pagina <= totalPages
       );
+
+    const startedAt =
+      Date.now();
+
+    const respostas =
+      await Promise.all(
+        paginasDoLote.map(
+          (pagina) =>
+            tinyPost<TinyResponse>(
+              "produtos.pesquisa.php",
+              {
+                pesquisa: "",
+                pagina,
+              }
+            )
+        )
+      );
+
+    for (
+      const resposta of respostas
+    ) {
+      const retorno =
+        resposta.data.retorno;
+
+      if (
+        !retorno ||
+        retorno.status !== "OK"
+      ) {
+        throw new Error(
+          tinyErrorMessage(
+            resposta.data
+          )
+        );
+      }
+
+      adicionarProdutos(
+        resposta.data
+      );
+
+      const headerLimit =
+        limitFromHeaders(
+          resposta.headers
+        );
+
+      if (headerLimit > 0) {
+        apiLimit = Math.min(
+          apiLimit,
+          headerLimit
+        );
+      }
     }
 
-    totalPages =
-      toNumber(
-        retorno.numero_paginas
-      ) || page;
-
-    page++;
-
     if (
-      page <=
+      paginaInicial +
+        concurrency <=
       totalPages
     ) {
       await sleep(
-        1500
-      );
-    }
-  }
-
-  /*
-   * Remove duplicidades.
-   */
-  const unique =
-    new Map<
-      string,
-      TinyProduct
-    >();
-
-  for (
-    const product of
-    products
-  ) {
-    const id =
-      text(
-        product.id
-      );
-
-    if (id) {
-      unique.set(
-        id,
-        product
+        waitForRateLimit(
+          paginasDoLote.length,
+          apiLimit,
+          Date.now() - startedAt
+        )
       );
     }
   }
 
   return {
     products:
-      [
-        ...unique.values(),
-      ],
-
+      deduplicarProdutos(products),
     apiLimit,
-
-    paginas:
-      totalPages,
+    paginas: totalPages,
   };
+}
+
+function deduplicarProdutos(
+  products: TinyProduct[]
+): TinyProduct[] {
+  const unique =
+    new Map<string, TinyProduct>();
+
+  for (
+    const product of products
+  ) {
+    const id =
+      text(product.id);
+
+    if (id) {
+      unique.set(id, product);
+    }
+  }
+
+  return [
+    ...unique.values(),
+  ];
 }
 
 function limitFromHeaders(
@@ -1044,8 +1291,8 @@ function limitFromHeaders(
  * N = produto simples
  * P = produto pai
  *
- * V será recuperada posteriormente
- * pelo DETAILS.
+ * V é relacionada ao P diretamente pela pesquisa quando o Tiny
+ * informa idProdutoPai. DETAILS fica apenas como fallback.
  * =======================================================*/
 
 function buildStartGroups(
@@ -1237,17 +1484,37 @@ function buildStartGroups(
         "P",
 
       /*
-       * As V serão preenchidas em DETAILS.
+       * As V são vinculadas abaixo pela pesquisa do catálogo.
+       * DETAILS será usado somente se nenhuma V for encontrada.
        */
       variations: [],
     });
   }
 
   /*
-   * Apenas contamos as V.
-   *
-   * Elas NÃO viram grupos.
+   * VARIAÇÕES V:
+   * A pesquisa do catálogo já informa o idProdutoPai.
+   * Quando conseguimos relacionar a V ao P, montamos o grupo
+   * imediatamente e evitamos uma chamada extra de DETAILS.
+   * O DETAILS continua como fallback somente para P sem V.
    */
+  const paisPorId =
+    new Map<string, StartGroup>();
+
+  for (
+    const group of groups
+  ) {
+    if (
+      group.tipoVariacao ===
+      "P"
+    ) {
+      paisPorId.set(
+        group.id,
+        group
+      );
+    }
+  }
+
   variacoes =
     products.filter(
       (product) =>
@@ -1256,6 +1523,122 @@ function buildStartGroups(
         ).toUpperCase() ===
         "V"
     ).length;
+
+  for (
+    const product of
+    products
+  ) {
+    if (
+      text(
+        product.tipoVariacao
+      ).toUpperCase() !==
+      "V"
+    ) {
+      continue;
+    }
+
+    const variationId =
+      text(
+        product.id
+      );
+
+    const parentId =
+      text(
+        product.idProdutoPai
+      );
+
+    if (
+      !variationId ||
+      !parentId
+    ) {
+      continue;
+    }
+
+    const parent =
+      paisPorId.get(
+        parentId
+      );
+
+    if (!parent) {
+      continue;
+    }
+
+    const duplicate =
+      parent.variations.some(
+        (variation) =>
+          variation.id ===
+          variationId
+      );
+
+    if (duplicate) {
+      continue;
+    }
+
+    let grade =
+      gradeFromTiny(
+        product.grade
+      );
+
+    if (
+      (!grade.tamanho ||
+        !grade.cor) &&
+      text(product.nome)
+    ) {
+      const gradeNome =
+        gradeFromName(
+          text(product.nome)
+        );
+
+      if (!grade.tamanho) {
+        grade.tamanho =
+          gradeNome.tamanho;
+      }
+
+      if (!grade.cor) {
+        grade.cor =
+          gradeNome.cor;
+      }
+    }
+
+    parent.variations.push({
+      id: variationId,
+      codigo: text(
+        product.codigo
+      ),
+      tamanho: grade.tamanho,
+      cor: grade.cor,
+    });
+  }
+
+  for (
+    const group of groups
+  ) {
+    if (
+      group.tipoVariacao !==
+      "P"
+    ) {
+      continue;
+    }
+
+    group.variations.sort(
+      (a, b) => {
+        const pesoA =
+          tamanhoPeso(a.tamanho);
+
+        const pesoB =
+          tamanhoPeso(b.tamanho);
+
+        if (pesoA !== pesoB) {
+          return pesoA - pesoB;
+        }
+
+        return a.cor.localeCompare(
+          b.cor,
+          "pt-BR"
+        );
+      }
+    );
+  }
 
   /*
    * Ordena os grupos.
@@ -1613,89 +1996,108 @@ function aggregateStock(
     saldo: number;
   }>
 ) {
-  const porTamanho = new Map<string, number>();
-  const porCor = new Map<string, number>();
-  const porCorTamanho = new Map<string, Map<string, number>>();
+  const porTamanho =
+    new Map<
+      string,
+      number
+    >();
 
-  let estoque = 0;
+  const porCor =
+    new Map<
+      string,
+      number
+    >();
 
-  for (const item of values) {
-    const saldo = Number(item.saldo) || 0;
-    const tamanho = text(item.tamanho);
-    const cor = text(item.cor);
+  let estoque =
+    0;
 
-    estoque += saldo;
+  for (
+    const item of
+    values
+  ) {
+    estoque +=
+      item.saldo;
 
-    if (tamanho) {
+    if (
+      item.tamanho
+    ) {
       porTamanho.set(
-        tamanho,
-        (porTamanho.get(tamanho) ?? 0) + saldo
+        item.tamanho,
+        (
+          porTamanho.get(
+            item.tamanho
+          ) ?? 0
+        ) +
+          item.saldo
       );
     }
 
-    if (cor) {
+    if (
+      item.cor
+    ) {
       porCor.set(
-        cor,
-        (porCor.get(cor) ?? 0) + saldo
-      );
-    }
-
-    // Mantém exatamente a matriz COR -> TAMANHO -> quantidade.
-    if (cor && tamanho) {
-      if (!porCorTamanho.has(cor)) {
-        porCorTamanho.set(cor, new Map<string, number>());
-      }
-
-      const tamanhosDaCor = porCorTamanho.get(cor)!;
-      tamanhosDaCor.set(
-        tamanho,
-        (tamanhosDaCor.get(tamanho) ?? 0) + saldo
+        item.cor,
+        (
+          porCor.get(
+            item.cor
+          ) ?? 0
+        ) +
+          item.saldo
       );
     }
   }
 
-  const tamanhos = ordenarTamanhos([...porTamanho.keys()]);
+  const tamanhos =
+    ordenarTamanhos(
+      [
+        ...porTamanho.keys(),
+      ]
+    );
 
-  const cores = [...porCor.keys()].sort((a, b) =>
-    a.localeCompare(b, "pt-BR")
-  );
-
-  const estoquePorTamanho = Object.fromEntries(
-    tamanhos.map((tamanho) => [
-      tamanho,
-      Math.round(porTamanho.get(tamanho) ?? 0),
-    ])
-  );
-
-  const estoquePorCor = Object.fromEntries(
-    cores.map((cor) => {
-      const matriz = porCorTamanho.get(cor);
-
-      // Produtos antigos/simples sem dimensão de tamanho continuam
-      // usando o formato numérico legado.
-      if (!matriz || matriz.size === 0) {
-        return [cor, Math.round(porCor.get(cor) ?? 0)];
-      }
-
-      const linha = Object.fromEntries(
-        tamanhos
-          .filter((tamanho) => matriz.has(tamanho))
-          .map((tamanho) => [
-            tamanho,
-            Math.round(matriz.get(tamanho) ?? 0),
-          ])
-      );
-
-      return [cor, linha];
-    })
-  );
+  const cores =
+    [
+      ...porCor.keys(),
+    ].sort(
+      (a, b) =>
+        a.localeCompare(
+          b,
+          "pt-BR"
+        )
+    );
 
   return {
-    estoque: Math.round(estoque),
+    estoque:
+      Math.round(
+        estoque
+      ),
+
     tamanhos,
+
     cores,
-    estoquePorTamanho,
-    estoquePorCor,
+
+    estoquePorTamanho:
+      Object.fromEntries(
+        tamanhos.map(
+          (tamanho) => [
+            tamanho,
+            porTamanho.get(
+              tamanho
+            ) ?? 0,
+          ]
+        )
+      ),
+
+    estoquePorCor:
+      Object.fromEntries(
+        cores.map(
+          (cor) => [
+            cor,
+            porCor.get(
+              cor
+            ) ?? 0,
+          ]
+        )
+      ),
   };
 }
 
@@ -1907,20 +2309,6 @@ export async function POST(
           product
         );
 
-      console.log(
-        `[TINY DETAILS] ${group.nome} (${group.id}) -> variações recebidas: ${Array.isArray(product.variacoes) ? product.variacoes.length : 0}; variações reconhecidas: ${detailedGroup.variations.length}`
-      );
-
-      if (
-        detailedGroup.variations.length === 0 &&
-        Array.isArray(product.variacoes) &&
-        product.variacoes.length > 0
-      ) {
-        console.warn(
-          `[TINY DETAILS] Variações retornadas pelo Tiny, mas nenhuma foi normalizada para ${group.nome} (${group.id}).`
-        );
-      }
-
       return NextResponse.json(
         {
           success:
@@ -1972,17 +2360,13 @@ export async function POST(
       const offset =
         Math.max(
           0,
-          Number(
-            body?.offset
-          ) || 0
+          Number(body?.offset) || 0
         );
 
       const requested =
         Math.max(
           1,
-          Number(
-            body?.batchSize
-          ) ||
+          Number(body?.batchSize) ||
             MAX_STOCK_BATCH
         );
 
@@ -1995,121 +2379,98 @@ export async function POST(
       const batch =
         variations.slice(
           offset,
-          offset +
-            batchSize
+          offset + batchSize
         ) as StartVariation[];
 
-      if (
-        batch.length ===
-        0
-      ) {
-        return NextResponse.json(
-          {
-            success:
-              true,
-
-            action:
-              "stock",
-
-            stocks:
-              [],
-
-            nextOffset:
-              offset,
-
-            done:
-              true,
-
-            waitMs:
-              0,
-          }
-        );
+      if (batch.length === 0) {
+        return NextResponse.json({
+          success: true,
+          action: "stock",
+          stocks: [],
+          nextOffset: offset,
+          done: true,
+          waitMs: 0,
+        });
       }
 
       const startedAt =
         Date.now();
 
-      const results:
-        StockResult[] =
-        [];
+      /*
+       * As consultas de estoque são independentes.
+       * O frontend já calcula o lote respeitando 1/4
+       * do limite da conta, portanto podemos executar
+       * as chamadas simultaneamente aqui.
+       */
+      const results =
+        await Promise.all(
+          batch.map(
+            async (variation) => {
+              const id =
+                text(variation.id);
+
+              if (!id) {
+                return null;
+              }
+
+              return getStock(id);
+            }
+          )
+        );
+
+      const stocks =
+        results.filter(
+          (value): value is StockResult =>
+            Boolean(value)
+        );
+
+      const elapsedMs =
+        Date.now() - startedAt;
 
       /*
-       * SEM Promise.all.
-       *
-       * Uma chamada por vez.
+       * Não colocamos mais 2 s entre cada SKU.
+       * A espera agora considera somente a quantidade
+       * de chamadas realizadas e o limite real da conta.
        */
-      for (
-        const variation of
-        batch
+      let apiLimit =
+        DEFAULT_LIMIT_PER_MINUTE;
+
+      /*
+       * O limite é retornado nos headers de cada chamada.
+       * Como getStock já extrai o saldo, o melhor
+       * ponto para limitar aqui é o valor informado pelo
+       * frontend via apiLimit. Se não vier, usamos 20.
+       */
+      const providedApiLimit =
+        Number(body?.apiLimit);
+
+      if (
+        Number.isFinite(providedApiLimit) &&
+        providedApiLimit > 0
       ) {
-        const id =
-          text(
-            variation.id
-          );
-
-        if (!id) {
-          continue;
-        }
-
-        /*
-         * Sempre consulta o
-         * estoque real.
-         */
-        const stock =
-          await getStock(
-            id
-          );
-
-        results.push(
-          stock
-        );
-
-        /*
-         * Espaço entre chamadas
-         * individuais.
-         */
-        await sleep(
-          2000
-        );
+        apiLimit = providedApiLimit;
       }
 
-      /*
-       * Pausa segura antes do lote seguinte.
-       */
       const waitMs =
-        Math.max(
-          8000,
-          results.length *
-            3000
+        waitForRateLimit(
+          stocks.length,
+          apiLimit,
+          elapsedMs
         );
 
-      return NextResponse.json(
-        {
-          success:
-            true,
-
-          action:
-            "stock",
-
-          stocks:
-            results,
-
-          nextOffset:
-            offset +
-            batch.length,
-
-          done:
-            offset +
-              batch.length >=
-            variations.length,
-
-          waitMs,
-
-          duracaoMs:
-            Date.now() -
-            startedAt,
-        }
-      );
+      return NextResponse.json({
+        success: true,
+        action: "stock",
+        stocks,
+        nextOffset:
+          offset + batch.length,
+        done:
+          offset + batch.length >=
+          variations.length,
+        waitMs,
+        duracaoMs: elapsedMs,
+        apiLimit,
+      });
     }
 
     /* =====================================================
@@ -2199,47 +2560,9 @@ export async function POST(
           }
         );
 
-      let stocksFinais = stocks;
-
-      // Fallback de segurança: caso o frontend chegue ao FINISH sem
-      // consultar estoque, recuperamos as variações e seus saldos aqui.
-      // Normalmente este trecho não é executado, pois a etapa STOCK
-      // já deve ter preenchido `stocks`.
-      if (
-        stocksFinais.length === 0 &&
-        String(group.tipoVariacao || "").toUpperCase() === "P"
-      ) {
-        try {
-          const detalhe = await getProductDetails(group.id);
-          const grupoDetalhado = buildDetailedGroup(group, detalhe);
-
-          if (grupoDetalhado.variations.length > 0) {
-            const recuperados: Array<{ id: string; saldo: number; tamanho: string; cor: string }> = [];
-
-            for (const variation of grupoDetalhado.variations) {
-              const stock = await getStock(variation.id);
-              recuperados.push({
-                id: variation.id,
-                saldo: stock.saldo,
-                tamanho: variation.tamanho,
-                cor: variation.cor,
-              });
-              await sleep(2000);
-            }
-
-            stocksFinais = recuperados;
-          }
-        } catch (fallbackError) {
-          console.warn(
-            `[TINY FINISH] Falha no fallback de estoque para ${group.nome}:`,
-            fallbackError
-          );
-        }
-      }
-
       const aggregate =
         aggregateStock(
-          stocksFinais
+          stocks
         );
 
       const imagens =
@@ -2304,8 +2627,25 @@ export async function POST(
         if (
           existente
         ) {
-          // O produto já existe; nesta modalidade não sobrescrevemos
-          // os dados manuais, apenas consideramos a sincronização concluída.
+          /*
+           * Mesmo quando o produto já existe,
+           * aproveitamos a sincronização para
+           * atualizar o vínculo com o Tiny.
+           *
+           * Isso é importante para produtos
+           * antigos que ainda não possuíam
+           * tinyVariacoes.
+           */
+          await prisma.produto.update(
+            {
+              where: {
+                id:
+                  existente.id,
+              },
+
+              data: {},
+            }
+          );
 
           return NextResponse.json(
             {
@@ -2317,6 +2657,7 @@ export async function POST(
 
               status:
                 "ignored",
+
             }
           );
         }
@@ -2449,6 +2790,16 @@ export async function POST(
 
       /* ===================================================
        * GERAL
+       *
+       * Comportamento atual do botão:
+       * - produto já cadastrado: atualiza SOMENTE o estoque
+       *   e suas informações de variação vindas do Tiny;
+       * - produto inexistente: cadastra automaticamente
+       *   o novo produto usando os dados do Tiny.
+       *
+       * Os dados manuais do produto existente (categoria,
+       * faixa etária, preço cadastrado no site, descrição,
+       * imagens etc.) não são sobrescritos.
        * =================================================*/
 
       if (
@@ -2462,18 +2813,6 @@ export async function POST(
             },
 
             data: {
-              nome:
-                group.nome,
-
-              descricao:
-                group.descricao,
-
-              preco:
-                group.preco,
-
-              precoPromocional:
-                group.precoPromocional,
-
               estoque:
                 aggregate.estoque,
 
@@ -2488,18 +2827,6 @@ export async function POST(
 
               estoquePorCor:
                 aggregate.estoquePorCor,
-
-              ...(imagens.length >
-              0
-                ? {
-                    imagemUrl:
-                      imageUrl,
-
-                    imagens:
-                      imageData,
-                  }
-                : {}),
-
             },
           }
         );
