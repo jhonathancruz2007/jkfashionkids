@@ -332,64 +332,75 @@ export default function PaginaDashboardAdmin() {
   }
 
   // ============================================================
-  // SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3
-  //
-  // Esta versão usa exclusivamente GET /estoque/{idProduto}.
-  // O endpoint oficial retorna o saldo do produto diretamente (saldo),
-  // evitando o estoque incompleto/zero do detalhe do produto.
-  // Para produtos existentes, atualizamos SOMENTE Produto.estoque.
+  // SINCRONIZAÇÃO OLIST/TINY API V3
   // ============================================================
+  // A API V3 não usa dataAlteracao para refletir necessariamente mudanças
+  // de estoque. Por isso, a sincronização de estoque consulta os produtos do
+  // site em lotes de até 28 detalhes por minuto, respeitando o limite de 30
+  // leituras/minuto do plano Construa. A listagem de novos produtos usa
+  // uma leitura adicional no primeiro passo.
   const handleSincronizarTiny = async () => {
     if (sincronizandoTiny) return
-
-    const produtosParaSincronizar = produtos
-      .filter((produto) => /^\d+$/.test(String(produto.id)))
-      .map((produto) => ({
-        siteId: String(produto.id),
-        tinyId: String(produto.id),
-        nome: produto.nome,
-      }))
-
-    if (produtosParaSincronizar.length === 0) {
-      exibirToast("Nenhum produto com ID Tiny válido foi encontrado.", "error")
-      return
-    }
 
     setSincronizandoTiny(true)
 
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
-      console.log(`Produtos a conferir: ${produtosParaSincronizar.length}`)
 
-      // O plano Construa tem limite publicado de 30 leituras/minuto.
-      // Usamos 28 por lote e deixamos mais de 60s entre lotes para não ultrapassar.
-      const batchSize = 28
-      const waitBetweenBatchesMs = 62000
-      const totalBatches = Math.ceil(produtosParaSincronizar.length / batchSize)
+      const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "prepare-stock" }),
+        cache: "no-store",
+      })
 
-      let processados = 0
+      const prepareRaw = await prepareRes.text()
+      let prepareData: any = {}
+      try {
+        prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
+      } catch {
+        throw new Error(`O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`)
+      }
+
+      if (prepareData.code === "NOT_CONNECTED") {
+        exibirToast("Conecte o Olist/Tiny primeiro. Abrindo autorização...", "error")
+        window.location.href = "/api/tiny/oauth"
+        return
+      }
+
+      if (!prepareRes.ok || !prepareData.success) {
+        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`)
+      }
+
+      const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
+      if (entries.length === 0) {
+        exibirToast("Nenhum produto cadastrado para sincronizar.", "success")
+        return
+      }
+
+      // O limite do plano Construa é 30 leituras/minuto por conta.
+      // Processamos poucos produtos por requisição do nosso backend,
+      // com espaçamento controlado no servidor. Assim não dependemos
+      // de dezenas de chamadas simultâneas do navegador.
+      const batchSize = Math.max(1, Math.min(6, Number(prepareData.batchSize) || 6))
+      const totalBatches = Math.ceil(entries.length / batchSize)
+
       let atualizados = 0
       let estoqueAlterado = 0
-      let semAlteracao = 0
+      let mantidos = 0
       let falhas = 0
-      let rateLimited = 0
+      let processados = 0
 
-      for (let inicio = 0; inicio < produtosParaSincronizar.length; inicio += batchSize) {
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
         const loteNumero = Math.floor(inicio / batchSize) + 1
-        const lote = produtosParaSincronizar.slice(inicio, inicio + batchSize)
 
-        if (loteNumero > 1) {
-          exibirToast(`Aguardando o limite da API... ${loteNumero}/${totalBatches}. Próximo lote em 62s.`)
-          await new Promise((resolve) => setTimeout(resolve, waitBetweenBatchesMs))
-        }
-
-        exibirToast(`Consultando estoque ${loteNumero}/${totalBatches}: ${processados}/${produtosParaSincronizar.length}`)
-        console.log(`=== LOTE ${loteNumero}/${totalBatches} ===`)
+        exibirToast(`Sincronizando estoque: lote ${loteNumero}/${totalBatches} (${processados}/${entries.length})...`)
 
         const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "stock-only-batch", entries: lote }),
+          body: JSON.stringify({ mode: "stock-batch", entries: lote }),
           cache: "no-store",
         })
 
@@ -412,40 +423,186 @@ export default function PaginaDashboardAdmin() {
 
         atualizados += Number(batchData.atualizados) || 0
         estoqueAlterado += Number(batchData.estoqueAlterado) || 0
-        semAlteracao += Number(batchData.semAlteracao) || 0
+        mantidos += Number(batchData.mantidos) || 0
         falhas += Number(batchData.falhas) || 0
-        rateLimited += Number(batchData.rateLimited) || 0
         processados += Number(batchData.processados) || lote.length
 
         if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
           console.table(batchData.diagnosticos)
         }
-
-        // Se a API devolver 429, não repetimos imediatamente: isso agravaria o limite.
-        // O usuário verá no resumo quantos ficaram pendentes sem alteração.
       }
 
       await carregarProdutos()
 
       const mensagem =
-        `Estoque sincronizado: ${estoqueAlterado} alterados, ${semAlteracao} já iguais, ` +
-        `${falhas} falhas, ${rateLimited} limitados pela API em ${processados} produtos.`
+        `Estoque sincronizado: ${estoqueAlterado} alterados, ${mantidos} já estavam iguais, ` +
+        `${falhas} falhas. ${processados} produtos verificados.`
 
-      exibirToast(mensagem, falhas > 0 || rateLimited > 0 ? "error" : "success")
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+
       console.log("=== SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 CONCLUÍDA ===", {
-        totalProdutos: produtosParaSincronizar.length,
-        processados,
+        totalProdutos: entries.length,
         atualizados,
         estoqueAlterado,
-        semAlteracao,
+        mantidos,
         falhas,
-        rateLimited,
       })
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
       console.error(error)
       exibirToast(
         error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque.",
+        "error"
+      )
+    } finally {
+      setSincronizandoTiny(false)
+    }
+  }
+
+  // RECONCILIAÇÃO COMPLETA OLIST/TINY V3
+  // Mantida separada da sincronização rápida para conferir todo o catálogo
+  // quando necessário. Usa as associações devolvidas pelo endpoint prepare-full.
+  const handleReconcilacaoCompletaTiny = async () => {
+    if (sincronizandoTiny) return
+
+    setSincronizandoTiny(true)
+
+    try {
+      console.log("=== INÍCIO DA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+
+      const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "prepare-full" }),
+        cache: "no-store",
+      })
+
+      const prepareRaw = await prepareRes.text()
+      let prepareData: any = {}
+      try {
+        prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
+      } catch {
+        throw new Error(
+          `O servidor não retornou JSON válido ao preparar a reconciliação. HTTP ${prepareRes.status}`
+        )
+      }
+
+      if (prepareData.code === "NOT_CONNECTED") {
+        exibirToast("Conecte o Olist/Tiny primeiro. Abrindo autorização...", "error")
+        window.location.href = "/api/tiny/oauth"
+        return
+      }
+
+      if (!prepareRes.ok || !prepareData.success) {
+        throw new Error(
+          prepareData.error ||
+          `Erro HTTP ${prepareRes.status} ao preparar a reconciliação.`
+        )
+      }
+
+      const entries = Array.isArray(prepareData.entries)
+        ? prepareData.entries
+            .filter((entry: any) => entry && typeof entry === "object" && entry.tinyId)
+            .map((entry: any) => ({
+              siteId: entry.siteId ? String(entry.siteId) : null,
+              tinyId: String(entry.tinyId),
+              nomeSite: entry.nomeSite ? String(entry.nomeSite) : undefined,
+              nomeTiny: entry.nomeTiny ? String(entry.nomeTiny) : undefined,
+              isNew: Boolean(entry.isNew),
+            }))
+        : []
+
+      if (entries.length === 0) {
+        exibirToast("Nenhum produto com correspondência foi encontrado para a reconciliação.", "error")
+        return
+      }
+
+      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const totalBatches = Math.ceil(entries.length / batchSize)
+
+      let criados = 0
+      let atualizados = 0
+      let ignorados = 0
+      let falhas = 0
+      let variacoes = 0
+      let processados = 0
+
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
+        const loteNumero = Math.floor(inicio / batchSize) + 1
+
+        if (loteNumero > 1) {
+          const esperaMs = 12000
+          exibirToast(
+            `Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
+          )
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+        }
+
+        exibirToast(
+          `Reconciliação lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos processados...`
+        )
+
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "full-batch", entries: lote }),
+          cache: "no-store",
+        })
+
+        const batchRaw = await batchRes.text()
+        let batchData: any = {}
+        try {
+          batchData = batchRaw ? JSON.parse(batchRaw) : {}
+        } catch {
+          throw new Error(
+            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`
+          )
+        }
+
+        if (batchData.code === "NOT_CONNECTED") {
+          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
+          return
+        }
+
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(
+            batchData.error ||
+            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`
+          )
+        }
+
+        criados += Number(batchData.criados) || 0
+        atualizados += Number(batchData.atualizados) || 0
+        ignorados += Number(batchData.ignorados) || 0
+        falhas += Number(batchData.falhas) || 0
+        variacoes += Number(batchData.variacoesProcessadas) || 0
+        processados += Number(batchData.processados) || lote.length
+      }
+
+      await carregarProdutos()
+
+      const mensagem =
+        `Reconciliação completa concluída: ${criados} novos, ${atualizados} atualizados, ` +
+        `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
+
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+
+      console.log("=== RECONCILIAÇÃO COMPLETA OLIST/TINY V3 CONCLUÍDA ===", {
+        totalProdutos: entries.length,
+        criados,
+        atualizados,
+        ignorados,
+        falhas,
+        variacoes,
+      })
+    } catch (error) {
+      console.error("=== ERRO NA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+      console.error(error)
+      exibirToast(
+        error instanceof Error
+          ? error.message
+          : "Erro de conexão durante a reconciliação completa.",
         "error"
       )
     } finally {
@@ -1614,7 +1771,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque com Olist/Tiny"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando estoque..." : "Sincronizar Estoque Olist/Tiny"}</span>
                 </button>
 
                 <button
@@ -1662,7 +1819,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. O botão consulta o saldo real de cada produto e atualiza somente o estoque.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre e edite seus produtos. O botão de sincronização consulta o saldo de estoque do Olist/Tiny e atualiza somente o campo de estoque dos produtos já cadastrados.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1683,7 +1840,7 @@ export default function PaginaDashboardAdmin() {
                   className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque com Olist/Tiny"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando estoque..." : "Sincronizar Estoque Olist/Tiny"}</span>
                 </button>
 
                 <button
