@@ -13,429 +13,99 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
-const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
-const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical";
-const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
-const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
-// Janela usada apenas para descobrir produtos novos no modo rápido.
-// Não controla a atualização de estoque dos produtos já cadastrados.
-const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
-const API_READ_BATCH_SIZE = 26;
-const DETAIL_CONCURRENCY = 7;
-const FULL_BATCH_SIZE = 28;
-const PLACEHOLDER_IMAGE = "";
+const SYNC_LOCK_KEY = "jkfashion:olist:v3:stock-sync:lock";
+const RATE_WINDOW_KEY = "jkfashion:olist:v3:stock-sync:rate-window";
+const RATE_WINDOW_MS = 60_000;
+const MAX_READS_PER_WINDOW = 28;
+const DEFAULT_NEXT_BATCH_WAIT_MS = 62_000;
+const BATCH_SIZE = 28;
+const STOCK_CONCURRENCY = 20;
 
 type AnyRecord = Record<string, any>;
 
-type TinyListItem = {
-  id?: number;
-  sku?: string | null;
-  codigo?: string | null;
-  descricao?: string | null;
-  tipo?: string | null;
-  situacao?: string | null;
-  dataCriacao?: string | null;
-  dataAlteracao?: string | null;
-  tipoVariacao?: string | null;
-  produtoPai?: { id?: number | null } | null;
-};
-
-type TinyGrade = Array<{ chave?: string | null; valor?: string | null }> | null | undefined;
-
-type TinyVariation = {
-  id?: number;
-  descricao?: string | null;
-  sku?: string | null;
-  gtin?: string | null;
-  estoque?: { quantidade?: number | null } | null;
-  grade?: TinyGrade;
-};
-
-type TinyDetail = {
-  id?: number | null;
-  sku?: string | null;
-  descricao?: string | null;
-  tipo?: string | null;
-  descricaoComplementar?: string | null;
-  situacao?: string | null;
-  categoria?: { id?: number | null; nome?: string | null } | null;
-  precos?: {
-    preco?: number | null;
-    precoPromocional?: number | null;
-  } | null;
-  estoque?: {
-    controlar?: boolean | null;
-    quantidade?: number | null;
-  } | null;
-  anexos?: Array<{ id?: number; url?: string; externo?: boolean }> | null;
-  variacoes?: TinyVariation[] | null;
-  tipoVariacao?: string | null;
-  produtoPai?: { id?: number | null; sku?: string | null } | null;
-};
-
-type TinyListResponse = {
-  itens?: TinyListItem[];
-  paginacao?: { limit?: number; offset?: number; total?: number };
-};
-
-type StockAggregate = {
-  estoque: number;
-  tamanhos: string[];
-  cores: string[];
-  estoquePorTamanho: Record<string, number>;
-  estoquePorCor: Record<string, any>;
-  variationCount: number;
-  matrixComplete: boolean;
-};
-
 type SiteSyncEntry = {
-  siteId: string | null;
+  siteId: string;
   tinyId: string;
-  nomeSite?: string;
-  nomeTiny?: string;
-  isNew?: boolean;
-  matchMethod?: "redis" | "id" | "nome" | "similaridade" | "novo";
+  nomeSite: string;
+};
+
+type TinyStockResponse = {
+  id?: number | null;
+  nome?: string | null;
+  codigo?: string | null;
+  saldo?: number | null;
+  reservado?: number | null;
+  disponivel?: number | null;
 };
 
 function str(value: unknown): string {
   return value == null ? "" : String(value).trim();
 }
 
-function num(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+function nonNegativeNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.round(value);
+  }
   if (value == null || value === "") return null;
   const parsed = Number(String(value).replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
 }
 
-function safeNonNegativeInt(value: unknown): number | null {
-  const n = num(value);
-  if (n == null || n < 0) return null;
-  return Math.round(n);
+function isNumericTinyId(value: string): boolean {
+  return /^\d+$/.test(value) && Number(value) > 0;
 }
 
-function normalize(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function tokenizeName(value: string): string[] {
-  return normalize(value)
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(" ")
-    .filter((token) => token.length >= 2);
-}
-
-function nameSimilarity(a: string, b: string): number {
-  const aa = new Set(tokenizeName(a));
-  const bb = new Set(tokenizeName(b));
-  if (aa.size === 0 || bb.size === 0) return 0;
-
-  let intersection = 0;
-  for (const token of aa) if (bb.has(token)) intersection += 1;
-
-  const union = new Set([...aa, ...bb]).size;
-  const jaccard = union ? intersection / union : 0;
-
-  const na = normalize(a);
-  const nb = normalize(b);
-  const containsBonus = na.includes(nb) || nb.includes(na) ? 0.15 : 0;
-
-  return Math.min(1, jaccard + containsBonus);
-}
-
-async function getStoredTinyId(siteId: string): Promise<string | null> {
-  return redisGetJson<string>(`${SITE_TINY_MAP_PREFIX}${siteId}`).catch(() => null);
-}
-
-async function setStoredTinyId(siteId: string, tinyId: string): Promise<void> {
-  await redisSetJson(`${SITE_TINY_MAP_PREFIX}${siteId}`, tinyId, 365 * 24 * 60 * 60).catch(() => undefined);
-}
-
-function sortSizes(values: string[]): string[] {
-  const order = new Map<string, number>([
-    ["pp", 1],
-    ["p", 2],
-    ["m", 3],
-    ["g", 4],
-    ["gg", 5],
-    ["xg", 6],
-    ["xxg", 7],
-  ]);
-
-  return [...new Set(values)].sort((a, b) => {
-    const na = Number(a);
-    const nb = Number(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-    const oa = order.get(normalize(a));
-    const ob = order.get(normalize(b));
-    if (oa != null && ob != null) return oa - ob;
-    if (oa != null) return -1;
-    if (ob != null) return 1;
-    return a.localeCompare(b, "pt-BR", { numeric: true });
-  });
-}
-
-function parseGrade(
-  grade: TinyGrade,
-  descricao: string,
-  knownSizes: string[] = [],
-  knownColors: string[] = []
-): { tamanho: string; cor: string } {
-  let tamanho = "";
-  let cor = "";
-
-  const knownSizeMap = new Map(knownSizes.map((v) => [normalize(v), v]));
-  const knownColorMap = new Map(knownColors.map((v) => [normalize(v), v]));
-
-  const inspect = (keyRaw: unknown, valueRaw: unknown) => {
-    const key = normalize(str(keyRaw));
-    const value = str(valueRaw);
-    if (!value) return;
-
-    if (!tamanho && (key.includes("tamanho") || key === "tam" || key.includes("size"))) {
-      tamanho = value;
-    }
-    if (!cor && (key.includes("cor") || key.includes("color") || key.includes("colour"))) {
-      cor = value;
-    }
-
-    const normalizedValue = normalize(value);
-    if (!tamanho && knownSizeMap.has(normalizedValue)) {
-      tamanho = knownSizeMap.get(normalizedValue)!;
-    }
-    if (!cor && knownColorMap.has(normalizedValue)) {
-      cor = knownColorMap.get(normalizedValue)!;
-    }
-  };
-
-  if (Array.isArray(grade)) {
-    for (const item of grade) {
-      inspect(item?.chave, item?.valor);
-    }
+async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const locked = await redisSetNx(SYNC_LOCK_KEY, owner, 90);
+  if (!locked) {
+    throw new Error("Já existe uma sincronização de estoque em andamento. Aguarde terminar.");
   }
 
-  if ((!tamanho || !cor) && descricao) {
-    const parts = descricao
-      .split(" - ")
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (parts.length >= 2) {
-      const tailA = parts[parts.length - 2];
-      const tailB = parts[parts.length - 1];
-      if (!tamanho && knownSizeMap.has(normalize(tailA))) tamanho = knownSizeMap.get(normalize(tailA))!;
-      if (!cor && knownColorMap.has(normalize(tailA))) cor = knownColorMap.get(normalize(tailA))!;
-      if (!tamanho && knownSizeMap.has(normalize(tailB))) tamanho = knownSizeMap.get(normalize(tailB))!;
-      if (!cor && knownColorMap.has(normalize(tailB))) cor = knownColorMap.get(normalize(tailB))!;
-
-      if (!tamanho && !cor && parts.length >= 3) {
-        tamanho = tailA;
-        cor = tailB;
-      } else if (!tamanho && !cor) {
-        tamanho = tailA;
-      }
-    }
+  try {
+    return await fn();
+  } finally {
+    await redisDelete(SYNC_LOCK_KEY).catch(() => undefined);
   }
-
-  return { tamanho, cor };
 }
 
-function aggregateDetail(
-  detail: TinyDetail,
-  knownSizes: string[] = [],
-  knownColors: string[] = []
-): StockAggregate | null {
-  const variations = Array.isArray(detail.variacoes) ? detail.variacoes : [];
+async function reserveReadWindow(requested: number): Promise<{ allowed: boolean; waitMs: number }> {
+  const now = Date.now();
+  const state = await redisGetJson<{ startedAt: number; count: number }>(RATE_WINDOW_KEY).catch(() => null);
 
-  if (variations.length === 0) {
-    const qty = safeNonNegativeInt(detail.estoque?.quantidade);
-    if (qty == null) return null;
-
-    return {
-      estoque: qty,
-      tamanhos: [],
-      cores: [],
-      estoquePorTamanho: {},
-      estoquePorCor: {},
-      variationCount: 0,
-      matrixComplete: true,
-    };
-  }
-
-  // Para produtos com variações, o estoque total do produto pai deve vir do
-  // próprio campo estoque.quantidade do produto. A soma das variações pode
-  // divergir do saldo do cadastro pai em alguns cenários do Olist/Tiny.
-  // Mantemos a soma apenas como fallback, mas nunca usamos a soma quando o
-  // saldo do produto pai está disponível.
-  const parentQty = safeNonNegativeInt(detail.estoque?.quantidade);
-
-  let total = 0;
-  let sawValidQuantity = false;
-  let matrixComplete = true;
-  const sizes = new Set<string>();
-  const colors = new Set<string>();
-  const bySize = new Map<string, number>();
-  const matrixByColor: Record<string, Record<string, number>> = {};
-  const colorTotals = new Map<string, number>();
-
-  for (const variation of variations) {
-    const qty = safeNonNegativeInt(variation.estoque?.quantidade);
-    if (qty == null) {
-      matrixComplete = false;
-      continue;
-    }
-
-    sawValidQuantity = true;
-    total += qty;
-
-    const grade = parseGrade(
-      variation.grade,
-      str(variation.descricao),
-      knownSizes,
-      knownColors
+  if (!state || !Number.isFinite(state.startedAt) || now - state.startedAt >= RATE_WINDOW_MS) {
+    await redisSetJson(
+      RATE_WINDOW_KEY,
+      { startedAt: now, count: requested },
+      90
     );
-
-    if (grade.tamanho) {
-      sizes.add(grade.tamanho);
-      bySize.set(grade.tamanho, (bySize.get(grade.tamanho) || 0) + qty);
-    }
-
-    if (grade.cor) {
-      colors.add(grade.cor);
-      colorTotals.set(grade.cor, (colorTotals.get(grade.cor) || 0) + qty);
-      if (grade.tamanho) {
-        matrixByColor[grade.cor] ||= {};
-        matrixByColor[grade.cor][grade.tamanho] = qty;
-      }
-    }
+    return { allowed: true, waitMs: 0 };
   }
 
-  // O saldo total do produto pai pode ser válido mesmo quando alguma variação
-  // não trouxer quantidade. Nesse caso atualizamos o total, mas preservamos a
-  // matriz de tamanhos/cores já existente no site para não gravar dados parciais.
-  if (!sawValidQuantity && parentQty == null) return null;
-
-  const tamanhos = sortSizes([...sizes]);
-  const cores = [...colors].sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-  let estoquePorCor: Record<string, any> = {};
-
-  if (cores.length > 0 && tamanhos.length > 0) {
-    for (const cor of cores) {
-      estoquePorCor[cor] = matrixByColor[cor] || { total: colorTotals.get(cor) || 0 };
-    }
-  } else {
-    estoquePorCor = Object.fromEntries(
-      cores.map((cor) => [cor, colorTotals.get(cor) || 0])
+  const count = Number(state.count || 0);
+  if (count + requested <= MAX_READS_PER_WINDOW) {
+    await redisSetJson(
+      RATE_WINDOW_KEY,
+      { startedAt: state.startedAt, count: count + requested },
+      90
     );
+    return { allowed: true, waitMs: 0 };
   }
 
   return {
-    estoque: parentQty != null ? parentQty : total,
-    tamanhos,
-    cores,
-    estoquePorTamanho: Object.fromEntries(
-      tamanhos.map((size) => [size, bySize.get(size) || 0])
-    ),
-    estoquePorCor,
-    variationCount: variations.length,
-    matrixComplete,
+    allowed: false,
+    waitMs: Math.max(1000, RATE_WINDOW_MS - (now - state.startedAt) + 1500),
   };
 }
 
-function imageUrls(detail: TinyDetail): string[] {
-  return [...new Set(
-    (detail.anexos || [])
-      .map((item) => str(item?.url))
-      .filter((url) => /^https?:\/\//i.test(url))
-  )];
-}
-
-function canonicalId(item: TinyListItem): string | null {
-  const id = Number(item.id || 0);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  return String(id);
-}
-
-async function listProducts(params: Record<string, string>): Promise<TinyListResponse> {
-  const query = new URLSearchParams(params);
-  return getOlistV3<TinyListResponse>(`/produtos?${query.toString()}`);
-}
-
-async function listAllProductHeaders(): Promise<TinyListItem[]> {
-  const all: TinyListItem[] = [];
-  const limit = 100;
-  let offset = 0;
-
-  for (;;) {
-    const data = await listProducts({
-      limit: String(limit),
-      offset: String(offset),
-    });
-
-    const items = Array.isArray(data.itens) ? data.itens : [];
-    all.push(...items);
-
-    const total = Number(data.paginacao?.total || 0);
-    if (items.length === 0 || items.length < limit || offset + items.length >= total) break;
-    offset += items.length;
+async function getStock(tinyId: string): Promise<TinyStockResponse> {
+  if (!isNumericTinyId(tinyId)) {
+    throw new Error(`ID Tiny inválido: ${tinyId}`);
   }
 
-  return all;
-}
-
-async function listAllActiveProductHeaders(): Promise<TinyListItem[]> {
-  const all: TinyListItem[] = [];
-  const limit = 100;
-  let offset = 0;
-
-  for (;;) {
-    const data = await listProducts({
-      limit: String(limit),
-      offset: String(offset),
-      situacao: "A",
-    });
-
-    const items = Array.isArray(data.itens) ? data.itens : [];
-    all.push(...items);
-
-    const total = Number(data.paginacao?.total || 0);
-    if (items.length === 0 || items.length < limit || offset + items.length >= total) break;
-    offset += items.length;
-  }
-
-  return all;
-}
-
-function uniqueCanonicalHeaders(items: TinyListItem[]): TinyListItem[] {
-  const seen = new Set<string>();
-  const result: TinyListItem[] = [];
-
-  for (const item of items) {
-    const tipoVariacao = normalize(str(item.tipoVariacao));
-    if (tipoVariacao === "v") continue;
-
-    const id = canonicalId(item);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    result.push(item);
-  }
-
-  return result;
-}
-
-function sinceDateString(timestamp: number): string {
-  const d = new Date(timestamp);
-  const pad = (v: number) => String(v).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-async function getDetail(id: string): Promise<TinyDetail> {
-  return getOlistV3<TinyDetail>(`/produtos/${encodeURIComponent(id)}`);
+  // Fonte oficial do estoque total: GET /estoque/{idProduto} -> saldo.
+  return getOlistV3<TinyStockResponse>(`/estoque/${encodeURIComponent(tinyId)}`);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -463,487 +133,184 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; changed: boolean; siteStockBefore: number | null; tinyStock: number; variationCount: number }> {
-  const existing = await prisma.produto.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      estoque: true,
-      tamanhos: true,
-      cores: true,
-      estoquePorTamanho: true,
-      estoquePorCor: true,
-    },
-  });
-
-  if (!existing) return { updated: false, changed: false, siteStockBefore: null, tinyStock: 0, variationCount: 0 };
-
-  const aggregate = aggregateDetail(
-    detail,
-    existing.tamanhos || [],
-    existing.cores || []
-  );
-
-  if (!aggregate) {
-    throw new Error(`Estoque inválido ou ausente no produto Tiny ${id}. Produto preservado no site.`);
-  }
-
-  await prisma.produto.update({
-    where: { id },
-    data: {
-      estoque: aggregate.estoque,
-      ...(aggregate.matrixComplete && {
-        tamanhos: aggregate.tamanhos,
-        estoquePorTamanho: aggregate.estoquePorTamanho,
-        cores: aggregate.cores,
-        estoquePorCor: aggregate.estoquePorCor,
-      }),
-    },
-  });
-
-  return {
-    updated: true,
-    changed: existing.estoque !== aggregate.estoque,
-    siteStockBefore: existing.estoque,
-    tinyStock: aggregate.estoque,
-    variationCount: aggregate.variationCount,
-  };
-}
-
-async function createNewProduct(id: string, detail: TinyDetail): Promise<{ created: boolean; variationCount: number }> {
-  const existing = await prisma.produto.findUnique({ where: { id }, select: { id: true } });
-  if (existing) return { created: false, variationCount: 0 };
-
-  const aggregate = aggregateDetail(detail);
-  if (!aggregate) {
-    throw new Error(`Estoque inválido ou ausente no novo produto Tiny ${id}. Produto não foi cadastrado.`);
-  }
-
-  const descricao =
-    str(detail.descricaoComplementar) ||
-    str(detail.descricao) ||
-    `Produto ${id}`;
-
-  const nome = str(detail.descricao) || `Produto ${id}`;
-  const imagens = imageUrls(detail);
-  const preco = num(detail.precos?.preco) ?? 0;
-  const promocional = num(detail.precos?.precoPromocional);
-
-  await prisma.produto.create({
-    data: {
-      id,
-      nome,
-      descricao,
-      preco,
-      precoPromocional:
-        promocional != null && promocional > 0 ? promocional : null,
-      imagemUrl: imagens[0] || PLACEHOLDER_IMAGE,
-      imagens,
-      estoque: aggregate.estoque,
-      tamanhos: aggregate.tamanhos,
-      estoquePorTamanho: aggregate.estoquePorTamanho,
-      cores: aggregate.cores,
-      estoquePorCor: aggregate.estoquePorCor,
-      coresDetalhes: undefined,
-      genero: null,
-      faixaEtaria: null,
-      ativo: str(detail.situacao).toUpperCase() === "A",
-      categoriaNome: null,
-    },
-  });
-
-  return {
-    created: true,
-    variationCount: aggregate.variationCount,
-  };
-}
-
-async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
-  const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const locked = await redisSetNx(SYNC_LOCK_KEY, owner, 120);
-  if (!locked) {
-    throw new Error("Já existe uma sincronização do Tiny em andamento. Aguarde terminar.");
-  }
-
-  try {
-    return await fn();
-  } finally {
-    await redisDelete(SYNC_LOCK_KEY).catch(() => undefined);
-  }
-}
-
-async function buildTinyCanonicalMap() {
-  const cached = await redisGetJson<{
-    tinyHeaders: TinyListItem[];
-    cachedAt?: number;
-  }>(TINY_CATALOG_CACHE_KEY).catch(() => null);
-
-  if (cached && Array.isArray(cached.tinyHeaders) && cached.tinyHeaders.length > 0) {
-    const canonical = uniqueCanonicalHeaders(cached.tinyHeaders);
-    return buildCanonicalMaps(cached.tinyHeaders, canonical);
-  }
-
-  const tinyHeaders = await listAllActiveProductHeaders();
-  const canonical = uniqueCanonicalHeaders(tinyHeaders);
-
-  await redisSetJson(
-    TINY_CATALOG_CACHE_KEY,
-    { tinyHeaders, cachedAt: Date.now() },
-    TINY_CATALOG_CACHE_TTL
-  ).catch((error) => {
-    console.warn("[Olist V3] Não foi possível salvar cache do catálogo:", error);
-  });
-
-  return buildCanonicalMaps(tinyHeaders, canonical);
-}
-
-function buildCanonicalMaps(
-  tinyHeaders: TinyListItem[],
-  canonical: TinyListItem[]
-) {
-  const byId = new Map<string, TinyListItem>();
-  const byName = new Map<string, TinyListItem[]>();
-
-  for (const item of canonical) {
-    const id = canonicalId(item);
-    if (!id) continue;
-    byId.set(id, item);
-    const name = normalize(str(item.descricao));
-    if (!name) continue;
-    const arr = byName.get(name) || [];
-    arr.push(item);
-    byName.set(name, arr);
-  }
-
-  return { tinyHeaders, canonical, byId, byName };
-}
-
-async function matchSiteProduct(
-  site: { id: string; nome: string },
-  maps: Awaited<ReturnType<typeof buildTinyCanonicalMap>>
-): Promise<{ tinyId: string; tinyItem: TinyListItem; method: "redis" | "id" | "nome" | "similaridade" } | null> {
-  const storedTinyId = await getStoredTinyId(site.id);
-  if (storedTinyId) {
-    const storedItem = maps.byId.get(storedTinyId);
-    if (storedItem) {
-      return { tinyId: storedTinyId, tinyItem: storedItem, method: "redis" };
-    }
-  }
-
-  const direct = maps.byId.get(site.id);
-  if (direct) {
-    const tinyId = String(site.id);
-    await setStoredTinyId(site.id, tinyId);
-    return { tinyId, tinyItem: direct, method: "id" };
-  }
-
-  const name = normalize(site.nome);
-  if (!name) return null;
-
-  const exactCandidates = maps.byName.get(name) || [];
-  if (exactCandidates.length === 1) {
-    const tinyId = canonicalId(exactCandidates[0]);
-    if (tinyId) {
-      await setStoredTinyId(site.id, tinyId);
-      return { tinyId, tinyItem: exactCandidates[0], method: "nome" };
-    }
-  }
-
-  // Fallback local, sem gastar nenhuma leitura adicional da API V3.
-  // Isso permite associar produtos cujo nome foi editado manualmente no site.
-  let best: TinyListItem | null = null;
-  let bestScore = 0;
-  let secondScore = 0;
-
-  for (const candidate of maps.canonical) {
-    const candidateName = str(candidate.descricao);
-    if (!candidateName) continue;
-    const score = nameSimilarity(site.nome, candidateName);
-    if (score > bestScore) {
-      secondScore = bestScore;
-      bestScore = score;
-      best = candidate;
-    } else if (score > secondScore) {
-      secondScore = score;
-    }
-  }
-
-  // Exige uma margem mínima para não correr o risco de associar dois produtos
-  // parecidos incorretamente.
-  if (best && bestScore >= 0.72 && bestScore - secondScore >= 0.08) {
-    const tinyId = canonicalId(best);
-    if (tinyId) {
-      await setStoredTinyId(site.id, tinyId);
-      return { tinyId, tinyItem: best, method: "similaridade" };
-    }
-  }
-
-  return null;
-}
-
-
-async function findNewTinyProducts(
-  siteTinyIds: Set<string>
-): Promise<SiteSyncEntry[]> {
-  // New products are discovered through a small recent window so this does
-  // not require scanning the entire Tiny catalog on every click.
-  const since = new Date(Date.now() - QUICK_NEW_LOOKBACK_MS);
-  const data = await listProducts({
-    limit: "100",
-    offset: "0",
-    dataCriacao: sinceDateString(since.getTime()),
-    situacao: "A",
-  });
-
-  const headers = uniqueCanonicalHeaders(Array.isArray(data.itens) ? data.itens : []);
-  const result: SiteSyncEntry[] = [];
-  for (const item of headers) {
-    const tinyId = canonicalId(item);
-    if (!tinyId || siteTinyIds.has(tinyId)) continue;
-    result.push({
-      siteId: null,
-      tinyId,
-      nomeTiny: str(item.descricao),
-      isNew: true,
-      matchMethod: "novo",
-    });
-  }
-  return result;
-}
-
-async function prepareQuick() {
+async function prepareStock() {
   const siteProducts = await prisma.produto.findMany({
     select: { id: true, nome: true },
+    orderBy: { nome: "asc" },
   });
 
-  const maps = await buildTinyCanonicalMap();
   const entries: SiteSyncEntry[] = [];
-  const matchedTinyIds = new Set<string>();
-  let unmatchedExisting = 0;
-  let ambiguousExisting = 0;
+  let semIdNumerico = 0;
 
-  for (const site of siteProducts) {
-    const match = await matchSiteProduct(
-      { id: String(site.id), nome: String(site.nome || "") },
-      maps
-    );
+  for (const product of siteProducts) {
+    const siteId = String(product.id || "").trim();
+    const nomeSite = String(product.nome || "").trim();
 
-    if (!match) {
-      const name = normalize(String(site.nome || ""));
-      const candidates = maps.byName.get(name) || [];
-      if (candidates.length > 1) ambiguousExisting += 1;
-      else unmatchedExisting += 1;
+    // Os produtos do catálogo atual usam o ID do Tiny como ID do Produto no site.
+    // Não tentamos casar por nome nesta rotina: isso evita associar estoque ao
+    // produto errado e elimina leituras desnecessárias da API.
+    if (!isNumericTinyId(siteId)) {
+      semIdNumerico += 1;
       continue;
     }
 
-    matchedTinyIds.add(match.tinyId);
     entries.push({
-      siteId: String(site.id),
-      tinyId: match.tinyId,
-      nomeSite: String(site.nome || ""),
-      nomeTiny: str(match.tinyItem.descricao),
-      isNew: false,
-      matchMethod: match.method,
+      siteId,
+      tinyId: siteId,
+      nomeSite,
     });
-  }
-
-  const newEntries = await findNewTinyProducts(matchedTinyIds);
-  const seen = new Set(entries.map((entry) => entry.tinyId));
-  for (const entry of newEntries) {
-    if (seen.has(entry.tinyId)) continue;
-    seen.add(entry.tinyId);
-    entries.push(entry);
   }
 
   return {
     success: true,
-    mode: "prepare-quick",
+    mode: "prepare-stock",
     entries,
     total: entries.length,
-    existingCount: entries.filter((entry) => !entry.isNew).length,
-    newCount: entries.filter((entry) => entry.isNew).length,
-    unmatchedExisting,
-    ambiguousExisting,
-    batchSize: API_READ_BATCH_SIZE,
-    catalogoConsultado: maps.tinyHeaders.length,
+    skippedWithoutNumericId: semIdNumerico,
+    batchSize: BATCH_SIZE,
   };
 }
 
-async function stockBatch(entries: SiteSyncEntry[]) {
-  const cleanEntries = entries
-    .filter((entry) => entry && entry.tinyId)
-    .slice(0, API_READ_BATCH_SIZE);
+type BatchResult = {
+  ok: boolean;
+  changed: boolean;
+  siteId: string;
+  tinyId: string;
+  nomeSite: string;
+  siteStockBefore: number | null;
+  tinyStock: number | null;
+  reservado: number | null;
+  disponivel: number | null;
+  error?: string;
+};
 
+async function processStockBatch(entries: SiteSyncEntry[]) {
+  const cleanEntries = entries.slice(0, BATCH_SIZE);
   if (cleanEntries.length === 0) {
     return {
       success: true,
-      mode: "stock-batch",
-      criados: 0,
+      mode: "stock-total-batch",
       atualizados: 0,
-      ignorados: 0,
+      estoqueAlterado: 0,
       falhas: 0,
-      variacoesProcessadas: 0,
       processados: 0,
+      diagnosticos: [],
+      nextBatchWaitMs: DEFAULT_NEXT_BATCH_WAIT_MS,
     };
   }
 
-  return withSyncLock(async () => {
-    let criados = 0;
-    let atualizados = 0;
-    let ignorados = 0;
-    let falhas = 0;
-    let variacoesProcessadas = 0;
-    let estoqueAlterado = 0;
-    const diagnosticos: Array<Record<string, unknown>> = [];
+  const reserved = await reserveReadWindow(cleanEntries.length);
+  if (!reserved.allowed) {
+    return NextResponse.json(
+      {
+        success: false,
+        code: "RATE_LIMIT",
+        error: "Aguarde a próxima janela do limite da API Olist/Tiny.",
+        waitMs: reserved.waitMs,
+      },
+      { status: 429 }
+    );
+  }
 
-    type BatchResult = {
-      kind: "created" | "updated" | "ignored" | "failed";
-      variationCount: number;
-      changed?: boolean;
-      siteStockBefore?: number | null;
-      tinyStock?: number;
-      siteId?: string | null;
-      tinyId?: string;
-      nomeSite?: string;
-      nomeTiny?: string;
-      matchMethod?: SiteSyncEntry["matchMethod"];
-      error?: string;
-    };
+  let atualizados = 0;
+  let estoqueAlterado = 0;
+  let falhas = 0;
 
-    const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
-      cleanEntries,
-      DETAIL_CONCURRENCY,
-      async (entry): Promise<BatchResult> => {
-        try {
-          const detail = await getDetail(entry.tinyId);
+  const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
+    cleanEntries,
+    STOCK_CONCURRENCY,
+    async (entry): Promise<BatchResult> => {
+      try {
+        const stock = await getStock(entry.tinyId);
+        const tinyStock = nonNegativeNumber(stock?.saldo);
+        const reservado = nonNegativeNumber(stock?.reservado);
+        const disponivel = nonNegativeNumber(stock?.disponivel);
 
-          if (entry.siteId) {
-            const existing = await prisma.produto.findUnique({
-              where: { id: entry.siteId },
-              select: { id: true },
-            });
+        // É proibido interpretar resposta incompleta como zero.
+        if (tinyStock == null) {
+          throw new Error(
+            `O Tiny não retornou um saldo válido para o produto ${entry.tinyId}. Estoque preservado.`
+          );
+        }
 
-            if (!existing) {
-              const result = await createNewProduct(entry.tinyId, detail);
-              return {
-                kind: result.created ? "created" : "ignored",
-                variationCount: result.variationCount,
-                siteId: entry.siteId,
-                tinyId: entry.tinyId,
-                nomeSite: entry.nomeSite,
-                nomeTiny: entry.nomeTiny,
-                matchMethod: entry.matchMethod,
-              };
-            }
+        const existing = await prisma.produto.findUnique({
+          where: { id: entry.siteId },
+          select: { id: true, estoque: true },
+        });
 
-            const result = await updateExistingProduct(entry.siteId, detail);
-            return {
-              kind: result.updated ? "updated" : "ignored",
-              variationCount: result.variationCount,
-              changed: result.changed,
-              siteStockBefore: result.siteStockBefore,
-              tinyStock: result.tinyStock,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          if (str(detail.situacao).toUpperCase() !== "E") {
-            const result = await createNewProduct(entry.tinyId, detail);
-            return {
-              kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          return { kind: "ignored", variationCount: 0 };
-        } catch (error) {
-          console.error(`[Olist V3] Falha no produto Tiny ${entry.tinyId}:`, error);
+        if (!existing) {
           return {
-            kind: "failed",
-            variationCount: 0,
-            error: error instanceof Error ? error.message : String(error),
+            ok: true,
+            changed: false,
+            siteId: entry.siteId,
+            tinyId: entry.tinyId,
+            nomeSite: entry.nomeSite,
+            siteStockBefore: null,
+            tinyStock,
+            reservado,
+            disponivel,
+            error: "Produto não existe mais no site.",
           };
         }
-      }
-    );
 
-    for (const result of results) {
-      if (result.kind === "created") criados += 1;
-      else if (result.kind === "updated") atualizados += 1;
-      else if (result.kind === "ignored") ignorados += 1;
-      else falhas += 1;
-      if (result.kind === "updated" && result.changed) estoqueAlterado += 1;
-      if (result.tinyId) {
-        diagnosticos.push({
-          siteId: result.siteId,
-          tinyId: result.tinyId,
-          nomeSite: result.nomeSite,
-          nomeTiny: result.nomeTiny,
-          matchMethod: result.matchMethod,
-          siteStockBefore: result.siteStockBefore,
-          tinyStock: result.tinyStock,
-          estoqueMudou: Boolean(result.changed),
+        const changed = Number(existing.estoque || 0) !== tinyStock;
+
+        await prisma.produto.update({
+          where: { id: entry.siteId },
+          data: {
+            // SOMENTE estoque total. Nada mais do cadastro é tocado.
+            estoque: tinyStock,
+          },
         });
+
+        return {
+          ok: true,
+          changed,
+          siteId: entry.siteId,
+          tinyId: entry.tinyId,
+          nomeSite: entry.nomeSite,
+          siteStockBefore: Number(existing.estoque || 0),
+          tinyStock,
+          reservado,
+          disponivel,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          changed: false,
+          siteId: entry.siteId,
+          tinyId: entry.tinyId,
+          nomeSite: entry.nomeSite,
+          siteStockBefore: null,
+          tinyStock: null,
+          reservado: null,
+          disponivel: null,
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
-      variacoesProcessadas += result.variationCount || 0;
     }
+  );
 
-    return {
-      success: true,
-      mode: "stock-batch",
-      criados,
-      atualizados,
-      ignorados,
-      falhas,
-      estoqueAlterado,
-      variacoesProcessadas,
-      processados: cleanEntries.length,
-      diagnosticos,
-    };
-  });
-}
-
-async function prepareFull() {
-  const siteProducts = await prisma.produto.findMany({ select: { id: true, nome: true } });
-  const maps = await buildTinyCanonicalMap();
-  const entries: SiteSyncEntry[] = [];
-
-  for (const site of siteProducts) {
-    const match = await matchSiteProduct(
-      { id: String(site.id), nome: String(site.nome || "") },
-      maps
-    );
-    if (!match) continue;
-    entries.push({
-      siteId: String(site.id),
-      tinyId: match.tinyId,
-      nomeSite: String(site.nome || ""),
-      nomeTiny: str(match.tinyItem.descricao),
-      isNew: false,
-      matchMethod: match.method,
-    });
+  for (const result of results) {
+    if (result.ok && result.tinyStock != null) {
+      atualizados += 1;
+      if (result.changed) estoqueAlterado += 1;
+    } else {
+      falhas += 1;
+    }
   }
 
   return {
     success: true,
-    mode: "prepare-full",
-    entries,
-    total: entries.length,
-    batchSize: API_READ_BATCH_SIZE,
+    mode: "stock-total-batch",
+    atualizados,
+    estoqueAlterado,
+    falhas,
+    processados: cleanEntries.length,
+    diagnosticos: results,
+    // O próximo lote precisa respeitar a janela de 60s do plano Construa.
+    nextBatchWaitMs: DEFAULT_NEXT_BATCH_WAIT_MS,
   };
-}
-
-async function fullBatch(entries: SiteSyncEntry[]) {
-  return stockBatch(entries);
 }
 
 export async function GET() {
@@ -971,62 +338,35 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as AnyRecord;
-    const mode = str(body.mode || body.action || "quick").toLowerCase();
+    const mode = str(body.mode || body.action || "").toLowerCase();
 
-    if (mode === "prepare-quick") {
-      return NextResponse.json(await withSyncLock(prepareQuick));
+    if (mode === "prepare-stock") {
+      return NextResponse.json(await prepareStock());
     }
 
-    if (mode === "stock-batch" || mode === "quick" || mode === "sync") {
+    if (mode === "stock-total-batch") {
       const entries: SiteSyncEntry[] = Array.isArray(body.entries)
         ? body.entries
             .filter((entry) => entry && typeof entry === "object")
             .map((entry) => ({
-              siteId: entry.siteId ? str(entry.siteId) : null,
+              siteId: str(entry.siteId),
               tinyId: str(entry.tinyId),
-              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
-              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
-              isNew: Boolean(entry.isNew),
-              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
+              nomeSite: str(entry.nomeSite),
             }))
-            .filter((entry) => Boolean(entry.tinyId))
+            .filter((entry) => Boolean(entry.siteId && entry.tinyId))
         : [];
 
       if (entries.length === 0) {
         return NextResponse.json(
-          { success: false, error: "Nenhuma associação entre produto do site e produto Tiny foi enviada para sincronização." },
+          {
+            success: false,
+            error: "Nenhum produto foi enviado para sincronização de estoque.",
+          },
           { status: 400 }
         );
       }
 
-      return NextResponse.json(await stockBatch(entries));
-    }
-
-    if (mode === "prepare-full") {
-      return NextResponse.json(await withSyncLock(prepareFull));
-    }
-
-    if (mode === "full-batch") {
-      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
-        ? body.entries
-            .filter((entry) => entry && typeof entry === "object")
-            .map((entry) => ({
-              siteId: entry.siteId ? str(entry.siteId) : null,
-              tinyId: str(entry.tinyId),
-              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
-              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
-              isNew: Boolean(entry.isNew),
-              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
-            }))
-            .filter((entry) => Boolean(entry.tinyId))
-        : [];
-      if (entries.length === 0) {
-        return NextResponse.json(
-          { success: false, error: "Nenhuma associação de produto foi enviada para a reconciliação completa." },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json(await fullBatch(entries));
+      return withSyncLock(async () => processStockBatch(entries));
     }
 
     return NextResponse.json(
@@ -1034,7 +374,7 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   } catch (error) {
-    console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===", error);
+    console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===", error);
 
     if (error instanceof OlistOAuthError) {
       return NextResponse.json(
@@ -1043,14 +383,14 @@ export async function POST(request: Request) {
           error: error.message,
           code: error.code,
         },
-        { status: error.code === "NOT_CONNECTED" ? 401 : 500 }
+        { status: error.code === "NOT_CONNECTED" ? 401 : 502 }
       );
     }
 
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Erro interno na sincronização.",
+        error: error instanceof Error ? error.message : "Erro interno ao sincronizar o estoque.",
       },
       { status: 500 }
     );
