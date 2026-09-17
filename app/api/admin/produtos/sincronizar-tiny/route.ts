@@ -97,6 +97,25 @@ type TinyProduct = {
   }>;
 };
 
+type TinyUpdatedStockProduct = {
+  id?: string | number;
+  nome?: string;
+  codigo?: string;
+  tipo_variacao?: string;
+  tipoVariacao?: string;
+  saldo?: string | number;
+  data_alteracao?: string;
+  idProdutoPai?: string | number;
+  id_produto_pai?: string | number;
+};
+
+type TinyUpdatedProduct = TinyProduct & {
+  data_alteracao?: string;
+  data_criacao?: string;
+  tipo_variacao?: string;
+  id_produto_pai?: string | number;
+};
+
 type TinyStockProduct =
   TinyProduct & {
     saldo?: string | number;
@@ -2577,6 +2596,634 @@ async function syncAllProductsFast(): Promise<{
 }
 
 /* =========================================================
+ * SINCRONIZAÇÃO INCREMENTAL RÁPIDA
+ *
+ * Em vez de percorrer todo o catálogo e consultar o estoque de cada
+ * variação, usamos as filas de atualização do Tiny. A fila de estoque
+ * já entrega o saldo atual; portanto, na operação normal fazemos poucas
+ * chamadas ao Tiny independentemente da quantidade total de produtos.
+ *
+ * O Tiny informa que esses dois serviços exigem a extensão "API para
+ * estoque em tempo real" e que os registros obtidos são removidos da
+ * fila e marcados como processados.
+ * =======================================================*/
+
+const TINY_SYNC_START_DATE =
+  process.env.TINY_SYNC_START_DATE?.trim() ||
+  "01/01/2026 00:00:00";
+
+const MAX_UPDATE_QUEUE_PAGES = 5;
+
+interface TinyQueueReturn<T> {
+  retorno?: {
+    status?: string;
+    mensagem?: string;
+    pagina?: string | number;
+    numero_paginas?: string | number;
+    erros?: Array<{
+      erro?: string;
+      descricao?: string;
+    }>;
+    produtos?: Array<{
+      produto?: T;
+    }>;
+  };
+}
+
+function tipoVariacaoTiny(product: {
+  tipoVariacao?: unknown;
+  tipo_variacao?: unknown;
+}): string {
+  return (
+    text(product.tipoVariacao) ||
+    text(product.tipo_variacao)
+  ).toUpperCase();
+}
+
+function saldoDoEstoqueAtualizado(
+  product: TinyUpdatedStockProduct
+): number {
+  return Math.max(0, toNumber(product.saldo));
+}
+
+function isRealtimeQueueUnavailable(message: string): boolean {
+  const n = normalize(message);
+  return (
+    n.includes("api para estoque em tempo real") ||
+    n.includes("estoque em tempo real") ||
+    n.includes("extensao") && n.includes("estoque") ||
+    n.includes("modulo") && n.includes("estoque em tempo real") ||
+    n.includes("servico nao disponivel") ||
+    n.includes("metodo nao disponivel")
+  );
+}
+
+async function readTinyUpdateQueue<T>(
+  endpoint: string,
+  dataAlteracao: string
+): Promise<{
+  products: T[];
+  paginasTotal: number;
+  paginasProcessadas: number;
+  temMais: boolean;
+}> {
+  const first = await tinyPost<TinyQueueReturn<T>>(
+    endpoint,
+    {
+      dataAlteracao,
+      pagina: 1,
+    }
+  );
+
+  const firstReturn = first.data.retorno;
+  if (text(firstReturn?.status).toUpperCase() !== "OK") {
+    throw new Error(tinyErrorMessage(first.data as TinyResponse));
+  }
+
+  const output: T[] = [];
+  for (const item of firstReturn?.produtos ?? []) {
+    if (item?.produto) output.push(item.produto);
+  }
+
+  const paginasTotal = Math.max(
+    1,
+    toNumber(firstReturn?.numero_paginas) || 1
+  );
+
+  const paginasParaLer = Math.min(
+    paginasTotal,
+    MAX_UPDATE_QUEUE_PAGES
+  );
+
+  for (let pagina = 2; pagina <= paginasParaLer; pagina += 1) {
+    const response = await tinyPost<TinyQueueReturn<T>>(
+      endpoint,
+      {
+        dataAlteracao,
+        pagina,
+      }
+    );
+
+    const retorno = response.data.retorno;
+    if (text(retorno?.status).toUpperCase() !== "OK") {
+      throw new Error(tinyErrorMessage(response.data as TinyResponse));
+    }
+
+    for (const item of retorno?.produtos ?? []) {
+      if (item?.produto) output.push(item.produto);
+    }
+  }
+
+  return {
+    products: output,
+    paginasTotal,
+    paginasProcessadas: paginasParaLer,
+    temMais: paginasTotal > paginasParaLer,
+  };
+}
+
+function cloneJsonObject(
+  value: unknown
+): Record<string, any> {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return {};
+  }
+
+  return JSON.parse(JSON.stringify(value)) as Record<string, any>;
+}
+
+function applyVariationStockUpdate(
+  current: {
+    estoque: number;
+    tamanhos: string[];
+    cores: string[];
+    estoquePorTamanho: Record<string, any>;
+    estoquePorCor: Record<string, any>;
+  },
+  update: TinyUpdatedStockProduct
+): {
+  next: typeof current;
+  changed: boolean;
+} {
+  const nome = text(update.nome);
+
+  let grade = gradeFromTiny((update as any).grade);
+  if ((!grade.tamanho || !grade.cor) && nome) {
+    const byName = gradeFromName(nome);
+    if (!grade.tamanho) grade.tamanho = byName.tamanho;
+    if (!grade.cor) grade.cor = byName.cor;
+  }
+
+  const saldoNovo = saldoDoEstoqueAtualizado(update);
+
+  const next = {
+    estoque: Math.max(0, Number(current.estoque) || 0),
+    tamanhos: [...(current.tamanhos ?? [])],
+    cores: [...(current.cores ?? [])],
+    estoquePorTamanho: cloneJsonObject(current.estoquePorTamanho),
+    estoquePorCor: cloneJsonObject(current.estoquePorCor),
+  };
+
+  if (!grade.tamanho || !grade.cor) {
+    return { next, changed: false };
+  }
+
+  if (!next.tamanhos.includes(grade.tamanho)) {
+    next.tamanhos.push(grade.tamanho);
+    next.tamanhos = ordenarTamanhos(next.tamanhos);
+  }
+
+  if (!next.cores.includes(grade.cor)) {
+    next.cores.push(grade.cor);
+    next.cores.sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }
+
+  const corAtual = next.estoquePorCor[grade.cor];
+  const temMatriz =
+    Boolean(corAtual) &&
+    typeof corAtual === "object" &&
+    !Array.isArray(corAtual);
+
+  if (!temMatriz) {
+    return { next, changed: false };
+  }
+
+  const linha = cloneJsonObject(corAtual);
+  const estoqueAnterior = Math.max(
+    0,
+    toNumber(linha[grade.tamanho])
+  );
+  const delta = saldoNovo - estoqueAnterior;
+
+  linha[grade.tamanho] = saldoNovo;
+  next.estoquePorCor[grade.cor] = linha;
+
+  const tamanhoAtual = toNumber(
+    next.estoquePorTamanho[grade.tamanho]
+  );
+  next.estoquePorTamanho[grade.tamanho] = Math.max(
+    0,
+    tamanhoAtual + delta
+  );
+
+  next.estoque = Math.max(0, next.estoque + delta);
+
+  return {
+    next,
+    changed: true,
+  };
+}
+
+function buildNewProductFromQueues(
+  product: TinyUpdatedProduct,
+  stockById: Map<string, TinyUpdatedStockProduct>,
+  groupedProducts: TinyUpdatedProduct[]
+) {
+  const tipo = tipoVariacaoTiny(product);
+  const group = groupedProducts.find(
+    (item) => tipoVariacaoTiny(item) === "P"
+  );
+
+  const baseProduct = group ?? product;
+  const parentName =
+    baseName(text(baseProduct.nome)) ||
+    text(baseProduct.nome) ||
+    `Produto ${text(baseProduct.id)}`;
+
+  const productId =
+    text(baseProduct.id) ||
+    text(product.idProdutoPai) ||
+    text(product.id_produto_pai) ||
+    text(product.id);
+
+  const variations = groupedProducts.filter(
+    (item) => tipoVariacaoTiny(item) === "V"
+  );
+
+  const values: Array<{
+    tamanho: string;
+    cor: string;
+    saldo: number;
+  }> = [];
+
+  for (const variation of variations) {
+    const stock = stockById.get(text(variation.id));
+    const nomeVariacao = text(variation.nome);
+    let grade = gradeFromTiny((variation as any).grade);
+
+    if ((!grade.tamanho || !grade.cor) && nomeVariacao) {
+      const parsed = gradeFromName(nomeVariacao);
+      if (!grade.tamanho) grade.tamanho = parsed.tamanho;
+      if (!grade.cor) grade.cor = parsed.cor;
+    }
+
+    if (!grade.tamanho && !grade.cor) continue;
+
+    values.push({
+      tamanho: grade.tamanho,
+      cor: grade.cor,
+      saldo: stock ? saldoDoEstoqueAtualizado(stock) : 0,
+    });
+  }
+
+  const aggregate = aggregateStock(values);
+  const ownStock = stockById.get(text(baseProduct.id));
+  const stockTotal = ownStock
+    ? saldoDoEstoqueAtualizado(ownStock)
+    : aggregate.estoque;
+
+  return {
+    id: productId,
+    nome: parentName,
+    descricao:
+      text(baseProduct.descricao_complementar) ||
+      text(baseProduct.obs) ||
+      parentName,
+    preco: toNumber(baseProduct.preco),
+    precoPromocional:
+      optionalNumber(baseProduct.preco_promocional) ?? null,
+    estoque: stockTotal,
+    tamanhos: aggregate.tamanhos,
+    estoquePorTamanho: aggregate.estoquePorTamanho,
+    cores: aggregate.cores,
+    estoquePorCor: aggregate.estoquePorCor,
+    imagemUrl: PLACEHOLDER_IMAGE,
+    imagens: [PLACEHOLDER_IMAGE],
+  };
+}
+
+async function syncIncrementalFast(): Promise<{
+  criados: number;
+  atualizados: number;
+  ignorados: number;
+  variacoesProcessadas: number;
+  produtosAlteradosProcessados: number;
+  paginasEstoque: number;
+  paginasProdutos: number;
+  temMaisEstoque: boolean;
+  temMaisProdutos: boolean;
+  duracaoMs: number;
+  dataCorte: string;
+}> {
+  const startedAt = Date.now();
+
+  let estoqueQueue: Awaited<
+    ReturnType<typeof readTinyUpdateQueue<TinyUpdatedStockProduct>>
+  >;
+  let produtosQueue: Awaited<
+    ReturnType<typeof readTinyUpdateQueue<TinyUpdatedProduct>>
+  >;
+
+  try {
+    estoqueQueue = await readTinyUpdateQueue<TinyUpdatedStockProduct>(
+      "lista.atualizacoes.estoque",
+      TINY_SYNC_START_DATE
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isRealtimeQueueUnavailable(message)) {
+      throw new Error(
+        "A sincronização rápida exige a extensão 'API para estoque em tempo real' no Tiny. Instale essa extensão no Tiny e tente novamente."
+      );
+    }
+    throw error;
+  }
+
+  try {
+    produtosQueue = await readTinyUpdateQueue<TinyUpdatedProduct>(
+      "lista.atualizacoes.produtos",
+      TINY_SYNC_START_DATE
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isRealtimeQueueUnavailable(message)) {
+      throw new Error(
+        "A sincronização rápida de novos produtos exige a extensão 'API para estoque em tempo real' no Tiny. Instale essa extensão no Tiny e tente novamente."
+      );
+    }
+    throw error;
+  }
+
+  const stockById = new Map<string, TinyUpdatedStockProduct>();
+  for (const item of estoqueQueue.products) {
+    const id = text(item.id);
+    if (id) stockById.set(id, item);
+  }
+
+  const existentes = await prisma.produto.findMany({
+    select: {
+      id: true,
+      nome: true,
+      estoque: true,
+      tamanhos: true,
+      cores: true,
+      estoquePorTamanho: true,
+      estoquePorCor: true,
+    },
+  });
+
+  const byId = new Map<string, (typeof existentes)[number]>();
+  const byName = new Map<string, (typeof existentes)[number]>();
+
+  for (const product of existentes) {
+    byId.set(String(product.id), product);
+    const name = normalize(String(product.nome ?? ""));
+    if (name && !byName.has(name)) byName.set(name, product);
+  }
+
+  /* =====================================================
+   * PRODUTOS NOVOS
+   * ===================================================*/
+  const novosGrupos = new Map<string, TinyUpdatedProduct[]>();
+
+  for (const product of produtosQueue.products) {
+    const id = text(product.id);
+    const nome = text(product.nome);
+    if (!id || !nome) continue;
+
+    const tipo = tipoVariacaoTiny(product);
+    const parentId =
+      text(product.idProdutoPai) ||
+      text(product.id_produto_pai);
+
+    const chave =
+      tipo === "V"
+        ? parentId || normalize(baseName(nome))
+        : id;
+
+    const grupo = novosGrupos.get(chave) ?? [];
+    grupo.push(product);
+    novosGrupos.set(chave, grupo);
+  }
+
+  const novos = [] as ReturnType<typeof buildNewProductFromQueues>[];
+
+  for (const grupo of novosGrupos.values()) {
+    const base =
+      grupo.find((item) => {
+        const tipo = tipoVariacaoTiny(item);
+        return tipo === "P" || tipo === "N";
+      }) ?? grupo[0];
+
+    if (!base) continue;
+
+    const tipo = tipoVariacaoTiny(base);
+    const parentId =
+      text(base.idProdutoPai) ||
+      text(base.id_produto_pai);
+
+    const id =
+      tipo === "V" && !parentId
+        ? ""
+        : text(base.id);
+
+    if (!id) continue;
+
+    const byTinyId = byId.get(id);
+    const byExactName = byName.get(normalize(text(base.nome)));
+    const byBaseName = byName.get(
+      normalize(baseName(text(base.nome)))
+    );
+
+    if (byTinyId || byExactName || byBaseName) continue;
+
+    novos.push(
+      buildNewProductFromQueues(
+        base,
+        stockById,
+        grupo
+      )
+    );
+  }
+
+  /* =====================================================
+   * ESTOQUE EXISTENTE
+   * ===================================================*/
+  const pending = new Map<
+    string,
+    {
+      estoque: number;
+      tamanhos: string[];
+      cores: string[];
+      estoquePorTamanho: Record<string, any>;
+      estoquePorCor: Record<string, any>;
+      forceTotal?: number;
+      matrixChanged: boolean;
+    }
+  >();
+
+  const getPending = (existing: (typeof existentes)[number]) => {
+    const current = pending.get(existing.id);
+    if (current) return current;
+
+    const created = {
+      estoque: Math.max(0, toNumber(existing.estoque)),
+      tamanhos: Array.isArray(existing.tamanhos)
+        ? [...existing.tamanhos]
+        : [],
+      cores: Array.isArray(existing.cores)
+        ? [...existing.cores]
+        : [],
+      estoquePorTamanho: cloneJsonObject(existing.estoquePorTamanho),
+      estoquePorCor: cloneJsonObject(existing.estoquePorCor),
+      forceTotal: undefined as number | undefined,
+      matrixChanged: false,
+    };
+
+    pending.set(existing.id, created);
+    return created;
+  };
+
+  /* Totais de normais/pais. */
+  for (const item of stockById.values()) {
+    const tipo = tipoVariacaoTiny(item);
+    if (tipo !== "N" && tipo !== "P") continue;
+
+    const id = text(item.id);
+    const nome = text(item.nome);
+
+    const existing =
+      byId.get(id) ||
+      byName.get(normalize(baseName(nome) || nome));
+
+    if (!existing) continue;
+
+    const target = getPending(existing);
+    target.forceTotal = saldoDoEstoqueAtualizado(item);
+    target.estoque = target.forceTotal;
+  }
+
+  /* Células das variações. */
+  for (const item of stockById.values()) {
+    if (tipoVariacaoTiny(item) !== "V") continue;
+
+    const nome = text(item.nome);
+    const parentId =
+      text(item.idProdutoPai) ||
+      text(item.id_produto_pai);
+    const base = baseName(nome);
+
+    const existing =
+      (parentId ? byId.get(parentId) : undefined) ||
+      byName.get(normalize(base)) ||
+      byName.get(normalize(nome));
+
+    if (!existing) continue;
+
+    const target = getPending(existing);
+    const result = applyVariationStockUpdate(
+      {
+        estoque: target.estoque,
+        tamanhos: target.tamanhos,
+        cores: target.cores,
+        estoquePorTamanho: target.estoquePorTamanho,
+        estoquePorCor: target.estoquePorCor,
+      },
+      item
+    );
+
+    if (!result.changed) continue;
+
+    target.estoque = result.next.estoque;
+    target.tamanhos = result.next.tamanhos;
+    target.cores = result.next.cores;
+    target.estoquePorTamanho = result.next.estoquePorTamanho;
+    target.estoquePorCor = result.next.estoquePorCor;
+    target.matrixChanged = true;
+  }
+
+  let criados = 0;
+  let atualizados = 0;
+  let ignorados = 0;
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of novos) {
+      const id = item.id;
+      if (!id || !item.nome) continue;
+
+      const exists = await tx.produto.findFirst({
+        where: {
+          OR: [
+            { id },
+            { nome: item.nome },
+          ],
+        },
+        select: { id: true },
+      });
+
+      if (exists) {
+        ignorados += 1;
+        continue;
+      }
+
+      await tx.produto.create({
+        data: {
+          id: item.id,
+          nome: item.nome,
+          descricao: item.descricao,
+          preco: item.preco,
+          precoPromocional: item.precoPromocional,
+          estoque: item.estoque,
+          tamanhos: item.tamanhos,
+          estoquePorTamanho: item.estoquePorTamanho,
+          cores: item.cores,
+          estoquePorCor: item.estoquePorCor,
+          imagemUrl: item.imagemUrl,
+          imagens: item.imagens,
+          ativo: true,
+        },
+      });
+
+      criados += 1;
+    }
+
+    for (const [id, item] of pending.entries()) {
+      await tx.produto.update({
+        where: { id },
+        data: {
+          /*
+           * Se o Tiny enviou o registro P, ele é a fonte oficial do total.
+           * A matriz continua sendo atualizada pelas variações V.
+           */
+          estoque:
+            item.forceTotal !== undefined
+              ? item.forceTotal
+              : item.estoque,
+          ...(item.matrixChanged
+            ? {
+                tamanhos: item.tamanhos,
+                estoquePorTamanho: item.estoquePorTamanho,
+                cores: item.cores,
+                estoquePorCor: item.estoquePorCor,
+              }
+            : {}),
+        },
+      });
+
+      atualizados += 1;
+    }
+  });
+
+  return {
+    criados,
+    atualizados,
+    ignorados,
+    variacoesProcessadas: stockById.size,
+    produtosAlteradosProcessados: produtosQueue.products.length,
+    paginasEstoque: estoqueQueue.paginasProcessadas,
+    paginasProdutos: produtosQueue.paginasProcessadas,
+    temMaisEstoque: estoqueQueue.temMais,
+    temMaisProdutos: produtosQueue.temMais,
+    duracaoMs: Date.now() - startedAt,
+    dataCorte: TINY_SYNC_START_DATE,
+  };
+}
+
+/* =========================================================
  * POST
  * =======================================================*/
 
@@ -2632,7 +3279,7 @@ export async function POST(
      * ===================================================*/
 
     if (action === "sync") {
-      const result = await syncAllProductsFast();
+      const result = await syncIncrementalFast();
 
       return NextResponse.json({
         success: true,
