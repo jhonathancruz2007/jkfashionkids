@@ -340,382 +340,63 @@ export default function PaginaDashboardAdmin() {
     setSincronizandoTiny(true)
 
     try {
-      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY OTIMIZADA ===")
+      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY V2 ===")
 
-      // ETAPA 1: baixa o catálogo do Tiny.
-      const startRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+      // Uma única requisição ao nosso backend.
+      // O backend controla toda a concorrência com o Tiny.
+      const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", tipo }),
+        body: JSON.stringify({
+          action: "sync",
+          tipo,
+        }),
         cache: "no-store",
       })
 
-      const startText = await startRes.text()
-      let startData: any = {}
+      const raw = await res.text()
+      let data: any = {}
 
       try {
-        startData = startText ? JSON.parse(startText) : {}
+        data = raw ? JSON.parse(raw) : {}
       } catch {
         throw new Error(
-          `O servidor não retornou JSON válido ao iniciar a sincronização. HTTP ${startRes.status}`
+          `O servidor não retornou JSON válido. HTTP ${res.status}`
         )
       }
 
-      if (!startRes.ok || !startData.success) {
+      if (!res.ok || !data.success) {
         throw new Error(
-          startData.details ||
-          startData.error ||
-          `Erro HTTP ${startRes.status} ao iniciar a sincronização.`
+          data.details ||
+          data.error ||
+          `Erro HTTP ${res.status} durante a sincronização.`
         )
       }
 
-      const grupos = Array.isArray(startData.groups)
-        ? [...startData.groups]
-        : []
-
-      const apiLimit = Math.max(
-        1,
-        Number(startData.apiLimit) || 20
-      )
-
-      // O Tiny informa que a concorrência segura é 1/4 do limite da conta.
-      // O teto de 15 evita abrir chamadas demais de uma vez.
-      const concorrenciaTiny = Math.max(
-        1,
-        Math.min(15, Math.floor(apiLimit / 4) || 1)
-      )
-
-      console.log("Catálogo recebido:", startData.estatisticas)
-      console.log("Limite Tiny:", apiLimit, "Concorrência:", concorrenciaTiny)
-
-      if (grupos.length === 0) {
-        exibirToast("Nenhum produto encontrado no Tiny.", "error")
-        return
-      }
-
-      let criados = 0
-      let atualizados = 0
-      let ignorados = 0
-      let gruposProcessados = 0
-      let totalVariacoesProcessadas = 0
-
-      const esperar = (ms: number) =>
-        new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
-
-      const intervaloEntreOndas = (quantidadeChamadas: number) =>
-        Math.ceil((quantidadeChamadas * 60000) / apiLimit) + 250
-
-      // ============================================================
-      // ETAPA 2: busca os detalhes dos produtos P em paralelo.
-      // Antes era 1 por vez; agora usamos a concorrência permitida.
-      // ============================================================
-      const indicesPais = grupos
-        .map((group: any, index: number) => ({ group, index }))
-        .filter(
-          ({ group }) =>
-            group?.tipoVariacao === "P" &&
-            (!Array.isArray(group?.variations) || group.variations.length === 0)
-        )
-
-      for (
-        let inicio = 0;
-        inicio < indicesPais.length;
-        inicio += concorrenciaTiny
-      ) {
-        const lote = indicesPais.slice(
-          inicio,
-          inicio + concorrenciaTiny
-        )
-
-        const startedAt = Date.now()
-
-        await Promise.all(
-          lote.map(async ({ group, index }) => {
-            const detailsRes = await fetch(
-              "/api/admin/produtos/sincronizar-tiny",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  action: "details",
-                  tipo,
-                  group,
-                }),
-                cache: "no-store",
-              }
-            )
-
-            const detailsText = await detailsRes.text()
-            let detailsData: any = {}
-
-            try {
-              detailsData = detailsText ? JSON.parse(detailsText) : {}
-            } catch {
-              throw new Error(
-                `Resposta inválida ao consultar detalhes de ${group.nome}. HTTP ${detailsRes.status}`
-              )
-            }
-
-            if (!detailsRes.ok || !detailsData.success) {
-              throw new Error(
-                detailsData.details ||
-                detailsData.error ||
-                `Erro HTTP ${detailsRes.status} ao consultar detalhes de ${group.nome}.`
-              )
-            }
-
-            if (detailsData.group) {
-              grupos[index] = detailsData.group
-            }
-          })
-        )
-
-        const chamadasExecutadas = lote.length
-        const esperaNecessaria = Math.max(
-          0,
-          intervaloEntreOndas(chamadasExecutadas) -
-            (Date.now() - startedAt)
-        )
-
-        if (inicio + concorrenciaTiny < indicesPais.length) {
-          await esperar(esperaNecessaria)
-        }
-
-        exibirToast(
-          `Detalhes Tiny: ${Math.min(
-            inicio + lote.length,
-            indicesPais.length
-          )}/${indicesPais.length} produtos.`
-        )
-      }
-
-      // ============================================================
-      // ETAPA 3: junta TODAS as variações e consulta o estoque
-      // globalmente, não grupo por grupo.
-      // Isso elimina os delays repetidos entre cada produto.
-      // ============================================================
-      const variacaoPorId = new Map<
-        string,
-        {
-          variation: any
-          grupos: number[]
-        }
-      >()
-
-      grupos.forEach((group: any, groupIndex: number) => {
-        const variations = Array.isArray(group?.variations)
-          ? group.variations
-          : []
-
-        for (const variation of variations) {
-          const id = String(variation?.id ?? "").trim()
-          if (!id) continue
-
-          const atual = variacaoPorId.get(id)
-
-          if (atual) {
-            if (!atual.grupos.includes(groupIndex)) {
-              atual.grupos.push(groupIndex)
-            }
-          } else {
-            variacaoPorId.set(id, {
-              variation,
-              grupos: [groupIndex],
-            })
-          }
-        }
-      })
-
-      const variacoesUnicas = Array.from(
-        variacaoPorId.values(),
-        (item) => item.variation
-      )
-
-      const stocksPorGrupo = new Map<
-        number,
-        Array<{ id: string; saldo: number }>
-      >()
-
-      for (let offset = 0; offset < variacoesUnicas.length; ) {
-        const stockBatchSize = Math.min(
-          concorrenciaTiny,
-          variacoesUnicas.length - offset
-        )
-
-        const loteVariacoes = variacoesUnicas.slice(
-          offset,
-          offset + stockBatchSize
-        )
-
-        const stockRes = await fetch(
-          "/api/admin/produtos/sincronizar-tiny",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "stock",
-              tipo,
-              variations: loteVariacoes,
-              offset: 0,
-              batchSize: loteVariacoes.length,
-              apiLimit,
-            }),
-            cache: "no-store",
-          }
-        )
-
-        const stockText = await stockRes.text()
-        let stockData: any = {}
-
-        try {
-          stockData = stockText ? JSON.parse(stockText) : {}
-        } catch {
-          throw new Error(
-            `Resposta inválida ao consultar estoque. HTTP ${stockRes.status}`
-          )
-        }
-
-        if (!stockRes.ok || !stockData.success) {
-          throw new Error(
-            stockData.details ||
-            stockData.error ||
-            `Erro HTTP ${stockRes.status} ao consultar estoque.`
-          )
-        }
-
-        const stocks = Array.isArray(stockData.stocks)
-          ? stockData.stocks
-          : []
-
-        for (const stock of stocks) {
-          const id = String(stock?.id ?? "").trim()
-          if (!id) continue
-
-          const referencia = variacaoPorId.get(id)
-          if (!referencia) continue
-
-          const item = {
-            id,
-            saldo: Number(stock?.saldo) || 0,
-          }
-
-          for (const groupIndex of referencia.grupos) {
-            const lista = stocksPorGrupo.get(groupIndex) || []
-            const jaExiste = lista.some((entrada) => entrada.id === id)
-
-            if (!jaExiste) {
-              lista.push(item)
-              stocksPorGrupo.set(groupIndex, lista)
-            }
-          }
-        }
-
-        offset += loteVariacoes.length
-        totalVariacoesProcessadas += stocks.length
-
-        const progresso =
-          variacoesUnicas.length > 0
-            ? Math.min(
-                100,
-                Math.round((offset / variacoesUnicas.length) * 100)
-              )
-            : 100
-
-        exibirToast(
-          `Estoque Tiny: ${progresso}% (${offset}/${variacoesUnicas.length} variações)`
-        )
-
-        const waitMs = Math.max(
-          0,
-          Number(stockData.waitMs) || 0
-        )
-
-        if (offset < variacoesUnicas.length && waitMs > 0) {
-          await esperar(waitMs)
-        }
-      }
-
-      // ============================================================
-      // ETAPA 4: salva os grupos em paralelo no banco.
-      // Não há chamadas ao Tiny nesta etapa, então não precisamos
-      // aplicar o limite de API aqui.
-      // ============================================================
-      const FINISH_CONCURRENCY = 8
-
-      for (
-        let inicio = 0;
-        inicio < grupos.length;
-        inicio += FINISH_CONCURRENCY
-      ) {
-        const lote = grupos
-          .map((group: any, index: number) => ({ group, index }))
-          .slice(inicio, inicio + FINISH_CONCURRENCY)
-
-        await Promise.all(
-          lote.map(async ({ group, index }) => {
-            const stocks = stocksPorGrupo.get(index) || []
-
-            const finishRes = await fetch(
-              "/api/admin/produtos/sincronizar-tiny",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  action: "finish",
-                  tipo,
-                  group,
-                  stocks,
-                }),
-                cache: "no-store",
-              }
-            )
-
-            const finishText = await finishRes.text()
-            let finishData: any = {}
-
-            try {
-              finishData = finishText ? JSON.parse(finishText) : {}
-            } catch {
-              throw new Error(
-                `Resposta inválida ao salvar ${group.nome}. HTTP ${finishRes.status}`
-              )
-            }
-
-            if (!finishRes.ok || !finishData.success) {
-              throw new Error(
-                finishData.details ||
-                finishData.error ||
-                `Erro HTTP ${finishRes.status} ao salvar ${group.nome}.`
-              )
-            }
-
-            if (finishData.status === "created") criados += 1
-            else if (finishData.status === "updated") atualizados += 1
-            else ignorados += 1
-
-            gruposProcessados += 1
-          })
-        )
-
-        exibirToast(
-          `Salvando produtos: ${Math.min(
-            inicio + lote.length,
-            grupos.length
-          )}/${grupos.length}`
-        )
-      }
-
+      // Recarrega apenas uma vez depois de toda a sincronização.
       await carregarProdutos()
 
-      const resumo =
-        `${criados} novos, ${atualizados} atualizados` +
-        (ignorados > 0 ? `, ${ignorados} ignorados` : "")
+      const criados = Number(data.criados) || 0
+      const atualizados = Number(data.atualizados) || 0
+      const ignorados = Number(data.ignorados) || 0
+      const variacoes = Number(data.variacoesProcessadas) || 0
+      const duracaoMs = Number(data.duracaoMs) || 0
+      const duracaoSegundos = (duracaoMs / 1000).toFixed(1)
+
+      const partes = [
+        `${criados} novos`,
+        `${atualizados} atualizados`,
+      ]
+
+      if (ignorados > 0) {
+        partes.push(`${ignorados} ignorados`)
+      }
 
       exibirToast(
-        `Sincronização concluída: ${resumo}. ${totalVariacoesProcessadas} variações processadas.`
+        `Sincronização concluída: ${partes.join(", ")}. ${variacoes} variações em ${duracaoSegundos}s.`
       )
 
-      console.log("=== SINCRONIZAÇÃO TINY OTIMIZADA CONCLUÍDA ===")
+      console.log("=== SINCRONIZAÇÃO TINY V2 CONCLUÍDA ===", data)
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO TINY ===")
       console.error(error)
@@ -1892,7 +1573,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos (Tiny)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos (rápido)"}</span>
                 </button>
 
                 <button
@@ -1951,7 +1632,7 @@ export default function PaginaDashboardAdmin() {
                   className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (Tiny)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (rápido)"}</span>
                 </button>
 
                 <button
