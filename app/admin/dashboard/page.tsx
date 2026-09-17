@@ -340,11 +340,9 @@ export default function PaginaDashboardAdmin() {
     setSincronizandoTiny(true)
 
     try {
-      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY ===")
+      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY OTIMIZADA ===")
 
-      // ETAPA 1: baixa o catálogo apenas 1 vez.
-      // O endpoint devolve os grupos e suas variações sem tentar processar
-      // centenas de estoques dentro de uma única função serverless.
+      // ETAPA 1: baixa o catálogo do Tiny.
       const startRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -371,9 +369,24 @@ export default function PaginaDashboardAdmin() {
         )
       }
 
-      const grupos = Array.isArray(startData.groups) ? startData.groups : []
+      const grupos = Array.isArray(startData.groups)
+        ? [...startData.groups]
+        : []
+
+      const apiLimit = Math.max(
+        1,
+        Number(startData.apiLimit) || 20
+      )
+
+      // O Tiny informa que a concorrência segura é 1/4 do limite da conta.
+      // O teto de 15 evita abrir chamadas demais de uma vez.
+      const concorrenciaTiny = Math.max(
+        1,
+        Math.min(15, Math.floor(apiLimit / 4) || 1)
+      )
 
       console.log("Catálogo recebido:", startData.estatisticas)
+      console.log("Limite Tiny:", apiLimit, "Concorrência:", concorrenciaTiny)
 
       if (grupos.length === 0) {
         exibirToast("Nenhum produto encontrado no Tiny.", "error")
@@ -386,130 +399,309 @@ export default function PaginaDashboardAdmin() {
       let gruposProcessados = 0
       let totalVariacoesProcessadas = 0
 
-      // O Tiny limita as chamadas concorrentes a 1/4 do limite do plano.
-      // 5 é seguro até mesmo para o limite antigo de 20 chamadas/minuto.
-      const batchSize = 5
+      const esperar = (ms: number) =>
+        new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
-      for (const group of grupos) {
-        const variations = Array.isArray(group.variations)
+      const intervaloEntreOndas = (quantidadeChamadas: number) =>
+        Math.ceil((quantidadeChamadas * 60000) / apiLimit) + 250
+
+      // ============================================================
+      // ETAPA 2: busca os detalhes dos produtos P em paralelo.
+      // Antes era 1 por vez; agora usamos a concorrência permitida.
+      // ============================================================
+      const indicesPais = grupos
+        .map((group: any, index: number) => ({ group, index }))
+        .filter(
+          ({ group }) =>
+            group?.tipoVariacao === "P" &&
+            (!Array.isArray(group?.variations) || group.variations.length === 0)
+        )
+
+      for (
+        let inicio = 0;
+        inicio < indicesPais.length;
+        inicio += concorrenciaTiny
+      ) {
+        const lote = indicesPais.slice(
+          inicio,
+          inicio + concorrenciaTiny
+        )
+
+        const startedAt = Date.now()
+
+        await Promise.all(
+          lote.map(async ({ group, index }) => {
+            const detailsRes = await fetch(
+              "/api/admin/produtos/sincronizar-tiny",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "details",
+                  tipo,
+                  group,
+                }),
+                cache: "no-store",
+              }
+            )
+
+            const detailsText = await detailsRes.text()
+            let detailsData: any = {}
+
+            try {
+              detailsData = detailsText ? JSON.parse(detailsText) : {}
+            } catch {
+              throw new Error(
+                `Resposta inválida ao consultar detalhes de ${group.nome}. HTTP ${detailsRes.status}`
+              )
+            }
+
+            if (!detailsRes.ok || !detailsData.success) {
+              throw new Error(
+                detailsData.details ||
+                detailsData.error ||
+                `Erro HTTP ${detailsRes.status} ao consultar detalhes de ${group.nome}.`
+              )
+            }
+
+            if (detailsData.group) {
+              grupos[index] = detailsData.group
+            }
+          })
+        )
+
+        const chamadasExecutadas = lote.length
+        const esperaNecessaria = Math.max(
+          0,
+          intervaloEntreOndas(chamadasExecutadas) -
+            (Date.now() - startedAt)
+        )
+
+        if (inicio + concorrenciaTiny < indicesPais.length) {
+          await esperar(esperaNecessaria)
+        }
+
+        exibirToast(
+          `Detalhes Tiny: ${Math.min(
+            inicio + lote.length,
+            indicesPais.length
+          )}/${indicesPais.length} produtos.`
+        )
+      }
+
+      // ============================================================
+      // ETAPA 3: junta TODAS as variações e consulta o estoque
+      // globalmente, não grupo por grupo.
+      // Isso elimina os delays repetidos entre cada produto.
+      // ============================================================
+      const variacaoPorId = new Map<
+        string,
+        {
+          variation: any
+          grupos: number[]
+        }
+      >()
+
+      grupos.forEach((group: any, groupIndex: number) => {
+        const variations = Array.isArray(group?.variations)
           ? group.variations
           : []
 
-        const stocks: Array<{ id: string; saldo: number }> = []
-        let offset = 0
+        for (const variation of variations) {
+          const id = String(variation?.id ?? "").trim()
+          if (!id) continue
 
-        while (offset < variations.length) {
-          const stockRes = await fetch(
-            "/api/admin/produtos/sincronizar-tiny",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "stock",
-                tipo,
-                variations,
-                offset,
-                batchSize,
-              }),
-              cache: "no-store",
+          const atual = variacaoPorId.get(id)
+
+          if (atual) {
+            if (!atual.grupos.includes(groupIndex)) {
+              atual.grupos.push(groupIndex)
             }
-          )
-
-          const stockText = await stockRes.text()
-          let stockData: any = {}
-
-          try {
-            stockData = stockText ? JSON.parse(stockText) : {}
-          } catch {
-            throw new Error(
-              `Resposta inválida ao consultar estoque. HTTP ${stockRes.status}`
-            )
-          }
-
-          if (!stockRes.ok || !stockData.success) {
-            throw new Error(
-              stockData.details ||
-              stockData.error ||
-              `Erro HTTP ${stockRes.status} ao consultar estoque.`
-            )
-          }
-
-          if (Array.isArray(stockData.stocks)) {
-            stocks.push(...stockData.stocks)
-          }
-
-          offset = Number(stockData.nextOffset)
-          totalVariacoesProcessadas += Array.isArray(stockData.stocks)
-            ? stockData.stocks.length
-            : 0
-
-          const progresso =
-            variations.length > 0
-              ? Math.min(100, Math.round((offset / variations.length) * 100))
-              : 100
-
-          exibirToast(
-            `Sincronizando ${group.nome}: ${progresso}% (${offset}/${variations.length})`
-          )
-
-          // Dá tempo para o limite por minuto do Tiny. Cada lote possui até 5
-          // chamadas e o limite antigo é 20/min => cerca de 15 s por lote.
-          const waitMs = Math.max(0, Number(stockData.waitMs) || 15300)
-          if (offset < variations.length && waitMs > 0) {
-            await new Promise((resolve) => setTimeout(resolve, waitMs))
+          } else {
+            variacaoPorId.set(id, {
+              variation,
+              grupos: [groupIndex],
+            })
           }
         }
+      })
 
-        // Produto simples pode não possuir variações na resposta de pesquisa.
-        // Nesse caso, a própria lista ainda contém uma variação com o ID do produto.
-        if (variations.length === 0) {
-          exibirToast(`Finalizando ${group.nome}...`)
-        }
+      const variacoesUnicas = Array.from(
+        variacaoPorId.values(),
+        (item) => item.variation
+      )
 
-        // ETAPA 3: grava somente este grupo. A operação é curta e não estoura
-        // o tempo da função serverless.
-        const finishRes = await fetch(
+      const stocksPorGrupo = new Map<
+        number,
+        Array<{ id: string; saldo: number }>
+      >()
+
+      for (let offset = 0; offset < variacoesUnicas.length; ) {
+        const stockBatchSize = Math.min(
+          concorrenciaTiny,
+          variacoesUnicas.length - offset
+        )
+
+        const loteVariacoes = variacoesUnicas.slice(
+          offset,
+          offset + stockBatchSize
+        )
+
+        const stockRes = await fetch(
           "/api/admin/produtos/sincronizar-tiny",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              action: "finish",
+              action: "stock",
               tipo,
-              group,
-              stocks,
+              variations: loteVariacoes,
+              offset: 0,
+              batchSize: loteVariacoes.length,
+              apiLimit,
             }),
             cache: "no-store",
           }
         )
 
-        const finishText = await finishRes.text()
-        let finishData: any = {}
+        const stockText = await stockRes.text()
+        let stockData: any = {}
 
         try {
-          finishData = finishText ? JSON.parse(finishText) : {}
+          stockData = stockText ? JSON.parse(stockText) : {}
         } catch {
           throw new Error(
-            `Resposta inválida ao salvar ${group.nome}. HTTP ${finishRes.status}`
+            `Resposta inválida ao consultar estoque. HTTP ${stockRes.status}`
           )
         }
 
-        if (!finishRes.ok || !finishData.success) {
+        if (!stockRes.ok || !stockData.success) {
           throw new Error(
-            finishData.details ||
-            finishData.error ||
-            `Erro HTTP ${finishRes.status} ao salvar ${group.nome}.`
+            stockData.details ||
+            stockData.error ||
+            `Erro HTTP ${stockRes.status} ao consultar estoque.`
           )
         }
 
-        if (finishData.status === "created") criados += 1
-        else if (finishData.status === "updated") atualizados += 1
-        else ignorados += 1
+        const stocks = Array.isArray(stockData.stocks)
+          ? stockData.stocks
+          : []
 
-        gruposProcessados += 1
+        for (const stock of stocks) {
+          const id = String(stock?.id ?? "").trim()
+          if (!id) continue
+
+          const referencia = variacaoPorId.get(id)
+          if (!referencia) continue
+
+          const item = {
+            id,
+            saldo: Number(stock?.saldo) || 0,
+          }
+
+          for (const groupIndex of referencia.grupos) {
+            const lista = stocksPorGrupo.get(groupIndex) || []
+            const jaExiste = lista.some((entrada) => entrada.id === id)
+
+            if (!jaExiste) {
+              lista.push(item)
+              stocksPorGrupo.set(groupIndex, lista)
+            }
+          }
+        }
+
+        offset += loteVariacoes.length
+        totalVariacoesProcessadas += stocks.length
+
+        const progresso =
+          variacoesUnicas.length > 0
+            ? Math.min(
+                100,
+                Math.round((offset / variacoesUnicas.length) * 100)
+              )
+            : 100
 
         exibirToast(
-          `Produto ${gruposProcessados}/${grupos.length} sincronizado: ${group.nome}`
+          `Estoque Tiny: ${progresso}% (${offset}/${variacoesUnicas.length} variações)`
+        )
+
+        const waitMs = Math.max(
+          0,
+          Number(stockData.waitMs) || 0
+        )
+
+        if (offset < variacoesUnicas.length && waitMs > 0) {
+          await esperar(waitMs)
+        }
+      }
+
+      // ============================================================
+      // ETAPA 4: salva os grupos em paralelo no banco.
+      // Não há chamadas ao Tiny nesta etapa, então não precisamos
+      // aplicar o limite de API aqui.
+      // ============================================================
+      const FINISH_CONCURRENCY = 8
+
+      for (
+        let inicio = 0;
+        inicio < grupos.length;
+        inicio += FINISH_CONCURRENCY
+      ) {
+        const lote = grupos
+          .map((group: any, index: number) => ({ group, index }))
+          .slice(inicio, inicio + FINISH_CONCURRENCY)
+
+        await Promise.all(
+          lote.map(async ({ group, index }) => {
+            const stocks = stocksPorGrupo.get(index) || []
+
+            const finishRes = await fetch(
+              "/api/admin/produtos/sincronizar-tiny",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "finish",
+                  tipo,
+                  group,
+                  stocks,
+                }),
+                cache: "no-store",
+              }
+            )
+
+            const finishText = await finishRes.text()
+            let finishData: any = {}
+
+            try {
+              finishData = finishText ? JSON.parse(finishText) : {}
+            } catch {
+              throw new Error(
+                `Resposta inválida ao salvar ${group.nome}. HTTP ${finishRes.status}`
+              )
+            }
+
+            if (!finishRes.ok || !finishData.success) {
+              throw new Error(
+                finishData.details ||
+                finishData.error ||
+                `Erro HTTP ${finishRes.status} ao salvar ${group.nome}.`
+              )
+            }
+
+            if (finishData.status === "created") criados += 1
+            else if (finishData.status === "updated") atualizados += 1
+            else ignorados += 1
+
+            gruposProcessados += 1
+          })
+        )
+
+        exibirToast(
+          `Salvando produtos: ${Math.min(
+            inicio + lote.length,
+            grupos.length
+          )}/${grupos.length}`
         )
       }
 
@@ -523,7 +715,7 @@ export default function PaginaDashboardAdmin() {
         `Sincronização concluída: ${resumo}. ${totalVariacoesProcessadas} variações processadas.`
       )
 
-      console.log("=== SINCRONIZAÇÃO TINY CONCLUÍDA ===")
+      console.log("=== SINCRONIZAÇÃO TINY OTIMIZADA CONCLUÍDA ===")
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO TINY ===")
       console.error(error)
@@ -1700,7 +1892,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Tiny (API)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos (Tiny)"}</span>
                 </button>
 
                 <button
@@ -1748,7 +1940,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e sincronize estoque, tamanhos e cores diretamente com o Tiny.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Tiny. Produtos novos do Tiny são cadastrados automaticamente.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1759,7 +1951,7 @@ export default function PaginaDashboardAdmin() {
                   className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Tiny (API)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (Tiny)"}</span>
                 </button>
 
                 <button
