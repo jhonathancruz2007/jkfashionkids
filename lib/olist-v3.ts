@@ -1,19 +1,11 @@
 import crypto from "node:crypto";
 
 const OLIST_API_BASE = "https://api.tiny.com.br/public-api/v3";
-const OLIST_ACCOUNTS_BASE = "https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect";
-
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-const OLIST_CLIENT_ID = process.env.OLIST_V3_CLIENT_ID;
-const OLIST_CLIENT_SECRET = process.env.OLIST_V3_CLIENT_SECRET;
-
-export const OLIST_REDIRECT_URI =
-  process.env.OLIST_V3_REDIRECT_URI ||
-  `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.jkfashionkids.com.br").replace(/\/$/, "")}/api/tiny/oauth/callback`;
+const OLIST_ACCOUNTS_BASE =
+  "https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect";
 
 const TOKEN_KEY = "jkfashion:olist:v3:oauth";
+const STATE_COOKIE = "jkfashion_olist_v3_oauth_state";
 
 export type OlistOAuthToken = {
   accessToken: string;
@@ -35,19 +27,41 @@ export class OlistOAuthError extends Error {
   }
 }
 
-function assertRedisConfigured() {
-  if (!REDIS_URL || !REDIS_TOKEN) {
-    throw new Error(
-      "UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN precisam estar configuradas."
+function siteUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    "https://www.jkfashionkids.com.br"
+  );
+}
+
+export function getOlistClientId(): string {
+  return (process.env.OLIST_V3_CLIENT_ID || "").trim();
+}
+
+export function getOlistClientSecret(): string {
+  return (process.env.OLIST_V3_CLIENT_SECRET || "").trim();
+}
+
+export function getOlistRedirectUri(): string {
+  return (
+    process.env.OLIST_V3_REDIRECT_URI?.trim() ||
+    `${siteUrl()}/api/tiny/oauth/callback`
+  );
+}
+
+function assertOAuthConfigured() {
+  if (!getOlistClientId() || !getOlistClientSecret()) {
+    throw new OlistOAuthError(
+      "As variáveis OLIST_V3_CLIENT_ID e OLIST_V3_CLIENT_SECRET precisam estar configuradas na Vercel e o projeto precisa ser redeployado.",
+      "NOT_CONFIGURED"
     );
   }
 }
 
-function assertOAuthConfigured() {
-  if (!OLIST_CLIENT_ID || !OLIST_CLIENT_SECRET) {
-    throw new OlistOAuthError(
-      "OLIST_V3_CLIENT_ID e OLIST_V3_CLIENT_SECRET não estão configurados.",
-      "NOT_CONFIGURED"
+function assertRedisConfigured() {
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    throw new Error(
+      "UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN precisam estar configuradas."
     );
   }
 }
@@ -55,21 +69,28 @@ function assertOAuthConfigured() {
 async function redisCommand<T = unknown>(command: unknown[]): Promise<T> {
   assertRedisConfigured();
 
-  const response = await fetch(REDIS_URL!, {
+  const response = await fetch(process.env.UPSTASH_REDIS_REST_URL!, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${REDIS_TOKEN}`,
+      Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN!}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(command),
     cache: "no-store",
   });
 
+  const raw = await response.text();
   if (!response.ok) {
-    throw new Error(`Redis HTTP ${response.status}`);
+    throw new Error(`Redis HTTP ${response.status}: ${raw || "sem resposta"}`);
   }
 
-  const data = (await response.json()) as { result?: T; error?: string };
+  let data: { result?: T; error?: string } = {};
+  try {
+    data = raw ? (JSON.parse(raw) as { result?: T; error?: string }) : {};
+  } catch {
+    throw new Error(`Resposta inválida do Redis: ${raw}`);
+  }
+
   if (data.error) {
     throw new Error(`Redis: ${data.error}`);
   }
@@ -102,49 +123,20 @@ export async function redisDelete(key: string): Promise<void> {
   await redisCommand(["DEL", key]);
 }
 
-export async function redisSetNx(
-  key: string,
-  value: string,
-  ttlSeconds: number
-): Promise<boolean> {
-  const result = await redisCommand<string | number | null>([
-    "SET",
-    key,
-    value,
-    "EX",
-    ttlSeconds,
-    "NX",
-  ]);
-
-  return result === "OK" || result === "ok" || result === 1;
-}
-
 export function createOAuthState(): string {
-  return crypto.randomBytes(24).toString("hex");
+  return crypto.randomBytes(32).toString("hex");
 }
 
-export async function saveOAuthState(state: string): Promise<void> {
-  await redisSetJson(
-    `jkfashion:olist:v3:oauth:state:${state}`,
-    { createdAt: Date.now() },
-    600
-  );
-}
-
-export async function consumeOAuthState(state: string): Promise<boolean> {
-  const key = `jkfashion:olist:v3:oauth:state:${state}`;
-  const exists = await redisGetJson<{ createdAt?: number }>(key);
-  if (!exists) return false;
-  await redisDelete(key);
-  return true;
+export function getOAuthStateCookieName(): string {
+  return STATE_COOKIE;
 }
 
 export function getAuthorizationUrl(state: string): string {
   assertOAuthConfigured();
 
   const params = new URLSearchParams({
-    client_id: OLIST_CLIENT_ID!,
-    redirect_uri: OLIST_REDIRECT_URI,
+    client_id: getOlistClientId(),
+    redirect_uri: getOlistRedirectUri(),
     scope: "openid",
     response_type: "code",
     state,
@@ -160,6 +152,7 @@ async function tokenRequest(form: URLSearchParams): Promise<Record<string, unkno
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
     },
     body: form.toString(),
     cache: "no-store",
@@ -174,17 +167,30 @@ async function tokenRequest(form: URLSearchParams): Promise<Record<string, unkno
   }
 
   if (!response.ok) {
-    const message =
-      String(data.error_description || data.error || data.mensagem || raw || "Falha na autenticação");
-    throw new OlistOAuthError(message, "AUTH_FAILED");
+    const message = String(
+      data.error_description ||
+        data.error ||
+        data.mensagem ||
+        raw ||
+        `Falha na autenticação (HTTP ${response.status})`
+    );
+    throw new OlistOAuthError(
+      `Olist/Tiny recusou a autenticação: ${message}`,
+      "AUTH_FAILED"
+    );
   }
 
   return data;
 }
 
-function makeToken(data: Record<string, unknown>, previous?: OlistOAuthToken): OlistOAuthToken {
+function makeToken(
+  data: Record<string, unknown>,
+  previous?: OlistOAuthToken
+): OlistOAuthToken {
   const accessToken = String(data.access_token || "").trim();
-  const refreshToken = String(data.refresh_token || previous?.refreshToken || "").trim();
+  const refreshToken = String(
+    data.refresh_token || previous?.refreshToken || ""
+  ).trim();
   const expiresIn = Number(data.expires_in || 0);
 
   if (!accessToken || !refreshToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
@@ -202,12 +208,14 @@ function makeToken(data: Record<string, unknown>, previous?: OlistOAuthToken): O
   };
 }
 
-export async function exchangeAuthorizationCode(code: string): Promise<OlistOAuthToken> {
+export async function exchangeAuthorizationCode(
+  code: string
+): Promise<OlistOAuthToken> {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: OLIST_CLIENT_ID || "",
-    client_secret: OLIST_CLIENT_SECRET || "",
-    redirect_uri: OLIST_REDIRECT_URI,
+    client_id: getOlistClientId(),
+    client_secret: getOlistClientSecret(),
+    redirect_uri: getOlistRedirectUri(),
     code,
   });
 
@@ -225,11 +233,13 @@ export async function clearStoredToken(): Promise<void> {
   await redisDelete(TOKEN_KEY);
 }
 
-async function refreshAccessToken(previous: OlistOAuthToken): Promise<OlistOAuthToken> {
+async function refreshAccessToken(
+  previous: OlistOAuthToken
+): Promise<OlistOAuthToken> {
   const form = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: OLIST_CLIENT_ID || "",
-    client_secret: OLIST_CLIENT_SECRET || "",
+    client_id: getOlistClientId(),
+    client_secret: getOlistClientSecret(),
     refresh_token: previous.refreshToken,
   });
 
@@ -239,8 +249,9 @@ async function refreshAccessToken(previous: OlistOAuthToken): Promise<OlistOAuth
     await redisSetJson(TOKEN_KEY, token);
     return token;
   } catch (error) {
-    await clearStoredToken();
-    const message = error instanceof Error ? error.message : "Falha ao renovar o token.";
+    await clearStoredToken().catch(() => undefined);
+    const message =
+      error instanceof Error ? error.message : "Falha ao renovar o token.";
     throw new OlistOAuthError(
       `${message} Faça a conexão com o Olist/Tiny novamente.`,
       "REFRESH_FAILED"
@@ -263,8 +274,7 @@ export async function getValidAccessToken(): Promise<string> {
     return token.accessToken;
   }
 
-  const refreshed = await refreshAccessToken(token);
-  return refreshed.accessToken;
+  return (await refreshAccessToken(token)).accessToken;
 }
 
 export async function getOlistV3<T>(
@@ -293,7 +303,9 @@ export async function getOlistV3<T>(
 
   if (response.status === 401 && retryOn401) {
     const token = await getStoredToken();
-    if (!token) throw new OlistOAuthError("Token não encontrado.", "NOT_CONNECTED");
+    if (!token) {
+      throw new OlistOAuthError("Token não encontrado.", "NOT_CONNECTED");
+    }
     const refreshed = await refreshAccessToken(token);
     accessToken = refreshed.accessToken;
     response = await doRequest(accessToken);
@@ -320,7 +332,9 @@ export async function getOlistV3<T>(
         `Olist/Tiny HTTP ${response.status}`
     );
 
-    throw new Error(`Olist/Tiny API ${response.status}: ${message}`);
+    throw new Error(
+      `Olist/Tiny API ${response.status}: ${message}`
+    );
   }
 
   return data as T;
