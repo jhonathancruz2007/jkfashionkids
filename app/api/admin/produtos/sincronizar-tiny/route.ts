@@ -32,6 +32,7 @@ type SyncType =
   | "novos_produtos";
 
 type Action =
+  | "sync"
   | "start"
   | "details"
   | "stock"
@@ -165,6 +166,8 @@ type StartVariation = {
   codigo: string;
   tamanho: string;
   cor: string;
+  /** Estoque que já veio na pesquisa/detalhes do Tiny, quando disponível. */
+  saldoInicial?: number;
 };
 
 type StartGroup = {
@@ -515,12 +518,118 @@ function tinyErrorMessage(
  * CHAMADA TINY
  * =======================================================*/
 
+/* =========================================================
+ * LIMITADOR GLOBAL DA SINCRONIZAÇÃO
+ *
+ * A versão anterior limitava cada etapa separadamente.
+ * Como start/details/stock eram requisições HTTP diferentes,
+ * os limites acabavam sendo somados e o Tiny bloqueava a API.
+ *
+ * Nesta versão toda a sincronização roda em UMA chamada do
+ * nosso backend e este limitador controla TODAS as chamadas
+ * ao Tiny durante a execução.
+ * =======================================================*/
+class TinyRequestLimiter {
+  private apiLimit: number;
+  private active = 0;
+  private timestamps: number[] = [];
+  private blockedUntil = 0;
+
+  constructor(initialLimit = DEFAULT_LIMIT_PER_MINUTE) {
+    this.apiLimit = Math.max(1, Math.floor(initialLimit) || DEFAULT_LIMIT_PER_MINUTE);
+  }
+
+  updateLimit(limit: number) {
+    if (Number.isFinite(limit) && limit > 0) {
+      this.apiLimit = Math.max(1, Math.floor(limit));
+    }
+  }
+
+  blockFor(ms: number) {
+    this.blockedUntil = Math.max(
+      this.blockedUntil,
+      Date.now() + Math.max(0, ms)
+    );
+  }
+
+  private concurrency(): number {
+    // Limite oficial: concorrência máxima = 1/4 do limite por minuto.
+    return Math.max(
+      1,
+      Math.min(
+        MAX_TINY_CONCURRENCY,
+        Math.floor(this.apiLimit / 4) || 1
+      )
+    );
+  }
+
+  private prune() {
+    const cutoff = Date.now() - 60_000;
+    this.timestamps = this.timestamps.filter(
+      (timestamp) => timestamp > cutoff
+    );
+  }
+
+  getLimit(): number {
+    return this.apiLimit;
+  }
+
+  private waitTime(): number {
+    this.prune();
+
+    const now = Date.now();
+    const waits: number[] = [];
+
+    if (this.blockedUntil > now) {
+      waits.push(this.blockedUntil - now);
+    }
+
+    if (this.active >= this.concurrency()) {
+      waits.push(100);
+    }
+
+    if (this.timestamps.length >= this.apiLimit) {
+      const oldest = this.timestamps[0] ?? now;
+      waits.push(
+        Math.max(
+          100,
+          oldest + 60_000 + RATE_LIMIT_SAFETY_MS - now
+        )
+      );
+    }
+
+    return waits.length > 0 ? Math.max(...waits) : 0;
+  }
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    while (true) {
+      const wait = this.waitTime();
+
+      if (wait <= 0) {
+        this.prune();
+        this.active += 1;
+        this.timestamps.push(Date.now());
+        break;
+      }
+
+      await sleep(wait);
+    }
+
+    try {
+      return await task();
+    } finally {
+      this.active = Math.max(0, this.active - 1);
+    }
+  }
+}
+
 async function tinyPost<T>(
   endpoint: string,
   params: Record<
     string,
     string | number
-  >
+  >,
+  limiter?: TinyRequestLimiter
 ): Promise<{
   data: T;
   headers: Headers;
@@ -562,8 +671,8 @@ async function tinyPost<T>(
     );
   }
 
-  const response =
-    await fetch(
+  const execute = () =>
+    fetch(
       `${TINY_BASE_URL}/${endpoint}`,
       {
         method:
@@ -585,6 +694,10 @@ async function tinyPost<T>(
       }
     );
 
+  const response = limiter
+    ? await limiter.run(execute)
+    : await execute();
+
   const raw =
     await response.text();
 
@@ -605,6 +718,14 @@ async function tinyPost<T>(
     data as
       T &
       TinyResponse;
+
+  if (limiter) {
+    const headerLimit = limitFromHeaders(response.headers);
+
+    if (headerLimit > 0) {
+      limiter.updateLimit(headerLimit);
+    }
+  }
 
   const message =
     tinyErrorMessage(
@@ -630,8 +751,10 @@ async function tinyPost<T>(
       "excedido o numero de acessos"
     )
   ) {
+    limiter?.blockFor(180_000);
+
     throw new Error(
-      "API Bloqueada - Excedido o número de acessos a API, aguarde alguns minutos e tente novamente."
+      "API Bloqueada - Excedido o número de acessos a API, aguarde alguns minutos e tente novamente. O botão foi interrompido para evitar novas requisições."
     );
   }
 
@@ -1406,6 +1529,9 @@ function buildStartGroups(
 
           cor:
             grade.cor,
+
+          saldoInicial:
+            optionalNumber(product.estoque_atual),
         },
       ],
     });
@@ -1607,6 +1733,8 @@ function buildStartGroups(
       ),
       tamanho: grade.tamanho,
       cor: grade.cor,
+      saldoInicial:
+        optionalNumber(product.estoque_atual),
     });
   }
 
@@ -1682,7 +1810,8 @@ function buildStartGroups(
  * =======================================================*/
 
 async function getProductDetails(
-  id: string
+  id: string,
+  limiter?: TinyRequestLimiter
 ): Promise<TinyProduct> {
   const response =
     await tinyPost<
@@ -1691,7 +1820,8 @@ async function getProductDetails(
       "produto.obter.php",
       {
         id,
-      }
+      },
+      limiter
     );
 
   const retorno =
@@ -1780,8 +1910,7 @@ function buildDetailedGroup(
       id,
 
       /*
-       * NOVO:
-       * guardamos também o código
+       * Guardamos também o código
        * exato da variação no Tiny.
        */
       codigo:
@@ -1794,6 +1923,9 @@ function buildDetailedGroup(
 
       cor:
         grade.cor,
+
+      saldoInicial:
+        optionalNumber(variation.estoque_atual),
     });
   }
 
@@ -1890,7 +2022,8 @@ function buildDetailedGroup(
  * =======================================================*/
 
 async function getStock(
-  id: string
+  id: string,
+  limiter?: TinyRequestLimiter
 ): Promise<StockResult> {
   const response =
     await tinyPost<
@@ -1899,7 +2032,8 @@ async function getStock(
       "produto.obter.estoque.php",
       {
         id,
-      }
+      },
+      limiter
     );
 
   const retorno =
@@ -2102,6 +2236,347 @@ function aggregateStock(
 }
 
 /* =========================================================
+ * SINCRONIZAÇÃO V2 — UMA ÚNICA REQUISIÇÃO
+ * =======================================================*/
+
+async function searchAllProductsFast(
+  limiter: TinyRequestLimiter
+): Promise<{
+  products: TinyProduct[];
+  apiLimit: number;
+  paginas: number;
+}> {
+  const products: TinyProduct[] = [];
+
+  const adicionarProdutos = (data: TinyResponse) => {
+    for (const item of data.retorno?.produtos ?? []) {
+      const product = item?.produto;
+
+      if (!product?.id) continue;
+
+      if (normalize(text(product.situacao)) === "e") continue;
+
+      products.push(product);
+    }
+  };
+
+  const primeira = await tinyPost<TinyResponse>(
+    "produtos.pesquisa.php",
+    {
+      pesquisa: "",
+      pagina: 1,
+    },
+    limiter
+  );
+
+  const primeiroRetorno = primeira.data.retorno;
+
+  if (!primeiroRetorno || primeiroRetorno.status !== "OK") {
+    throw new Error(tinyErrorMessage(primeira.data));
+  }
+
+  adicionarProdutos(primeira.data);
+
+  const totalPages = Math.min(
+    MAX_SEARCH_PAGES,
+    toNumber(primeiroRetorno.numero_paginas) || 1
+  );
+
+  const paginasRestantes = Array.from(
+    { length: Math.max(0, totalPages - 1) },
+    (_, index) => index + 2
+  );
+
+  const respostas = await Promise.all(
+    paginasRestantes.map((pagina) =>
+      tinyPost<TinyResponse>(
+        "produtos.pesquisa.php",
+        {
+          pesquisa: "",
+          pagina,
+        },
+        limiter
+      )
+    )
+  );
+
+  for (const resposta of respostas) {
+    const retorno = resposta.data.retorno;
+
+    if (!retorno || retorno.status !== "OK") {
+      throw new Error(tinyErrorMessage(resposta.data));
+    }
+
+    adicionarProdutos(resposta.data);
+  }
+
+  return {
+    products: deduplicarProdutos(products),
+    apiLimit: limiter.getLimit(),
+    paginas: totalPages,
+  };
+}
+
+function findExistingProductMaps(
+  products: Array<{ id: string; nome: string }>
+) {
+  const byId = new Map<string, { id: string; nome: string }>();
+  const byName = new Map<string, { id: string; nome: string }>();
+
+  for (const product of products) {
+    if (product.id) byId.set(String(product.id), product);
+
+    const name = normalize(product.nome);
+    if (name && !byName.has(name)) {
+      byName.set(name, product);
+    }
+  }
+
+  return { byId, byName };
+}
+
+async function syncAllProductsFast(): Promise<{
+  criados: number;
+  atualizados: number;
+  ignorados: number;
+  variacoesProcessadas: number;
+  paginas: number;
+  apiLimit: number;
+  duracaoMs: number;
+}> {
+  const startedAt = Date.now();
+  const limiter = new TinyRequestLimiter();
+
+  const catalogo = await searchAllProductsFast(limiter);
+  const startResult = buildStartGroups(catalogo.products);
+  const groups = [...startResult.groups];
+
+  /*
+   * Só buscamos detalhes para P que realmente não receberam
+   * variações na pesquisa do catálogo.
+   */
+  const groupsComDetalhes = await Promise.all(
+    groups.map(async (group) => {
+      if (
+        group.tipoVariacao !== "P" ||
+        group.variations.length > 0
+      ) {
+        return group;
+      }
+
+      const product = await getProductDetails(
+        group.id,
+        limiter
+      );
+
+      return buildDetailedGroup(group, product);
+    })
+  );
+
+  /*
+   * Cada variação é consultada uma única vez.
+   * O limitador é global, então não existe mais o problema
+   * de 5 requests do frontend dispararem outros 5 dentro da API.
+   *
+   * Quando o Tiny já retornou estoque_atual na pesquisa/detalhes,
+   * aproveitamos esse valor e não fazemos chamada extra.
+   */
+  const variationMap = new Map<
+    string,
+    { variation: StartVariation; groupIndexes: number[] }
+  >();
+
+  groupsComDetalhes.forEach((group, groupIndex) => {
+    for (const variation of group.variations) {
+      const id = text(variation.id);
+      if (!id) continue;
+
+      const current = variationMap.get(id);
+      if (current) {
+        if (!current.groupIndexes.includes(groupIndex)) {
+          current.groupIndexes.push(groupIndex);
+        }
+      } else {
+        variationMap.set(id, {
+          variation,
+          groupIndexes: [groupIndex],
+        });
+      }
+    }
+  });
+
+  const variationEntries = [...variationMap.values()];
+  const stocksById = new Map<string, number>();
+
+  const precisamConsulta = variationEntries.filter(
+    ({ variation }) =>
+      !Number.isFinite(variation.saldoInicial)
+  );
+
+  for (const { variation } of variationEntries) {
+    if (Number.isFinite(variation.saldoInicial)) {
+      stocksById.set(
+        text(variation.id),
+        Math.max(0, toNumber(variation.saldoInicial))
+      );
+    }
+  }
+
+  const STOCK_CHUNK = 100;
+
+  for (let inicio = 0; inicio < precisamConsulta.length; inicio += STOCK_CHUNK) {
+    const lote = precisamConsulta.slice(
+      inicio,
+      inicio + STOCK_CHUNK
+    );
+
+    const stocks = await Promise.all(
+      lote.map(({ variation }) =>
+        getStock(text(variation.id), limiter)
+      )
+    );
+
+    for (const stock of stocks) {
+      stocksById.set(
+        text(stock.id),
+        Math.max(0, toNumber(stock.saldo))
+      );
+    }
+  }
+
+  const stocksPorGrupo = new Map<
+    number,
+    Array<{ id: string; saldo: number }>
+  >();
+
+  variationMap.forEach(({ variation, groupIndexes }) => {
+    const id = text(variation.id);
+    if (!id) return;
+
+    const saldo = Math.max(0, toNumber(stocksById.get(id)));
+
+    for (const groupIndex of groupIndexes) {
+      const list = stocksPorGrupo.get(groupIndex) ?? [];
+      list.push({ id, saldo });
+      stocksPorGrupo.set(groupIndex, list);
+    }
+  });
+
+  /*
+   * Uma única leitura do banco para descobrir o que já existe.
+   * Isso evita dezenas/centenas de findUnique/findFirst individuais.
+   */
+  const existentes = await prisma.produto.findMany({
+    select: {
+      id: true,
+      nome: true,
+    },
+  });
+
+  const existingMaps = findExistingProductMaps(existentes);
+
+  let criados = 0;
+  let atualizados = 0;
+  let ignorados = 0;
+
+  const operations: Array<ReturnType<typeof prisma.produto.update> | ReturnType<typeof prisma.produto.create>> = [];
+  const operationStatuses: Array<"created" | "updated"> = [];
+
+  for (let index = 0; index < groupsComDetalhes.length; index += 1) {
+    const group = groupsComDetalhes[index];
+    const stocks = stocksPorGrupo.get(index) ?? [];
+    const aggregate = aggregateStock(
+      stocks.map((item) => {
+        const variation = group.variations.find(
+          (v) => text(v.id) === text(item.id)
+        );
+
+        return {
+          id: item.id,
+          saldo: item.saldo,
+          tamanho: variation?.tamanho ?? "",
+          cor: variation?.cor ?? "",
+        };
+      })
+    );
+
+    const existing =
+      existingMaps.byId.get(group.id) ??
+      existingMaps.byName.get(normalize(group.nome));
+
+    if (existing) {
+      operations.push(
+        prisma.produto.update({
+          where: { id: existing.id },
+          data: {
+            // IMPORTANTE: só estoque/variações.
+            // Categoria, faixa etária, preço, descrição e imagens manuais
+            // do produto existente permanecem intactos.
+            estoque: aggregate.estoque,
+            tamanhos: aggregate.tamanhos,
+            estoquePorTamanho: aggregate.estoquePorTamanho,
+            cores: aggregate.cores,
+            estoquePorCor: aggregate.estoquePorCor,
+          },
+        })
+      );
+      operationStatuses.push("updated");
+    } else {
+      const imagens = [...new Set((group.imagens ?? []).filter(Boolean))];
+      const imageUrl = imagens[0] ?? PLACEHOLDER_IMAGE;
+      const imageData = imagens.length > 0 ? imagens : [PLACEHOLDER_IMAGE];
+
+      operations.push(
+        prisma.produto.create({
+          data: {
+            id: group.id,
+            nome: group.nome,
+            descricao: group.descricao,
+            preco: group.preco,
+            precoPromocional: group.precoPromocional,
+            estoque: aggregate.estoque,
+            tamanhos: aggregate.tamanhos,
+            estoquePorTamanho: aggregate.estoquePorTamanho,
+            cores: aggregate.cores,
+            estoquePorCor: aggregate.estoquePorCor,
+            imagemUrl: imageUrl,
+            imagens: imageData,
+            ativo: true,
+          },
+        })
+      );
+      operationStatuses.push("created");
+    }
+  }
+
+  /*
+   * Prisma executa o lote em uma transação. Se algum produto falhar,
+   * a gravação do lote é abortada em vez de deixar a sincronização
+   * pela metade.
+   */
+  if (operations.length > 0) {
+    await prisma.$transaction(operations as any);
+
+    for (const status of operationStatuses) {
+      if (status === "created") criados += 1;
+      if (status === "updated") atualizados += 1;
+    }
+  } else {
+    ignorados = 0;
+  }
+
+  return {
+    criados,
+    atualizados,
+    ignorados,
+    variacoesProcessadas: variationEntries.length,
+    paginas: catalogo.paginas,
+    apiLimit: limiter.getLimit(),
+    duracaoMs: Date.now() - startedAt,
+  };
+}
+
+/* =========================================================
  * POST
  * =======================================================*/
 
@@ -2150,6 +2625,21 @@ export async function POST(
             500,
         }
       );
+    }
+
+    /* =====================================================
+     * SYNC V2
+     * ===================================================*/
+
+    if (action === "sync") {
+      const result = await syncAllProductsFast();
+
+      return NextResponse.json({
+        success: true,
+        action: "sync",
+        tipo,
+        ...result,
+      });
     }
 
     /* =====================================================
@@ -2918,7 +3408,7 @@ export async function POST(
           false,
 
         error:
-          "Ação de sincronização inválida. Use start, details, stock ou finish.",
+          "Ação de sincronização inválida. Use sync, start, details, stock ou finish.",
       },
       {
         status:
@@ -2931,22 +3421,29 @@ export async function POST(
       error
     );
 
+    const details =
+      error instanceof Error
+        ? error.message
+        : "Erro desconhecido.";
+
+    const bloqueada =
+      normalize(details).includes("api bloqueada") ||
+      normalize(details).includes("excedido o numero de acessos");
+
     return NextResponse.json(
       {
-        success:
-          false,
-
-        error:
-          "Erro interno ao processar sincronização com o Tiny.",
-
-        details:
-          error instanceof Error
-            ? error.message
-            : "Erro desconhecido.",
+        success: false,
+        error: bloqueada
+          ? "A API do Tiny está temporariamente bloqueada por excesso de requisições."
+          : "Erro interno ao processar sincronização com o Tiny.",
+        details,
+        blocked: bloqueada,
       },
       {
-        status:
-          500,
+        status: bloqueada ? 429 : 500,
+        headers: bloqueada
+          ? { "Retry-After": "180" }
+          : undefined,
       }
     );
   }
