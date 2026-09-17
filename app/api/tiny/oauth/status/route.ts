@@ -9,19 +9,17 @@ export async function GET() {
     const token = await getStoredToken();
 
     return NextResponse.json({
-      success: true,
-      conectado: Boolean(token?.accessToken && token?.refreshToken),
-      expiraEm: token?.expiresAt || null,
-      clientConfigurado: Boolean(
-        process.env.OLIST_V3_CLIENT_ID && process.env.OLIST_V3_CLIENT_SECRET
-      ),
+      connected: Boolean(token?.accessToken && token?.refreshToken),
+      expiresAt: token?.expiresAt || null,
     });
   } catch (error) {
     return NextResponse.json(
       {
-        success: false,
-        conectado: false,
-        error: error instanceof Error ? error.message : "Erro ao verificar a conexão.",
+        connected: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível consultar o estado da conexão.",
       },
       { status: 500 }
     );
