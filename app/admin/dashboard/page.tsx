@@ -340,7 +340,7 @@ export default function PaginaDashboardAdmin() {
     setSincronizandoTiny(true)
 
     try {
-      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY V2 ===")
+      console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY RÁPIDA ===")
 
       // Uma única requisição ao nosso backend.
       // O backend controla toda a concorrência com o Tiny.
@@ -382,6 +382,8 @@ export default function PaginaDashboardAdmin() {
       const variacoes = Number(data.variacoesProcessadas) || 0
       const duracaoMs = Number(data.duracaoMs) || 0
       const duracaoSegundos = (duracaoMs / 1000).toFixed(1)
+      const temMaisEstoque = Boolean(data.temMaisEstoque)
+      const temMaisProdutos = Boolean(data.temMaisProdutos)
 
       const partes = [
         `${criados} novos`,
@@ -392,11 +394,15 @@ export default function PaginaDashboardAdmin() {
         partes.push(`${ignorados} ignorados`)
       }
 
+      if (temMaisEstoque || temMaisProdutos) {
+        partes.push("há mais atualizações pendentes; execute novamente")
+      }
+
       exibirToast(
-        `Sincronização concluída: ${partes.join(", ")}. ${variacoes} variações em ${duracaoSegundos}s.`
+        `Sincronização concluída: ${partes.join(", ")}. ${variacoes} alterações de estoque em ${duracaoSegundos}s.`
       )
 
-      console.log("=== SINCRONIZAÇÃO TINY V2 CONCLUÍDA ===", data)
+      console.log("=== SINCRONIZAÇÃO TINY RÁPIDA CONCLUÍDA ===", data)
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO TINY ===")
       console.error(error)
@@ -1573,7 +1579,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos (rápido)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos"}</span>
                 </button>
 
                 <button
@@ -1621,7 +1627,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Tiny. Produtos novos do Tiny são cadastrados automaticamente.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Tiny. A sincronização usa a fila de atualizações do Tiny para ser rápida e produtos novos são cadastrados automaticamente.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1632,7 +1638,7 @@ export default function PaginaDashboardAdmin() {
                   className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (rápido)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos"}</span>
                 </button>
 
                 <button
