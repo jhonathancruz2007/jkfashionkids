@@ -343,7 +343,7 @@ export default function PaginaDashboardAdmin() {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO TINY RÁPIDA ===")
 
       // Uma única requisição ao nosso backend.
-      // O backend controla toda a concorrência com o Tiny.
+      // O backend controla a fila e a janela permitida pelo Tiny.
       const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -384,6 +384,7 @@ export default function PaginaDashboardAdmin() {
       const duracaoSegundos = (duracaoMs / 1000).toFixed(1)
       const temMaisEstoque = Boolean(data.temMaisEstoque)
       const temMaisProdutos = Boolean(data.temMaisProdutos)
+      const dataCorte = String(data.dataCorte || "")
 
       const partes = [
         `${criados} novos`,
@@ -398,8 +399,12 @@ export default function PaginaDashboardAdmin() {
         partes.push("há mais atualizações pendentes; execute novamente")
       }
 
+      const corteInfo = dataCorte
+        ? ` Janela consultada a partir de ${dataCorte}.`
+        : ""
+
       exibirToast(
-        `Sincronização concluída: ${partes.join(", ")}. ${variacoes} alterações de estoque em ${duracaoSegundos}s.`
+        `Sincronização concluída: ${partes.join(", ")}. ${variacoes} alterações de estoque em ${duracaoSegundos}s.${corteInfo}`
       )
 
       console.log("=== SINCRONIZAÇÃO TINY RÁPIDA CONCLUÍDA ===", data)
@@ -1627,7 +1632,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Tiny. A sincronização usa a fila de atualizações do Tiny para ser rápida e produtos novos são cadastrados automaticamente.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Tiny. A sincronização usa a fila dos últimos 30 dias para ser rápida e produtos novos são cadastrados automaticamente.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
