@@ -85,6 +85,7 @@ type StockAggregate = {
   estoquePorTamanho: Record<string, number>;
   estoquePorCor: Record<string, any>;
   variationCount: number;
+  matrixComplete: boolean;
 };
 
 type SiteSyncEntry = {
@@ -261,11 +262,20 @@ function aggregateDetail(
       estoquePorTamanho: {},
       estoquePorCor: {},
       variationCount: 0,
+      matrixComplete: true,
     };
   }
 
+  // Para produtos com variações, o estoque total do produto pai deve vir do
+  // próprio campo estoque.quantidade do produto. A soma das variações pode
+  // divergir do saldo do cadastro pai em alguns cenários do Olist/Tiny.
+  // Mantemos a soma apenas como fallback, mas nunca usamos a soma quando o
+  // saldo do produto pai está disponível.
+  const parentQty = safeNonNegativeInt(detail.estoque?.quantidade);
+
   let total = 0;
   let sawValidQuantity = false;
+  let matrixComplete = true;
   const sizes = new Set<string>();
   const colors = new Set<string>();
   const bySize = new Map<string, number>();
@@ -275,7 +285,8 @@ function aggregateDetail(
   for (const variation of variations) {
     const qty = safeNonNegativeInt(variation.estoque?.quantidade);
     if (qty == null) {
-      return null;
+      matrixComplete = false;
+      continue;
     }
 
     sawValidQuantity = true;
@@ -303,7 +314,10 @@ function aggregateDetail(
     }
   }
 
-  if (!sawValidQuantity) return null;
+  // O saldo total do produto pai pode ser válido mesmo quando alguma variação
+  // não trouxer quantidade. Nesse caso atualizamos o total, mas preservamos a
+  // matriz de tamanhos/cores já existente no site para não gravar dados parciais.
+  if (!sawValidQuantity && parentQty == null) return null;
 
   const tamanhos = sortSizes([...sizes]);
   const cores = [...colors].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -321,7 +335,7 @@ function aggregateDetail(
   }
 
   return {
-    estoque: total,
+    estoque: parentQty != null ? parentQty : total,
     tamanhos,
     cores,
     estoquePorTamanho: Object.fromEntries(
@@ -329,6 +343,7 @@ function aggregateDetail(
     ),
     estoquePorCor,
     variationCount: variations.length,
+    matrixComplete,
   };
 }
 
@@ -477,10 +492,12 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
     where: { id },
     data: {
       estoque: aggregate.estoque,
-      tamanhos: aggregate.tamanhos,
-      estoquePorTamanho: aggregate.estoquePorTamanho,
-      cores: aggregate.cores,
-      estoquePorCor: aggregate.estoquePorCor,
+      ...(aggregate.matrixComplete && {
+        tamanhos: aggregate.tamanhos,
+        estoquePorTamanho: aggregate.estoquePorTamanho,
+        cores: aggregate.cores,
+        estoquePorCor: aggregate.estoquePorCor,
+      }),
     },
   });
 
@@ -808,16 +825,43 @@ async function stockBatch(entries: SiteSyncEntry[]) {
 
             if (!existing) {
               const result = await createNewProduct(entry.tinyId, detail);
-              return { kind: result.created ? "created" : "ignored", variationCount: result.variationCount };
+              return {
+                kind: result.created ? "created" : "ignored",
+                variationCount: result.variationCount,
+                siteId: entry.siteId,
+                tinyId: entry.tinyId,
+                nomeSite: entry.nomeSite,
+                nomeTiny: entry.nomeTiny,
+                matchMethod: entry.matchMethod,
+              };
             }
 
             const result = await updateExistingProduct(entry.siteId, detail);
-            return { kind: result.updated ? "updated" : "ignored", variationCount: result.variationCount };
+            return {
+              kind: result.updated ? "updated" : "ignored",
+              variationCount: result.variationCount,
+              changed: result.changed,
+              siteStockBefore: result.siteStockBefore,
+              tinyStock: result.tinyStock,
+              siteId: entry.siteId,
+              tinyId: entry.tinyId,
+              nomeSite: entry.nomeSite,
+              nomeTiny: entry.nomeTiny,
+              matchMethod: entry.matchMethod,
+            };
           }
 
           if (str(detail.situacao).toUpperCase() !== "E") {
             const result = await createNewProduct(entry.tinyId, detail);
-            return { kind: result.created ? "created" : "ignored", variationCount: result.variationCount };
+            return {
+              kind: result.created ? "created" : "ignored",
+              variationCount: result.variationCount,
+              siteId: entry.siteId,
+              tinyId: entry.tinyId,
+              nomeSite: entry.nomeSite,
+              nomeTiny: entry.nomeTiny,
+              matchMethod: entry.matchMethod,
+            };
           }
 
           return { kind: "ignored", variationCount: 0 };
