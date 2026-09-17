@@ -471,6 +471,158 @@ export default function PaginaDashboardAdmin() {
     }
   }
 
+
+  // RECONCILIAÇÃO COMPLETA OLIST/TINY V3
+  // Mantida separada da sincronização rápida para conferir todo o catálogo
+  // quando necessário. Usa as associações devolvidas pelo endpoint prepare-full.
+  const handleReconcilacaoCompletaTiny = async () => {
+    if (sincronizandoTiny) return
+
+    setSincronizandoTiny(true)
+
+    try {
+      console.log("=== INÍCIO DA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+
+      const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "prepare-full" }),
+        cache: "no-store",
+      })
+
+      const prepareRaw = await prepareRes.text()
+      let prepareData: any = {}
+      try {
+        prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
+      } catch {
+        throw new Error(
+          `O servidor não retornou JSON válido ao preparar a reconciliação. HTTP ${prepareRes.status}`
+        )
+      }
+
+      if (prepareData.code === "NOT_CONNECTED") {
+        exibirToast("Conecte o Olist/Tiny primeiro. Abrindo autorização...", "error")
+        window.location.href = "/api/tiny/oauth"
+        return
+      }
+
+      if (!prepareRes.ok || !prepareData.success) {
+        throw new Error(
+          prepareData.error ||
+          `Erro HTTP ${prepareRes.status} ao preparar a reconciliação.`
+        )
+      }
+
+      const entries = Array.isArray(prepareData.entries)
+        ? prepareData.entries
+            .filter((entry: any) => entry && typeof entry === "object" && entry.tinyId)
+            .map((entry: any) => ({
+              siteId: entry.siteId ? String(entry.siteId) : null,
+              tinyId: String(entry.tinyId),
+              nomeSite: entry.nomeSite ? String(entry.nomeSite) : undefined,
+              nomeTiny: entry.nomeTiny ? String(entry.nomeTiny) : undefined,
+              isNew: Boolean(entry.isNew),
+            }))
+        : []
+
+      if (entries.length === 0) {
+        exibirToast("Nenhum produto com correspondência foi encontrado para a reconciliação.", "error")
+        return
+      }
+
+      const batchSize = Math.max(1, Math.min(7, Number(prepareData.batchSize) || 7))
+      const totalBatches = Math.ceil(entries.length / batchSize)
+
+      let criados = 0
+      let atualizados = 0
+      let ignorados = 0
+      let falhas = 0
+      let variacoes = 0
+      let processados = 0
+
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
+        const loteNumero = Math.floor(inicio / batchSize) + 1
+
+        if (loteNumero > 1) {
+          const esperaMs = 14000
+          exibirToast(
+            `Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
+          )
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+        }
+
+        exibirToast(
+          `Reconciliação lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos processados...`
+        )
+
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "full-batch", entries: lote }),
+          cache: "no-store",
+        })
+
+        const batchRaw = await batchRes.text()
+        let batchData: any = {}
+        try {
+          batchData = batchRaw ? JSON.parse(batchRaw) : {}
+        } catch {
+          throw new Error(
+            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`
+          )
+        }
+
+        if (batchData.code === "NOT_CONNECTED") {
+          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
+          return
+        }
+
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(
+            batchData.error ||
+            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`
+          )
+        }
+
+        criados += Number(batchData.criados) || 0
+        atualizados += Number(batchData.atualizados) || 0
+        ignorados += Number(batchData.ignorados) || 0
+        falhas += Number(batchData.falhas) || 0
+        variacoes += Number(batchData.variacoesProcessadas) || 0
+        processados += Number(batchData.processados) || lote.length
+      }
+
+      await carregarProdutos()
+
+      const mensagem =
+        `Reconciliação completa concluída: ${criados} novos, ${atualizados} atualizados, ` +
+        `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
+
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+
+      console.log("=== RECONCILIAÇÃO COMPLETA OLIST/TINY V3 CONCLUÍDA ===", {
+        totalProdutos: entries.length,
+        criados,
+        atualizados,
+        ignorados,
+        falhas,
+        variacoes,
+      })
+    } catch (error) {
+      console.error("=== ERRO NA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+      console.error(error)
+      exibirToast(
+        error instanceof Error
+          ? error.message
+          : "Erro de conexão durante a reconciliação completa.",
+        "error"
+      )
+    } finally {
+      setSincronizandoTiny(false)
+    }
+  }
+
   // BUSCAR CATEGORIAS DO BANCO DE DADOS (API)
   const carregarCategorias = async () => {
     try {
