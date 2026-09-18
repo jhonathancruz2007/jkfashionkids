@@ -5,7 +5,6 @@ import {
   getOlistV3,
   redisDelete,
   redisGetJson,
-  redisSetJson,
   redisSetNx,
 } from "@/lib/olist-v3";
 
@@ -14,97 +13,37 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
-const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical";
-const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
 const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
-// Janela usada apenas para descobrir produtos novos no modo rápido.
-// Não controla a atualização de estoque dos produtos já cadastrados.
-const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
-const API_READ_BATCH_SIZE = 10;
-const STOCK_WAVE_CONCURRENCY = 2;
-const STOCK_WAVE_DELAY_MS = 2400;
-const FULL_BATCH_SIZE = 28;
-const PLACEHOLDER_IMAGE = "";
+const API_CALL_INTERVAL_MS = 2900;
 
-type AnyRecord = Record<string, any>;
-
-type TinyListItem = {
+// O endpoint oficial de estoque da API V3 retorna saldo, reservado e disponível.
+// Para o campo estoque do site usamos SALDO, isto é, o estoque físico informado
+// pela Olist/Tiny. Não usamos o estoque do cadastro do produto para isso.
+type OlistStockResponse = {
   id?: number;
-  sku?: string | null;
-  codigo?: string | null;
-  descricao?: string | null;
-  tipo?: string | null;
-  situacao?: string | null;
-  dataCriacao?: string | null;
-  dataAlteracao?: string | null;
-  tipoVariacao?: string | null;
-  produtoPai?: { id?: number | null } | null;
+  nome?: string;
+  codigo?: string;
+  unidade?: string;
+  saldo?: number | string | null;
+  reservado?: number | string | null;
+  disponivel?: number | string | null;
+  localizacao?: string | null;
+  depositos?: Array<{
+    id?: number;
+    nome?: string;
+    desconsiderar?: boolean;
+    saldo?: number | string | null;
+    reservado?: number | string | null;
+    disponivel?: number | string | null;
+    empresa?: string | null;
+  }>;
 };
 
-type TinyGrade = Array<{ chave?: string | null; valor?: string | null }> | null | undefined;
-
-type TinyVariation = {
-  id?: number;
-  descricao?: string | null;
-  sku?: string | null;
-  gtin?: string | null;
-  estoque?: { quantidade?: number | null } | null;
-  grade?: TinyGrade;
-};
-
-type TinyDetail = {
-  id?: number | null;
-  sku?: string | null;
-  descricao?: string | null;
-  tipo?: string | null;
-  descricaoComplementar?: string | null;
-  situacao?: string | null;
-  categoria?: { id?: number | null; nome?: string | null } | null;
-  precos?: {
-    preco?: number | null;
-    precoPromocional?: number | null;
-  } | null;
-  estoque?: {
-    controlar?: boolean | null;
-    quantidade?: number | null;
-  } | null;
-  anexos?: Array<{ id?: number; url?: string; externo?: boolean }> | null;
-  variacoes?: TinyVariation[] | null;
-  tipoVariacao?: string | null;
-  produtoPai?: { id?: number | null; sku?: string | null } | null;
-};
-
-type TinyListResponse = {
-  itens?: TinyListItem[];
-  paginacao?: { limit?: number; offset?: number; total?: number };
-};
-
-type TinyStock = {
-  id?: number | null;
-  nome?: string | null;
-  codigo?: string | null;
-  saldo?: number | null;
-  reservado?: number | null;
-  disponivel?: number | null;
-};
-
-type StockAggregate = {
-  estoque: number;
-  tamanhos: string[];
-  cores: string[];
-  estoquePorTamanho: Record<string, number>;
-  estoquePorCor: Record<string, any>;
-  variationCount: number;
-  matrixComplete: boolean;
-};
-
-type SiteSyncEntry = {
-  siteId: string | null;
+type StockEntry = {
+  siteId: string;
   tinyId: string;
-  nomeSite?: string;
-  nomeTiny?: string;
-  isNew?: boolean;
-  matchMethod?: "redis" | "id" | "nome" | "similaridade" | "novo";
+  nome?: string;
+  siteStockBefore?: number | null;
 };
 
 function str(value: unknown): string {
@@ -118,525 +57,65 @@ function num(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function safeNonNegativeInt(value: unknown): number | null {
-  const n = num(value);
-  if (n == null || n < 0) return null;
-  return Math.round(n);
+function asInt(value: unknown): number | null {
+  const parsed = num(value);
+  if (parsed == null || parsed < 0) return null;
+  return Math.round(parsed);
 }
 
-function normalize(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
+function normalizeEntry(value: unknown): StockEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  const siteId = str(entry.siteId);
+  const tinyId = str(entry.tinyId || entry.siteId);
+  if (!siteId || !tinyId) return null;
 
-function tokenizeName(value: string): string[] {
-  return normalize(value)
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(" ")
-    .filter((token) => token.length >= 2);
-}
-
-function nameSimilarity(a: string, b: string): number {
-  const aa = new Set(tokenizeName(a));
-  const bb = new Set(tokenizeName(b));
-  if (aa.size === 0 || bb.size === 0) return 0;
-
-  let intersection = 0;
-  for (const token of aa) if (bb.has(token)) intersection += 1;
-
-  const union = new Set([...aa, ...bb]).size;
-  const jaccard = union ? intersection / union : 0;
-
-  const na = normalize(a);
-  const nb = normalize(b);
-  const containsBonus = na.includes(nb) || nb.includes(na) ? 0.15 : 0;
-
-  return Math.min(1, jaccard + containsBonus);
-}
-
-async function getStoredTinyId(siteId: string): Promise<string | null> {
-  return redisGetJson<string>(`${SITE_TINY_MAP_PREFIX}${siteId}`).catch(() => null);
-}
-
-async function setStoredTinyId(siteId: string, tinyId: string): Promise<void> {
-  await redisSetJson(`${SITE_TINY_MAP_PREFIX}${siteId}`, tinyId, 365 * 24 * 60 * 60).catch(() => undefined);
-}
-
-function sortSizes(values: string[]): string[] {
-  const order = new Map<string, number>([
-    ["pp", 1],
-    ["p", 2],
-    ["m", 3],
-    ["g", 4],
-    ["gg", 5],
-    ["xg", 6],
-    ["xxg", 7],
-  ]);
-
-  return [...new Set(values)].sort((a, b) => {
-    const na = Number(a);
-    const nb = Number(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-    const oa = order.get(normalize(a));
-    const ob = order.get(normalize(b));
-    if (oa != null && ob != null) return oa - ob;
-    if (oa != null) return -1;
-    if (ob != null) return 1;
-    return a.localeCompare(b, "pt-BR", { numeric: true });
-  });
-}
-
-function parseGrade(
-  grade: TinyGrade,
-  descricao: string,
-  knownSizes: string[] = [],
-  knownColors: string[] = []
-): { tamanho: string; cor: string } {
-  let tamanho = "";
-  let cor = "";
-
-  const knownSizeMap = new Map(knownSizes.map((v) => [normalize(v), v]));
-  const knownColorMap = new Map(knownColors.map((v) => [normalize(v), v]));
-
-  const inspect = (keyRaw: unknown, valueRaw: unknown) => {
-    const key = normalize(str(keyRaw));
-    const value = str(valueRaw);
-    if (!value) return;
-
-    if (!tamanho && (key.includes("tamanho") || key === "tam" || key.includes("size"))) {
-      tamanho = value;
-    }
-    if (!cor && (key.includes("cor") || key.includes("color") || key.includes("colour"))) {
-      cor = value;
-    }
-
-    const normalizedValue = normalize(value);
-    if (!tamanho && knownSizeMap.has(normalizedValue)) {
-      tamanho = knownSizeMap.get(normalizedValue)!;
-    }
-    if (!cor && knownColorMap.has(normalizedValue)) {
-      cor = knownColorMap.get(normalizedValue)!;
-    }
-  };
-
-  if (Array.isArray(grade)) {
-    for (const item of grade) {
-      inspect(item?.chave, item?.valor);
-    }
-  }
-
-  if ((!tamanho || !cor) && descricao) {
-    const parts = descricao
-      .split(" - ")
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (parts.length >= 2) {
-      const tailA = parts[parts.length - 2];
-      const tailB = parts[parts.length - 1];
-      if (!tamanho && knownSizeMap.has(normalize(tailA))) tamanho = knownSizeMap.get(normalize(tailA))!;
-      if (!cor && knownColorMap.has(normalize(tailA))) cor = knownColorMap.get(normalize(tailA))!;
-      if (!tamanho && knownSizeMap.has(normalize(tailB))) tamanho = knownSizeMap.get(normalize(tailB))!;
-      if (!cor && knownColorMap.has(normalize(tailB))) cor = knownColorMap.get(normalize(tailB))!;
-
-      if (!tamanho && !cor && parts.length >= 3) {
-        tamanho = tailA;
-        cor = tailB;
-      } else if (!tamanho && !cor) {
-        tamanho = tailA;
-      }
-    }
-  }
-
-  return { tamanho, cor };
-}
-
-function aggregateDetail(
-  detail: TinyDetail,
-  knownSizes: string[] = [],
-  knownColors: string[] = []
-): StockAggregate | null {
-  const variations = Array.isArray(detail.variacoes) ? detail.variacoes : [];
-
-  // Produto sem variações: o estoque do próprio produto é a fonte disponível.
-  if (variations.length === 0) {
-    const qty = safeNonNegativeInt(detail.estoque?.quantidade);
-    if (qty == null) return null;
-
-    return {
-      estoque: qty,
-      tamanhos: [],
-      cores: [],
-      estoquePorTamanho: {},
-      estoquePorCor: {},
-      variationCount: 0,
-      matrixComplete: true,
-    };
-  }
-
-  let totalVariacoes = 0;
-  let todasQuantidadesValidas = true;
-  let todosGradesReconhecidos = true;
-  const sizes = new Set<string>();
-  const colors = new Set<string>();
-  const bySize = new Map<string, number>();
-  const matrixByColor: Record<string, Record<string, number>> = {};
-  const colorTotals = new Map<string, number>();
-
-  for (const variation of variations) {
-    const qty = safeNonNegativeInt(variation.estoque?.quantidade);
-    if (qty == null) {
-      todasQuantidadesValidas = false;
-      continue;
-    }
-
-    totalVariacoes += qty;
-
-    const grade = parseGrade(
-      variation.grade,
-      str(variation.descricao),
-      knownSizes,
-      knownColors
-    );
-
-    if (!grade.tamanho && !grade.cor) {
-      todosGradesReconhecidos = false;
-    }
-
-    if (grade.tamanho) {
-      sizes.add(grade.tamanho);
-      bySize.set(grade.tamanho, (bySize.get(grade.tamanho) || 0) + qty);
-    }
-
-    if (grade.cor) {
-      colors.add(grade.cor);
-      colorTotals.set(grade.cor, (colorTotals.get(grade.cor) || 0) + qty);
-      if (grade.tamanho) {
-        matrixByColor[grade.cor] ||= {};
-        matrixByColor[grade.cor][grade.tamanho] = qty;
-      }
-    }
-  }
-
-  // Para produtos com variações, alguns cadastros do Olist/Tiny retornam
-  // estoque.quantidade do produto pai como 0 mesmo quando as variações têm
-  // saldo. Nesses casos usamos a soma das variações. Quando o pai possui um
-  // saldo positivo, preservamos esse saldo como total do produto.
-  const parentQty = safeNonNegativeInt(detail.estoque?.quantidade);
-  const estoqueTotal =
-    parentQty != null && parentQty > 0
-      ? parentQty
-      : todasQuantidadesValidas
-        ? totalVariacoes
-        : parentQty;
-
-  if (estoqueTotal == null) return null;
-
-  const tamanhos = sortSizes([...sizes]);
-  const cores = [...colors].sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-  let estoquePorCor: Record<string, any> = {};
-
-  if (cores.length > 0 && tamanhos.length > 0) {
-    for (const cor of cores) {
-      estoquePorCor[cor] = matrixByColor[cor] || { total: colorTotals.get(cor) || 0 };
-    }
-  } else {
-    estoquePorCor = Object.fromEntries(
-      cores.map((cor) => [cor, colorTotals.get(cor) || 0])
-    );
-  }
-
-  // Só substituímos a matriz do site quando todas as quantidades das variações
-  // são válidas e conseguimos reconhecer pelo menos uma grade. Caso contrário,
-  // o total ainda pode ser atualizado, mas a matriz atual do site é preservada.
-  const matrixComplete = todasQuantidadesValidas && todosGradesReconhecidos;
+  const rawBefore = num(entry.siteStockBefore);
 
   return {
-    estoque: estoqueTotal,
-    tamanhos,
-    cores,
-    estoquePorTamanho: Object.fromEntries(
-      tamanhos.map((size) => [size, bySize.get(size) || 0])
-    ),
-    estoquePorCor,
-    variationCount: variations.length,
-    matrixComplete,
+    siteId,
+    tinyId,
+    nome: str(entry.nome) || undefined,
+    siteStockBefore: rawBefore,
   };
 }
 
-function imageUrls(detail: TinyDetail): string[] {
-  return [...new Set(
-    (detail.anexos || [])
-      .map((item) => str(item?.url))
-      .filter((url) => /^https?:\/\//i.test(url))
-  )];
+function isRateLimitError(error: unknown): boolean {
+  return /API 429|HTTP 429|429/i.test(error instanceof Error ? error.message : String(error));
 }
 
-function canonicalId(item: TinyListItem): string | null {
-  const id = Number(item.id || 0);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  return String(id);
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function listProducts(params: Record<string, string>): Promise<TinyListResponse> {
-  const query = new URLSearchParams(params);
-  return getOlistV3<TinyListResponse>(`/produtos?${query.toString()}`);
+let lastTinyApiCallAt = 0;
+
+async function waitGlobalInterval(): Promise<void> {
+  const elapsed = Date.now() - lastTinyApiCallAt;
+  const wait = API_CALL_INTERVAL_MS - elapsed;
+  if (wait > 0) await sleep(wait);
+  lastTinyApiCallAt = Date.now();
 }
 
-async function listAllProductHeaders(): Promise<TinyListItem[]> {
-  const all: TinyListItem[] = [];
-  const limit = 100;
-  let offset = 0;
-
-  for (;;) {
-    const data = await listProducts({
-      limit: String(limit),
-      offset: String(offset),
-    });
-
-    const items = Array.isArray(data.itens) ? data.itens : [];
-    all.push(...items);
-
-    const total = Number(data.paginacao?.total || 0);
-    if (items.length === 0 || items.length < limit || offset + items.length >= total) break;
-    offset += items.length;
+async function getTinyIdForSite(siteId: string, fallbackTinyId: string): Promise<string> {
+  try {
+    const stored = await redisGetJson<string>(`${SITE_TINY_MAP_PREFIX}${siteId}`);
+    return str(stored) || fallbackTinyId;
+  } catch {
+    return fallbackTinyId;
   }
-
-  return all;
 }
 
-async function listAllActiveProductHeaders(): Promise<TinyListItem[]> {
-  const all: TinyListItem[] = [];
-  const limit = 100;
-  let offset = 0;
-
-  for (;;) {
-    const data = await listProducts({
-      limit: String(limit),
-      offset: String(offset),
-      situacao: "A",
-    });
-
-    const items = Array.isArray(data.itens) ? data.itens : [];
-    all.push(...items);
-
-    const total = Number(data.paginacao?.total || 0);
-    if (items.length === 0 || items.length < limit || offset + items.length >= total) break;
-    offset += items.length;
-  }
-
-  return all;
-}
-
-function uniqueCanonicalHeaders(items: TinyListItem[]): TinyListItem[] {
-  const seen = new Set<string>();
-  const result: TinyListItem[] = [];
-
-  for (const item of items) {
-    const tipoVariacao = normalize(str(item.tipoVariacao));
-    if (tipoVariacao === "v") continue;
-
-    const id = canonicalId(item);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    result.push(item);
-  }
-
-  return result;
-}
-
-function sinceDateString(timestamp: number): string {
-  const d = new Date(timestamp);
-  const pad = (v: number) => String(v).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-async function getDetail(id: string): Promise<TinyDetail> {
-  return getOlistV3<TinyDetail>(`/produtos/${encodeURIComponent(id)}`);
-}
-
-async function getStock(id: string): Promise<TinyStock> {
-  return getOlistV3<TinyStock>(`/estoque/${encodeURIComponent(id)}`);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function mapInWaves<T, R>(
-  items: T[],
-  waveSize: number,
-  delayMs: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  for (let start = 0; start < items.length; start += waveSize) {
-    const wave = items.slice(start, start + waveSize);
-    const waveResults = await Promise.all(
-      wave.map((item, offset) => fn(item, start + offset))
-    );
-    waveResults.forEach((result, offset) => {
-      results[start + offset] = result;
-    });
-    if (start + wave.length < items.length) {
-      await sleep(delayMs);
-    }
-  }
-  return results;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  const worker = async () => {
-    for (;;) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index], index);
-    }
-  };
-
-  const workers = Array.from(
-    { length: Math.max(1, Math.min(concurrency, items.length)) },
-    () => worker()
-  );
-
-  await Promise.all(workers);
-  return results;
-}
-
-async function updateExistingProduct(
-  id: string,
-  tinyId: string
-): Promise<{
-  updated: boolean;
-  changed: boolean;
-  siteStockBefore: number;
-  tinyStock: number;
-  tinyAvailable: number | null;
-  tinyReserved: number | null;
-  stockSource: string;
-  variationCount: number;
-}> {
-  const existing = await prisma.produto.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      estoque: true,
-      tamanhos: true,
-      cores: true,
-    },
-  });
-
-  if (!existing) {
-    return {
-      updated: false,
-      changed: false,
-      siteStockBefore: 0,
-      tinyStock: 0,
-      tinyAvailable: null,
-      tinyReserved: null,
-      stockSource: "produto-inexistente",
-      variationCount: 0,
-    };
-  }
-
-  // IMPORTANTE: o estoque para sincronização vem da API específica de
-  // estoque (/estoque/{idProduto}), e não de /produtos/{idProduto}.
-  // O endpoint de estoque retorna saldo, reservado e disponível.
-  const stock = await getStock(tinyId);
-  const saldo = safeNonNegativeInt(stock.saldo);
-
-  if (saldo == null) {
-    throw new Error(
-      `O endpoint de estoque do Tiny não retornou um saldo válido para ${tinyId}. O produto foi preservado no site.`
-    );
-  }
-
-  await prisma.produto.update({
-    where: { id },
-    data: {
-      // Atualizamos SOMENTE o total de estoque.
-      // Tamanhos/cores e suas matrizes são preservados porque o detalhe
-      // do produto estava retornando zeros incorretos no cenário da loja.
-      estoque: saldo,
-    },
-  });
-
-  return {
-    updated: true,
-    changed: existing.estoque !== saldo,
-    siteStockBefore: existing.estoque,
-    tinyStock: saldo,
-    tinyAvailable: safeNonNegativeInt(stock.disponivel),
-    tinyReserved: safeNonNegativeInt(stock.reservado),
-    stockSource: "GET /estoque/{idProduto}",
-    variationCount: 0,
-  };
-}
-
-async function createNewProduct(id: string, detail: TinyDetail): Promise<{ created: boolean; variationCount: number }> {
-  const existing = await prisma.produto.findUnique({ where: { id }, select: { id: true } });
-  if (existing) return { created: false, variationCount: 0 };
-
-  const aggregate = aggregateDetail(detail);
-  if (!aggregate) {
-    throw new Error(`Estoque inválido ou ausente no novo produto Tiny ${id}. Produto não foi cadastrado.`);
-  }
-
-  const descricao =
-    str(detail.descricaoComplementar) ||
-    str(detail.descricao) ||
-    `Produto ${id}`;
-
-  const nome = str(detail.descricao) || `Produto ${id}`;
-  const imagens = imageUrls(detail);
-  const preco = num(detail.precos?.preco) ?? 0;
-  const promocional = num(detail.precos?.precoPromocional);
-
-  await prisma.produto.create({
-    data: {
-      id,
-      nome,
-      descricao,
-      preco,
-      precoPromocional:
-        promocional != null && promocional > 0 ? promocional : null,
-      imagemUrl: imagens[0] || PLACEHOLDER_IMAGE,
-      imagens,
-      estoque: aggregate.estoque,
-      tamanhos: aggregate.tamanhos,
-      estoquePorTamanho: aggregate.estoquePorTamanho,
-      cores: aggregate.cores,
-      estoquePorCor: aggregate.estoquePorCor,
-      coresDetalhes: undefined,
-      genero: null,
-      faixaEtaria: null,
-      ativo: str(detail.situacao).toUpperCase() === "A",
-      categoriaNome: null,
-    },
-  });
-
-  return {
-    created: true,
-    variationCount: aggregate.variationCount,
-  };
+async function getExactStock(tinyId: string): Promise<OlistStockResponse> {
+  await waitGlobalInterval();
+  return getOlistV3<OlistStockResponse>(`/estoque/${encodeURIComponent(tinyId)}`);
 }
 
 async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const locked = await redisSetNx(SYNC_LOCK_KEY, owner, 120);
+  const locked = await redisSetNx(SYNC_LOCK_KEY, owner, 30);
   if (!locked) {
-    throw new Error("Já existe uma sincronização do Tiny em andamento. Aguarde terminar.");
+    throw new Error("Já existe uma sincronização de estoque em andamento. Aguarde terminar.");
   }
 
   try {
@@ -646,391 +125,123 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function buildTinyCanonicalMap() {
-  const cached = await redisGetJson<{
-    tinyHeaders: TinyListItem[];
-    cachedAt?: number;
-  }>(TINY_CATALOG_CACHE_KEY).catch(() => null);
+async function processStockBatch(entries: StockEntry[]) {
+  let atualizados = 0;
+  let estoqueAlterado = 0;
+  let confirmados = 0;
+  let falhas = 0;
+  let rateLimited = false;
+  let retryAfterMs = 60000;
 
-  if (cached && Array.isArray(cached.tinyHeaders) && cached.tinyHeaders.length > 0) {
-    const canonical = uniqueCanonicalHeaders(cached.tinyHeaders);
-    return buildCanonicalMaps(cached.tinyHeaders, canonical);
-  }
+  const diagnosticos: Array<Record<string, unknown>> = [];
 
-  const tinyHeaders = await listAllActiveProductHeaders();
-  const canonical = uniqueCanonicalHeaders(tinyHeaders);
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
 
-  await redisSetJson(
-    TINY_CATALOG_CACHE_KEY,
-    { tinyHeaders, cachedAt: Date.now() },
-    TINY_CATALOG_CACHE_TTL
-  ).catch((error) => {
-    console.warn("[Olist V3] Não foi possível salvar cache do catálogo:", error);
-  });
+    try {
+      const tinyId = await getTinyIdForSite(entry.siteId, entry.tinyId);
+      const stock = await getExactStock(tinyId);
 
-  return buildCanonicalMaps(tinyHeaders, canonical);
-}
+      // O saldo precisa existir como número válido. Zero é válido e significa
+      // estoque zero confirmado pela API de estoque; ausência de saldo não é.
+      const saldo = asInt(stock.saldo);
+      const reservado = asInt(stock.reservado);
+      const disponivel = asInt(stock.disponivel);
 
-function buildCanonicalMaps(
-  tinyHeaders: TinyListItem[],
-  canonical: TinyListItem[]
-) {
-  const byId = new Map<string, TinyListItem>();
-  const byName = new Map<string, TinyListItem[]>();
-
-  for (const item of canonical) {
-    const id = canonicalId(item);
-    if (!id) continue;
-    byId.set(id, item);
-    const name = normalize(str(item.descricao));
-    if (!name) continue;
-    const arr = byName.get(name) || [];
-    arr.push(item);
-    byName.set(name, arr);
-  }
-
-  return { tinyHeaders, canonical, byId, byName };
-}
-
-async function matchSiteProduct(
-  site: { id: string; nome: string },
-  maps: Awaited<ReturnType<typeof buildTinyCanonicalMap>>
-): Promise<{ tinyId: string; tinyItem: TinyListItem; method: "redis" | "id" | "nome" | "similaridade" } | null> {
-  const storedTinyId = await getStoredTinyId(site.id);
-  if (storedTinyId) {
-    const storedItem = maps.byId.get(storedTinyId);
-    if (storedItem) {
-      return { tinyId: storedTinyId, tinyItem: storedItem, method: "redis" };
-    }
-  }
-
-  const direct = maps.byId.get(site.id);
-  if (direct) {
-    const tinyId = String(site.id);
-    await setStoredTinyId(site.id, tinyId);
-    return { tinyId, tinyItem: direct, method: "id" };
-  }
-
-  const name = normalize(site.nome);
-  if (!name) return null;
-
-  const exactCandidates = maps.byName.get(name) || [];
-  if (exactCandidates.length === 1) {
-    const tinyId = canonicalId(exactCandidates[0]);
-    if (tinyId) {
-      await setStoredTinyId(site.id, tinyId);
-      return { tinyId, tinyItem: exactCandidates[0], method: "nome" };
-    }
-  }
-
-  // Fallback local, sem gastar nenhuma leitura adicional da API V3.
-  // Isso permite associar produtos cujo nome foi editado manualmente no site.
-  let best: TinyListItem | null = null;
-  let bestScore = 0;
-  let secondScore = 0;
-
-  for (const candidate of maps.canonical) {
-    const candidateName = str(candidate.descricao);
-    if (!candidateName) continue;
-    const score = nameSimilarity(site.nome, candidateName);
-    if (score > bestScore) {
-      secondScore = bestScore;
-      bestScore = score;
-      best = candidate;
-    } else if (score > secondScore) {
-      secondScore = score;
-    }
-  }
-
-  // Exige uma margem mínima para não correr o risco de associar dois produtos
-  // parecidos incorretamente.
-  if (best && bestScore >= 0.72 && bestScore - secondScore >= 0.08) {
-    const tinyId = canonicalId(best);
-    if (tinyId) {
-      await setStoredTinyId(site.id, tinyId);
-      return { tinyId, tinyItem: best, method: "similaridade" };
-    }
-  }
-
-  return null;
-}
-
-
-async function findNewTinyProducts(
-  siteTinyIds: Set<string>
-): Promise<SiteSyncEntry[]> {
-  // New products are discovered through a small recent window so this does
-  // not require scanning the entire Tiny catalog on every click.
-  const since = new Date(Date.now() - QUICK_NEW_LOOKBACK_MS);
-  const data = await listProducts({
-    limit: "100",
-    offset: "0",
-    dataCriacao: sinceDateString(since.getTime()),
-    situacao: "A",
-  });
-
-  const headers = uniqueCanonicalHeaders(Array.isArray(data.itens) ? data.itens : []);
-  const result: SiteSyncEntry[] = [];
-  for (const item of headers) {
-    const tinyId = canonicalId(item);
-    if (!tinyId || siteTinyIds.has(tinyId)) continue;
-    result.push({
-      siteId: null,
-      tinyId,
-      nomeTiny: str(item.descricao),
-      isNew: true,
-      matchMethod: "novo",
-    });
-  }
-  return result;
-}
-
-async function prepareQuick() {
-  const siteProducts = await prisma.produto.findMany({
-    select: { id: true, nome: true },
-  });
-
-  const maps = await buildTinyCanonicalMap();
-  const entries: SiteSyncEntry[] = [];
-  const matchedTinyIds = new Set<string>();
-  let unmatchedExisting = 0;
-  let ambiguousExisting = 0;
-
-  for (const site of siteProducts) {
-    const match = await matchSiteProduct(
-      { id: String(site.id), nome: String(site.nome || "") },
-      maps
-    );
-
-    if (!match) {
-      const name = normalize(String(site.nome || ""));
-      const candidates = maps.byName.get(name) || [];
-      if (candidates.length > 1) ambiguousExisting += 1;
-      else unmatchedExisting += 1;
-      continue;
-    }
-
-    matchedTinyIds.add(match.tinyId);
-    entries.push({
-      siteId: String(site.id),
-      tinyId: match.tinyId,
-      nomeSite: String(site.nome || ""),
-      nomeTiny: str(match.tinyItem.descricao),
-      isNew: false,
-      matchMethod: match.method,
-    });
-  }
-
-  const newEntries = await findNewTinyProducts(matchedTinyIds);
-  const seen = new Set(entries.map((entry) => entry.tinyId));
-  for (const entry of newEntries) {
-    if (seen.has(entry.tinyId)) continue;
-    seen.add(entry.tinyId);
-    entries.push(entry);
-  }
-
-  return {
-    success: true,
-    mode: "prepare-quick",
-    entries,
-    total: entries.length,
-    existingCount: entries.filter((entry) => !entry.isNew).length,
-    newCount: entries.filter((entry) => entry.isNew).length,
-    unmatchedExisting,
-    ambiguousExisting,
-    batchSize: API_READ_BATCH_SIZE,
-    catalogoConsultado: maps.tinyHeaders.length,
-  };
-}
-
-async function stockBatch(entries: SiteSyncEntry[]) {
-  const cleanEntries = entries
-    .filter((entry) => entry && entry.tinyId)
-    .slice(0, API_READ_BATCH_SIZE);
-
-  if (cleanEntries.length === 0) {
-    return {
-      success: true,
-      mode: "stock-batch",
-      criados: 0,
-      atualizados: 0,
-      ignorados: 0,
-      falhas: 0,
-      variacoesProcessadas: 0,
-      processados: 0,
-    };
-  }
-
-  return withSyncLock(async () => {
-    let criados = 0;
-    let atualizados = 0;
-    let ignorados = 0;
-    let falhas = 0;
-    let variacoesProcessadas = 0;
-    let estoqueAlterado = 0;
-    const diagnosticos: Array<Record<string, unknown>> = [];
-
-    type BatchResult = {
-      kind: "created" | "updated" | "ignored" | "failed";
-      variationCount: number;
-      changed?: boolean;
-      siteStockBefore?: number | null;
-      tinyStock?: number;
-      tinyAvailable?: number | null;
-      tinyReserved?: number | null;
-      stockSource?: string;
-      siteId?: string | null;
-      tinyId?: string;
-      nomeSite?: string;
-      nomeTiny?: string;
-      matchMethod?: SiteSyncEntry["matchMethod"];
-      error?: string;
-    };
-
-    const results = await mapInWaves<SiteSyncEntry, BatchResult>(
-      cleanEntries,
-      STOCK_WAVE_CONCURRENCY,
-      STOCK_WAVE_DELAY_MS,
-      async (entry): Promise<BatchResult> => {
-        try {
-          if (entry.siteId) {
-            const existing = await prisma.produto.findUnique({
-              where: { id: entry.siteId },
-              select: { id: true },
-            });
-
-            if (existing) {
-              const result = await updateExistingProduct(entry.siteId, entry.tinyId);
-              return {
-                kind: result.updated ? "updated" : "ignored",
-                variationCount: result.variationCount,
-                changed: result.changed,
-                siteStockBefore: result.siteStockBefore,
-                tinyStock: result.tinyStock,
-                tinyAvailable: result.tinyAvailable,
-                tinyReserved: result.tinyReserved,
-                stockSource: result.stockSource,
-                siteId: entry.siteId,
-                tinyId: entry.tinyId,
-                nomeSite: entry.nomeSite,
-                nomeTiny: entry.nomeTiny,
-                matchMethod: entry.matchMethod,
-              };
-            }
-
-            // ID foi associado anteriormente, mas o produto não existe mais no site.
-            // Para evitar alterar algo indevido, recriamos a partir do cadastro Tiny.
-            const detail = await getDetail(entry.tinyId);
-            const result = await createNewProduct(entry.tinyId, detail);
-            return {
-              kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          // Produto novo: precisamos do detalhe para criar o cadastro.
-          const detail = await getDetail(entry.tinyId);
-          if (str(detail.situacao).toUpperCase() !== "E") {
-            const result = await createNewProduct(entry.tinyId, detail);
-            return {
-              kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          return { kind: "ignored", variationCount: 0 };
-        } catch (error) {
-          console.error(`[Olist V3] Falha no produto Tiny ${entry.tinyId}:`, error);
-          return {
-            kind: "failed",
-            variationCount: 0,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
+      if (saldo == null) {
+        throw new Error(
+          `A API de estoque do produto ${tinyId} não retornou um saldo numérico. Produto preservado.`
+        );
       }
-    );
 
-    for (const result of results) {
-      if (result.kind === "created") criados += 1;
-      else if (result.kind === "updated") atualizados += 1;
-      else if (result.kind === "ignored") ignorados += 1;
-      else falhas += 1;
-      if (result.kind === "updated" && result.changed) estoqueAlterado += 1;
-      if (result.tinyId) {
+      const existing = await prisma.produto.findUnique({
+        where: { id: entry.siteId },
+        select: { id: true, estoque: true },
+      });
+
+      if (!existing) {
+        falhas += 1;
         diagnosticos.push({
-          siteId: result.siteId,
-          tinyId: result.tinyId,
-          nomeSite: result.nomeSite,
-          nomeTiny: result.nomeTiny,
-          matchMethod: result.matchMethod,
-          siteStockBefore: result.siteStockBefore,
-          tinyStock: result.tinyStock,
-          tinyAvailable: result.tinyAvailable,
-          tinyReserved: result.tinyReserved,
-          stockSource: result.stockSource,
-          estoqueMudou: Boolean(result.changed),
+          siteId: entry.siteId,
+          tinyId,
+          nome: entry.nome || "",
+          siteStockBefore: entry.siteStockBefore ?? null,
+          tinySaldo: saldo,
+          tinyDisponivel: disponivel,
+          tinyReservado: reservado,
+          estoqueMudou: false,
+          erro: "Produto não encontrado no site; nenhuma alteração realizada.",
         });
+        continue;
       }
-      variacoesProcessadas += result.variationCount || 0;
+
+      const changed = existing.estoque !== saldo;
+
+      // MUITO IMPORTANTE: nesta sincronização alteramos somente `estoque`.
+      // Nenhum preço, descrição, imagem, categoria, faixa etária ou matriz
+      // de tamanho/cor é tocado.
+      await prisma.produto.update({
+        where: { id: existing.id },
+        data: { estoque: saldo },
+      });
+
+      atualizados += 1;
+      confirmados += 1;
+      if (changed) estoqueAlterado += 1;
+
+      diagnosticos.push({
+        siteId: existing.id,
+        tinyId,
+        nome: entry.nome || stock.nome || "",
+        siteStockBefore: existing.estoque,
+        tinySaldo: saldo,
+        tinyDisponivel: disponivel,
+        tinyReservado: reservado,
+        estoqueMudou: changed,
+        fonte: "GET /estoque/{idProduto}",
+      });
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        rateLimited = true;
+        retryAfterMs = 60000;
+        falhas += 1;
+        diagnosticos.push({
+          siteId: entry.siteId,
+          tinyId: entry.tinyId,
+          nome: entry.nome || "",
+          siteStockBefore: entry.siteStockBefore ?? null,
+          estoqueMudou: false,
+          erro: error instanceof Error ? error.message : String(error),
+          rateLimited: true,
+        });
+        break;
+      }
+
+      falhas += 1;
+      diagnosticos.push({
+        siteId: entry.siteId,
+        tinyId: entry.tinyId,
+        nome: entry.nome || "",
+        siteStockBefore: entry.siteStockBefore ?? null,
+        estoqueMudou: false,
+        erro: error instanceof Error ? error.message : String(error),
+        rateLimited: false,
+      });
     }
-
-    return {
-      success: true,
-      mode: "stock-batch",
-      criados,
-      atualizados,
-      ignorados,
-      falhas,
-      estoqueAlterado,
-      variacoesProcessadas,
-      processados: cleanEntries.length,
-      diagnosticos,
-    };
-  });
-}
-
-async function prepareFull() {
-  const siteProducts = await prisma.produto.findMany({ select: { id: true, nome: true } });
-  const maps = await buildTinyCanonicalMap();
-  const entries: SiteSyncEntry[] = [];
-
-  for (const site of siteProducts) {
-    const match = await matchSiteProduct(
-      { id: String(site.id), nome: String(site.nome || "") },
-      maps
-    );
-    if (!match) continue;
-    entries.push({
-      siteId: String(site.id),
-      tinyId: match.tinyId,
-      nomeSite: String(site.nome || ""),
-      nomeTiny: str(match.tinyItem.descricao),
-      isNew: false,
-      matchMethod: match.method,
-    });
   }
 
   return {
     success: true,
-    mode: "prepare-full",
-    entries,
-    total: entries.length,
-    batchSize: API_READ_BATCH_SIZE,
+    mode: "stock-batch",
+    atualizados,
+    estoqueAlterado,
+    confirmados,
+    falhas,
+    processados: diagnosticos.length,
+    rateLimited,
+    retryAfterMs,
+    diagnosticos,
   };
-}
-
-async function fullBatch(entries: SiteSyncEntry[]) {
-  return stockBatch(entries);
 }
 
 export async function GET() {
@@ -1057,71 +268,35 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => ({}))) as AnyRecord;
-    const mode = str(body.mode || body.action || "quick").toLowerCase();
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const mode = str(body.mode || "stock-batch").toLowerCase();
 
-    if (mode === "prepare-quick") {
-      return NextResponse.json(await withSyncLock(prepareQuick));
+    if (mode !== "stock-batch" && mode !== "stock") {
+      return NextResponse.json(
+        { success: false, error: "Esta rota está configurada para sincronização de estoque." },
+        { status: 400 }
+      );
     }
 
-    if (mode === "stock-batch" || mode === "quick" || mode === "sync") {
-      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
-        ? body.entries
-            .filter((entry) => entry && typeof entry === "object")
-            .map((entry) => ({
-              siteId: entry.siteId ? str(entry.siteId) : null,
-              tinyId: str(entry.tinyId),
-              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
-              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
-              isNew: Boolean(entry.isNew),
-              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
-            }))
-            .filter((entry) => Boolean(entry.tinyId))
-        : [];
+    const entries = Array.isArray(body.entries)
+      ? body.entries.map(normalizeEntry).filter(Boolean) as StockEntry[]
+      : [];
 
-      if (entries.length === 0) {
-        return NextResponse.json(
-          { success: false, error: "Nenhuma associação entre produto do site e produto Tiny foi enviada para sincronização." },
-          { status: 400 }
-        );
-      }
-
-      return NextResponse.json(await stockBatch(entries));
+    if (entries.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Nenhum produto foi enviado para sincronização de estoque." },
+        { status: 400 }
+      );
     }
 
-    if (mode === "prepare-full") {
-      return NextResponse.json(await withSyncLock(prepareFull));
-    }
+    // Limite pequeno por chamada para caber confortavelmente no maxDuration
+    // mesmo com o intervalo entre requisições ao Tiny.
+    const lote = entries.slice(0, 6);
 
-    if (mode === "full-batch") {
-      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
-        ? body.entries
-            .filter((entry) => entry && typeof entry === "object")
-            .map((entry) => ({
-              siteId: entry.siteId ? str(entry.siteId) : null,
-              tinyId: str(entry.tinyId),
-              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
-              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
-              isNew: Boolean(entry.isNew),
-              matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
-            }))
-            .filter((entry) => Boolean(entry.tinyId))
-        : [];
-      if (entries.length === 0) {
-        return NextResponse.json(
-          { success: false, error: "Nenhuma associação de produto foi enviada para a reconciliação completa." },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json(await fullBatch(entries));
-    }
-
-    return NextResponse.json(
-      { success: false, error: `Modo de sincronização inválido: ${mode}` },
-      { status: 400 }
-    );
+    return NextResponse.json(await withSyncLock(() => processStockBatch(lote)));
   } catch (error) {
-    console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===", error);
+    console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===");
+    console.error(error);
 
     if (error instanceof OlistOAuthError) {
       return NextResponse.json(
@@ -1134,10 +309,22 @@ export async function POST(request: Request) {
       );
     }
 
+    if (isRateLimitError(error)) {
+      return NextResponse.json(
+        {
+          success: false,
+          rateLimited: true,
+          retryAfterMs: 12000,
+          error: error instanceof Error ? error.message : "Limite da API Olist/Tiny atingido.",
+        },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Erro interno na sincronização.",
+        error: error instanceof Error ? error.message : "Erro ao sincronizar o estoque.",
       },
       { status: 500 }
     );
