@@ -20,8 +20,9 @@ const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 // Janela usada apenas para descobrir produtos novos no modo rápido.
 // Não controla a atualização de estoque dos produtos já cadastrados.
 const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
-const API_READ_BATCH_SIZE = 5;
-const DETAIL_CONCURRENCY = 5;
+const API_READ_BATCH_SIZE = 10;
+const STOCK_WAVE_CONCURRENCY = 2;
+const STOCK_WAVE_DELAY_MS = 2400;
 const FULL_BATCH_SIZE = 28;
 const PLACEHOLDER_IMAGE = "";
 
@@ -76,6 +77,15 @@ type TinyDetail = {
 type TinyListResponse = {
   itens?: TinyListItem[];
   paginacao?: { limit?: number; offset?: number; total?: number };
+};
+
+type TinyStock = {
+  id?: number | null;
+  nome?: string | null;
+  codigo?: string | null;
+  saldo?: number | null;
+  reservado?: number | null;
+  disponivel?: number | null;
 };
 
 type StockAggregate = {
@@ -449,17 +459,34 @@ async function getDetail(id: string): Promise<TinyDetail> {
   return getOlistV3<TinyDetail>(`/produtos/${encodeURIComponent(id)}`);
 }
 
-type TinyStockResponse = {
-  id?: number | null;
-  nome?: string | null;
-  codigo?: string | null;
-  saldo?: number | null;
-  reservado?: number | null;
-  disponivel?: number | null;
-};
+async function getStock(id: string): Promise<TinyStock> {
+  return getOlistV3<TinyStock>(`/estoque/${encodeURIComponent(id)}`);
+}
 
-async function getStock(id: string): Promise<TinyStockResponse> {
-  return getOlistV3<TinyStockResponse>(`/estoque/${encodeURIComponent(id)}`);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function mapInWaves<T, R>(
+  items: T[],
+  waveSize: number,
+  delayMs: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  for (let start = 0; start < items.length; start += waveSize) {
+    const wave = items.slice(start, start + waveSize);
+    const waveResults = await Promise.all(
+      wave.map((item, offset) => fn(item, start + offset))
+    );
+    waveResults.forEach((result, offset) => {
+      results[start + offset] = result;
+    });
+    if (start + wave.length < items.length) {
+      await sleep(delayMs);
+    }
+  }
+  return results;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -487,7 +514,19 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; changed: boolean; siteStockBefore: number | null; tinyStock: number; variationCount: number }> {
+async function updateExistingProduct(
+  id: string,
+  tinyId: string
+): Promise<{
+  updated: boolean;
+  changed: boolean;
+  siteStockBefore: number;
+  tinyStock: number;
+  tinyAvailable: number | null;
+  tinyReserved: number | null;
+  stockSource: string;
+  variationCount: number;
+}> {
   const existing = await prisma.produto.findUnique({
     where: { id },
     select: {
@@ -495,42 +534,53 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
       estoque: true,
       tamanhos: true,
       cores: true,
-      estoquePorTamanho: true,
-      estoquePorCor: true,
     },
   });
 
-  if (!existing) return { updated: false, changed: false, siteStockBefore: null, tinyStock: 0, variationCount: 0 };
+  if (!existing) {
+    return {
+      updated: false,
+      changed: false,
+      siteStockBefore: 0,
+      tinyStock: 0,
+      tinyAvailable: null,
+      tinyReserved: null,
+      stockSource: "produto-inexistente",
+      variationCount: 0,
+    };
+  }
 
-  const aggregate = aggregateDetail(
-    detail,
-    existing.tamanhos || [],
-    existing.cores || []
-  );
+  // IMPORTANTE: o estoque para sincronização vem da API específica de
+  // estoque (/estoque/{idProduto}), e não de /produtos/{idProduto}.
+  // O endpoint de estoque retorna saldo, reservado e disponível.
+  const stock = await getStock(tinyId);
+  const saldo = safeNonNegativeInt(stock.saldo);
 
-  if (!aggregate) {
-    throw new Error(`Estoque inválido ou ausente no produto Tiny ${id}. Produto preservado no site.`);
+  if (saldo == null) {
+    throw new Error(
+      `O endpoint de estoque do Tiny não retornou um saldo válido para ${tinyId}. O produto foi preservado no site.`
+    );
   }
 
   await prisma.produto.update({
     where: { id },
     data: {
-      estoque: aggregate.estoque,
-      ...(aggregate.matrixComplete && {
-        tamanhos: aggregate.tamanhos,
-        estoquePorTamanho: aggregate.estoquePorTamanho,
-        cores: aggregate.cores,
-        estoquePorCor: aggregate.estoquePorCor,
-      }),
+      // Atualizamos SOMENTE o total de estoque.
+      // Tamanhos/cores e suas matrizes são preservados porque o detalhe
+      // do produto estava retornando zeros incorretos no cenário da loja.
+      estoque: saldo,
     },
   });
 
   return {
     updated: true,
-    changed: existing.estoque !== aggregate.estoque,
+    changed: existing.estoque !== saldo,
     siteStockBefore: existing.estoque,
-    tinyStock: aggregate.estoque,
-    variationCount: aggregate.variationCount,
+    tinyStock: saldo,
+    tinyAvailable: safeNonNegativeInt(stock.disponivel),
+    tinyReserved: safeNonNegativeInt(stock.reservado),
+    stockSource: "GET /estoque/{idProduto}",
+    variationCount: 0,
   };
 }
 
@@ -826,6 +876,9 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       changed?: boolean;
       siteStockBefore?: number | null;
       tinyStock?: number;
+      tinyAvailable?: number | null;
+      tinyReserved?: number | null;
+      stockSource?: string;
       siteId?: string | null;
       tinyId?: string;
       nomeSite?: string;
@@ -834,24 +887,29 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       error?: string;
     };
 
-    const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
+    const results = await mapInWaves<SiteSyncEntry, BatchResult>(
       cleanEntries,
-      DETAIL_CONCURRENCY,
+      STOCK_WAVE_CONCURRENCY,
+      STOCK_WAVE_DELAY_MS,
       async (entry): Promise<BatchResult> => {
         try {
-          const detail = await getDetail(entry.tinyId);
-
           if (entry.siteId) {
             const existing = await prisma.produto.findUnique({
               where: { id: entry.siteId },
               select: { id: true },
             });
 
-            if (!existing) {
-              const result = await createNewProduct(entry.tinyId, detail);
+            if (existing) {
+              const result = await updateExistingProduct(entry.siteId, entry.tinyId);
               return {
-                kind: result.created ? "created" : "ignored",
+                kind: result.updated ? "updated" : "ignored",
                 variationCount: result.variationCount,
+                changed: result.changed,
+                siteStockBefore: result.siteStockBefore,
+                tinyStock: result.tinyStock,
+                tinyAvailable: result.tinyAvailable,
+                tinyReserved: result.tinyReserved,
+                stockSource: result.stockSource,
                 siteId: entry.siteId,
                 tinyId: entry.tinyId,
                 nomeSite: entry.nomeSite,
@@ -860,13 +918,13 @@ async function stockBatch(entries: SiteSyncEntry[]) {
               };
             }
 
-            const result = await updateExistingProduct(entry.siteId, detail);
+            // ID foi associado anteriormente, mas o produto não existe mais no site.
+            // Para evitar alterar algo indevido, recriamos a partir do cadastro Tiny.
+            const detail = await getDetail(entry.tinyId);
+            const result = await createNewProduct(entry.tinyId, detail);
             return {
-              kind: result.updated ? "updated" : "ignored",
+              kind: result.created ? "created" : "ignored",
               variationCount: result.variationCount,
-              changed: result.changed,
-              siteStockBefore: result.siteStockBefore,
-              tinyStock: result.tinyStock,
               siteId: entry.siteId,
               tinyId: entry.tinyId,
               nomeSite: entry.nomeSite,
@@ -875,6 +933,8 @@ async function stockBatch(entries: SiteSyncEntry[]) {
             };
           }
 
+          // Produto novo: precisamos do detalhe para criar o cadastro.
+          const detail = await getDetail(entry.tinyId);
           if (str(detail.situacao).toUpperCase() !== "E") {
             const result = await createNewProduct(entry.tinyId, detail);
             return {
@@ -915,6 +975,9 @@ async function stockBatch(entries: SiteSyncEntry[]) {
           matchMethod: result.matchMethod,
           siteStockBefore: result.siteStockBefore,
           tinyStock: result.tinyStock,
+          tinyAvailable: result.tinyAvailable,
+          tinyReserved: result.tinyReserved,
+          stockSource: result.stockSource,
           estoqueMudou: Boolean(result.changed),
         });
       }
@@ -970,142 +1033,6 @@ async function fullBatch(entries: SiteSyncEntry[]) {
   return stockBatch(entries);
 }
 
-async function prepareStockOnly() {
-  const siteProducts = await prisma.produto.findMany({
-    select: { id: true, nome: true, estoque: true },
-  });
-
-  const entries: SiteSyncEntry[] = siteProducts
-    .map((site) => {
-      const tinyId = str(site.id);
-      if (!/^\d+$/.test(tinyId)) return null;
-      return {
-        siteId: tinyId,
-        tinyId,
-        nomeSite: String(site.nome || ""),
-        isNew: false,
-        matchMethod: "id" as const,
-      };
-    })
-    .filter(Boolean) as SiteSyncEntry[];
-
-  return {
-    success: true,
-    mode: "prepare-stock-only",
-    entries,
-    total: entries.length,
-    batchSize: 10,
-    intervalMs: 22000,
-  };
-}
-
-async function stockOnlyBatch(entries: SiteSyncEntry[]) {
-  const cleanEntries = entries
-    .filter((entry) => entry && entry.tinyId && entry.siteId)
-    .slice(0, 10);
-
-  if (cleanEntries.length === 0) {
-    return { success: true, mode: "stock-only-batch", processados: 0, estoqueAlterado: 0, falhas: 0, rateLimited: 0, diagnosticos: [] };
-  }
-
-  return withSyncLock(async () => {
-    let estoqueAlterado = 0;
-    let falhas = 0;
-    let rateLimited = 0;
-    const diagnosticos: Array<Record<string, unknown>> = [];
-
-    const results = await mapWithConcurrency(cleanEntries, 10, async (entry) => {
-      try {
-        const stock = await getStock(entry.tinyId);
-        const saldo = safeNonNegativeInt(stock.saldo);
-
-        // O endpoint oficial de estoque retorna saldo, reservado e disponivel.
-        // Para alinhar o estoque físico do site ao Tiny usamos SALDO.
-        // Nunca tratamos ausência de saldo como zero.
-        if (saldo == null) {
-          throw new Error(`Saldo de estoque ausente para o produto Tiny ${entry.tinyId}.`);
-        }
-
-        const existing = await prisma.produto.findUnique({
-          where: { id: entry.siteId! },
-          select: { id: true, estoque: true },
-        });
-
-        if (!existing) {
-          return {
-            ok: false,
-            siteId: entry.siteId,
-            tinyId: entry.tinyId,
-            nome: entry.nomeSite,
-            tinyStock: saldo,
-            error: "Produto não encontrado no site; nenhum cadastro automático nesta sincronização.",
-          };
-        }
-
-        const changed = existing.estoque !== saldo;
-
-        if (changed) {
-          await prisma.produto.update({
-            where: { id: existing.id },
-            data: { estoque: saldo },
-          });
-        }
-
-        return {
-          ok: true,
-          changed,
-          siteId: existing.id,
-          tinyId: entry.tinyId,
-          nome: entry.nomeSite,
-          siteStockBefore: existing.estoque,
-          tinyStock: saldo,
-          reservado: safeNonNegativeInt(stock.reservado),
-          disponivel: safeNonNegativeInt(stock.disponivel),
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const is429 = /429|rate.?limit|muitas requisições|too many requests/i.test(message);
-        if (is429) rateLimited += 1;
-        else falhas += 1;
-        return {
-          ok: false,
-          rateLimited: is429,
-          siteId: entry.siteId,
-          tinyId: entry.tinyId,
-          nome: entry.nomeSite,
-          error: message,
-        };
-      }
-    });
-
-    for (const r of results) {
-      if (r.ok && r.changed) estoqueAlterado += 1;
-      diagnosticos.push({
-        siteId: r.siteId,
-        tinyId: r.tinyId,
-        nome: r.nome,
-        siteStockBefore: r.siteStockBefore,
-        tinyStock: r.tinyStock,
-        disponivel: r.disponivel,
-        reservado: r.reservado,
-        estoqueMudou: Boolean(r.changed),
-        erro: r.error,
-        rateLimited: Boolean(r.rateLimited),
-      });
-    }
-
-    return {
-      success: true,
-      mode: "stock-only-batch",
-      processados: cleanEntries.length,
-      estoqueAlterado,
-      falhas,
-      rateLimited,
-      diagnosticos,
-    };
-  });
-}
-
 export async function GET() {
   try {
     const token = await redisGetJson<{ accessToken?: string; expiresAt?: number }>(
@@ -1132,32 +1059,6 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as AnyRecord;
     const mode = str(body.mode || body.action || "quick").toLowerCase();
-
-    if (mode === "prepare-stock-only") {
-      return NextResponse.json(await withSyncLock(prepareStockOnly));
-    }
-
-    if (mode === "stock-only-batch") {
-      const entries: SiteSyncEntry[] = Array.isArray(body.entries)
-        ? body.entries
-            .filter((entry) => entry && typeof entry === "object")
-            .map((entry) => ({
-              siteId: entry.siteId ? str(entry.siteId) : null,
-              tinyId: str(entry.tinyId),
-              nomeSite: entry.nomeSite ? str(entry.nomeSite) : undefined,
-              nomeTiny: entry.nomeTiny ? str(entry.nomeTiny) : undefined,
-              isNew: false,
-              matchMethod: "id" as const,
-            }))
-            .filter((entry) => Boolean(entry.siteId && entry.tinyId))
-        : [];
-
-      if (entries.length === 0) {
-        return NextResponse.json({ success: false, error: "Nenhum produto do site disponível para atualizar estoque." }, { status: 400 });
-      }
-
-      return NextResponse.json(await stockOnlyBatch(entries));
-    }
 
     if (mode === "prepare-quick") {
       return NextResponse.json(await withSyncLock(prepareQuick));
