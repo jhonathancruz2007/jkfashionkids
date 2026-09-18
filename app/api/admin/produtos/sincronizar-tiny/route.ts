@@ -20,12 +20,10 @@ const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 // Janela usada apenas para descobrir produtos novos no modo rápido.
 // Não controla a atualização de estoque dos produtos já cadastrados.
 const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
-const API_READ_BATCH_SIZE = 5;
-const DETAIL_CONCURRENCY = 5;
-const FULL_BATCH_SIZE = 28;
+const STOCK_BATCH_SIZE = 4;
+const STOCK_CALL_GAP_MS = 2500;
+const RATE_LIMIT_RETRY_MS = 65000;
 const PLACEHOLDER_IMAGE = "";
-const STOCK_ENDPOINT_MIN_INTERVAL_MS = 2100;
-const STOCK_LAST_CALL_KEY = "jkfashion:olist:v3:stock:last-call";
 
 type AnyRecord = Record<string, any>;
 
@@ -451,28 +449,6 @@ async function getDetail(id: string): Promise<TinyDetail> {
   return getOlistV3<TinyDetail>(`/produtos/${encodeURIComponent(id)}`);
 }
 
-async function getStock(id: string): Promise<{
-  id?: number | string | null;
-  nome?: string | null;
-  codigo?: string | null;
-  saldo?: number | null;
-  reservado?: number | null;
-  disponivel?: number | null;
-}> {
-  return getOlistV3(`/estoque/${encodeURIComponent(id)}`);
-}
-
-async function enforceStockRateLimit(): Promise<number> {
-  const now = Date.now();
-  const lastCall = await redisGetJson<number>(STOCK_LAST_CALL_KEY).catch(() => null);
-  const elapsed = lastCall == null ? Number.MAX_SAFE_INTEGER : now - lastCall;
-  if (elapsed < STOCK_ENDPOINT_MIN_INTERVAL_MS) {
-    return STOCK_ENDPOINT_MIN_INTERVAL_MS - elapsed;
-  }
-  await redisSetJson(STOCK_LAST_CALL_KEY, now, 120).catch(() => undefined);
-  return 0;
-}
-
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -498,9 +474,71 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ updated: boolean; changed: boolean; siteStockBefore: number | null; tinyStock: number; variationCount: number }> {
+
+function isRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /429|rate.?limit|too many requests|limite/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getStockSnapshot(id: string): Promise<{ saldo: number; disponivel: number | null }> {
+  const data = await getOlistV3<{
+    saldo?: number | null;
+    disponivel?: number | null;
+  }>(`/estoque/${encodeURIComponent(id)}`);
+
+  const saldo = safeNonNegativeInt(data?.saldo);
+  if (saldo == null) {
+    throw new Error(`O endpoint de estoque não retornou um saldo válido para o produto ${id}.`);
+  }
+
+  return {
+    saldo,
+    disponivel: safeNonNegativeInt(data?.disponivel),
+  };
+}
+
+async function getCanonicalStockDetail(id: string): Promise<{ detail: TinyDetail; canonicalId: string }> {
+  const detail = await getDetail(id);
+  if (normalize(str(detail.tipoVariacao)) === "v" && detail.produtoPai?.id) {
+    const parentId = String(detail.produtoPai.id);
+    const parent = await getDetail(parentId);
+    if (Array.isArray(parent.variacoes) && parent.variacoes.length > 0) {
+      return { detail: parent, canonicalId: parentId };
+    }
+  }
+
+  if (
+    detail.produtoPai?.id &&
+    (!Array.isArray(detail.variacoes) || detail.variacoes.length === 0)
+  ) {
+    const parentId = String(detail.produtoPai.id);
+    const parent = await getDetail(parentId);
+    if (Array.isArray(parent.variacoes) && parent.variacoes.length > 0) {
+      return { detail: parent, canonicalId: parentId };
+    }
+  }
+
+  return { detail, canonicalId: id };
+}
+
+async function updateExistingProduct(
+  siteId: string,
+  tinyId: string
+): Promise<{
+  updated: boolean;
+  changed: boolean;
+  siteStockBefore: number | null;
+  tinyStock: number;
+  variationCount: number;
+  matrixUpdated: boolean;
+  canonicalTinyId: string;
+}> {
   const existing = await prisma.produto.findUnique({
-    where: { id },
+    where: { id: siteId },
     select: {
       id: true,
       estoque: true,
@@ -511,28 +549,37 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
     },
   });
 
-  if (!existing) return { updated: false, changed: false, siteStockBefore: null, tinyStock: 0, variationCount: 0 };
-
-  const aggregate = aggregateDetail(
-    detail,
-    existing.tamanhos || [],
-    existing.cores || []
-  );
-
-  if (!aggregate) {
-    throw new Error(`Estoque inválido ou ausente no produto Tiny ${id}. Produto preservado no site.`);
+  if (!existing) {
+    throw new Error(`Produto do site ${siteId} não existe mais.`);
   }
 
+  const { detail, canonicalId } = await getCanonicalStockDetail(tinyId);
+  let aggregate = aggregateDetail(detail, existing.tamanhos || [], existing.cores || []);
+
+  if (!aggregate) {
+    throw new Error(`Estoque inválido ou incompleto no produto Tiny ${canonicalId}. Produto preservado.`);
+  }
+
+  // Proteção crítica: se o detalhe V3 indicar zero, mas o site ainda tiver
+  // estoque positivo, confirme no endpoint dedicado de estoque antes de
+  // escrever zero. Um erro/ausência de confirmação nunca vira zero.
+  if (aggregate.estoque === 0 && Number(existing.estoque || 0) > 0) {
+    const snapshot = await getStockSnapshot(canonicalId);
+    aggregate = { ...aggregate, estoque: snapshot.saldo };
+  }
+
+  const matrixUpdated = aggregate.variationCount > 0 && aggregate.matrixComplete;
+
   await prisma.produto.update({
-    where: { id },
+    where: { id: siteId },
     data: {
       estoque: aggregate.estoque,
-      ...(aggregate.matrixComplete && {
-        tamanhos: aggregate.tamanhos,
-        estoquePorTamanho: aggregate.estoquePorTamanho,
-        cores: aggregate.cores,
-        estoquePorCor: aggregate.estoquePorCor,
-      }),
+      ...(matrixUpdated
+        ? {
+            estoquePorTamanho: aggregate.estoquePorTamanho,
+            estoquePorCor: aggregate.estoquePorCor,
+          }
+        : {}),
     },
   });
 
@@ -542,6 +589,8 @@ async function updateExistingProduct(id: string, detail: TinyDetail): Promise<{ 
     siteStockBefore: existing.estoque,
     tinyStock: aggregate.estoque,
     variationCount: aggregate.variationCount,
+    matrixUpdated,
+    canonicalTinyId: canonicalId,
   };
 }
 
@@ -746,101 +795,6 @@ async function findNewTinyProducts(
   return result;
 }
 
-
-async function prepareStockOnly() {
-  const siteProducts = await prisma.produto.findMany({
-    select: { id: true, nome: true },
-    orderBy: { nome: "asc" },
-  });
-
-  const entries: SiteSyncEntry[] = [];
-
-  for (const site of siteProducts) {
-    // Para o estoque, usamos o ID do produto do site diretamente como ID do Tiny.
-    // Os logs da sua sincronização mostraram essa correspondência 1:1.
-    const tinyId = String(site.id);
-    entries.push({
-      siteId: String(site.id),
-      tinyId,
-      nomeSite: String(site.nome || ""),
-      nomeTiny: undefined,
-      isNew: false,
-      matchMethod: "id",
-    });
-  }
-
-  return {
-    success: true,
-    mode: "prepare-stock",
-    entries,
-    total: entries.length,
-    batchSize: 1,
-  };
-}
-
-async function stockOne(entry: SiteSyncEntry) {
-  if (!entry.siteId || !entry.tinyId) {
-    throw new Error("Produto sem siteId/tinyId para sincronização de estoque.");
-  }
-
-  const waitMs = await enforceStockRateLimit();
-  if (waitMs > 0) {
-    return {
-      success: false,
-      rateLimited: true,
-      retryAfterMs: waitMs + 250,
-      error: `Aguardando limite da API (${waitMs}ms).`,
-    };
-  }
-
-  const existing = await prisma.produto.findUnique({
-    where: { id: entry.siteId },
-    select: { id: true, estoque: true },
-  });
-
-  if (!existing) {
-    return {
-      success: false,
-      rateLimited: false,
-      error: "Produto não existe mais no site.",
-    };
-  }
-
-  const stock = await getStock(entry.tinyId);
-  const tinyStock = safeNonNegativeInt(stock?.saldo);
-
-  if (tinyStock == null) {
-    return {
-      success: false,
-      rateLimited: false,
-      siteStockBefore: existing.estoque,
-      tinyStock: null,
-      disponivel: safeNonNegativeInt(stock?.disponivel),
-      reservado: safeNonNegativeInt(stock?.reservado),
-      error: `O endpoint de estoque do Tiny não retornou um saldo válido para o produto ${entry.tinyId}. O estoque do site foi preservado.`,
-    };
-  }
-
-  await prisma.produto.update({
-    where: { id: existing.id },
-    data: { estoque: tinyStock },
-  });
-
-  return {
-    success: true,
-    rateLimited: false,
-    siteStockBefore: existing.estoque,
-    tinyStock,
-    reservado: safeNonNegativeInt(stock?.reservado),
-    disponivel: safeNonNegativeInt(stock?.disponivel),
-    changed: existing.estoque !== tinyStock,
-    siteId: existing.id,
-    tinyId: entry.tinyId,
-    nomeSite: entry.nomeSite,
-    nomeTiny: str(stock?.nome),
-  };
-}
-
 async function prepareQuick() {
   const siteProducts = await prisma.produto.findMany({
     select: { id: true, nome: true },
@@ -894,152 +848,161 @@ async function prepareQuick() {
     newCount: entries.filter((entry) => entry.isNew).length,
     unmatchedExisting,
     ambiguousExisting,
-    batchSize: API_READ_BATCH_SIZE,
+    batchSize: STOCK_BATCH_SIZE,
     catalogoConsultado: maps.tinyHeaders.length,
   };
 }
 
 async function stockBatch(entries: SiteSyncEntry[]) {
   const cleanEntries = entries
-    .filter((entry) => entry && entry.tinyId)
-    .slice(0, API_READ_BATCH_SIZE);
-
-  if (cleanEntries.length === 0) {
-    return {
-      success: true,
-      mode: "stock-batch",
-      criados: 0,
-      atualizados: 0,
-      ignorados: 0,
-      falhas: 0,
-      variacoesProcessadas: 0,
-      processados: 0,
-    };
-  }
+    .filter((entry) => entry && entry.tinyId && entry.siteId)
+    .slice(0, STOCK_BATCH_SIZE);
 
   return withSyncLock(async () => {
-    let criados = 0;
     let atualizados = 0;
-    let ignorados = 0;
     let falhas = 0;
-    let variacoesProcessadas = 0;
     let estoqueAlterado = 0;
+    let variacoesProcessadas = 0;
+    let processados = 0;
+    let rateLimited = false;
+    let retryAfterMs = 0;
     const diagnosticos: Array<Record<string, unknown>> = [];
 
-    type BatchResult = {
-      kind: "created" | "updated" | "ignored" | "failed";
-      variationCount: number;
-      changed?: boolean;
-      siteStockBefore?: number | null;
-      tinyStock?: number;
-      siteId?: string | null;
-      tinyId?: string;
-      nomeSite?: string;
-      nomeTiny?: string;
-      matchMethod?: SiteSyncEntry["matchMethod"];
-      error?: string;
+    let lastApiCallAt = 0;
+    const waitApiGap = async () => {
+      const elapsed = Date.now() - lastApiCallAt;
+      if (lastApiCallAt > 0 && elapsed < STOCK_CALL_GAP_MS) {
+        await sleep(STOCK_CALL_GAP_MS - elapsed);
+      }
+      lastApiCallAt = Date.now();
     };
 
-    const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
-      cleanEntries,
-      DETAIL_CONCURRENCY,
-      async (entry): Promise<BatchResult> => {
-        try {
-          const detail = await getDetail(entry.tinyId);
+    for (const entry of cleanEntries) {
+      try {
+        await waitApiGap();
+        const detailResult = await getCanonicalStockDetail(entry.tinyId);
+        let aggregate = await buildAggregateSafely(
+          detailResult.detail,
+          entry.siteId
+        );
 
-          if (entry.siteId) {
-            const existing = await prisma.produto.findUnique({
-              where: { id: entry.siteId },
-              select: { id: true },
-            });
+        const before = await prisma.produto.findUnique({
+          where: { id: entry.siteId! },
+          select: {
+            estoque: true,
+            tamanhos: true,
+            cores: true,
+            estoquePorTamanho: true,
+            estoquePorCor: true,
+          },
+        });
 
-            if (!existing) {
-              const result = await createNewProduct(entry.tinyId, detail);
-              return {
-                kind: result.created ? "created" : "ignored",
-                variationCount: result.variationCount,
-                siteId: entry.siteId,
-                tinyId: entry.tinyId,
-                nomeSite: entry.nomeSite,
-                nomeTiny: entry.nomeTiny,
-                matchMethod: entry.matchMethod,
-              };
-            }
-
-            const result = await updateExistingProduct(entry.siteId, detail);
-            return {
-              kind: result.updated ? "updated" : "ignored",
-              variationCount: result.variationCount,
-              changed: result.changed,
-              siteStockBefore: result.siteStockBefore,
-              tinyStock: result.tinyStock,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          if (str(detail.situacao).toUpperCase() !== "E") {
-            const result = await createNewProduct(entry.tinyId, detail);
-            return {
-              kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nomeSite: entry.nomeSite,
-              nomeTiny: entry.nomeTiny,
-              matchMethod: entry.matchMethod,
-            };
-          }
-
-          return { kind: "ignored", variationCount: 0 };
-        } catch (error) {
-          console.error(`[Olist V3] Falha no produto Tiny ${entry.tinyId}:`, error);
-          return {
-            kind: "failed",
-            variationCount: 0,
-            error: error instanceof Error ? error.message : String(error),
-          };
+        if (!before) {
+          throw new Error(`Produto do site ${entry.siteId} não existe mais.`);
         }
-      }
-    );
 
-    for (const result of results) {
-      if (result.kind === "created") criados += 1;
-      else if (result.kind === "updated") atualizados += 1;
-      else if (result.kind === "ignored") ignorados += 1;
-      else falhas += 1;
-      if (result.kind === "updated" && result.changed) estoqueAlterado += 1;
-      if (result.tinyId) {
+        // Se a API do detalhe trouxer zero e o site tiver saldo positivo,
+        // confirme no endpoint de estoque. Isso evita exatamente o problema
+        // dos produtos com variações sendo zerados indevidamente.
+        if (aggregate.estoque === 0 && Number(before.estoque || 0) > 0) {
+          await waitApiGap();
+          const snapshot = await getStockSnapshot(detailResult.canonicalId);
+          aggregate = { ...aggregate, estoque: snapshot.saldo };
+        }
+
+        const matrixUpdated = aggregate.variationCount > 0 && aggregate.matrixComplete;
+
+        await prisma.produto.update({
+          where: { id: entry.siteId! },
+          data: {
+            estoque: aggregate.estoque,
+            ...(matrixUpdated
+              ? {
+                  estoquePorTamanho: aggregate.estoquePorTamanho,
+                  estoquePorCor: aggregate.estoquePorCor,
+                }
+              : {}),
+          },
+        });
+
+        atualizados += 1;
+        if (before.estoque !== aggregate.estoque) estoqueAlterado += 1;
+        variacoesProcessadas += aggregate.variationCount;
+        processados += 1;
+
         diagnosticos.push({
-          siteId: result.siteId,
-          tinyId: result.tinyId,
-          nomeSite: result.nomeSite,
-          nomeTiny: result.nomeTiny,
-          matchMethod: result.matchMethod,
-          siteStockBefore: result.siteStockBefore,
-          tinyStock: result.tinyStock,
-          estoqueMudou: Boolean(result.changed),
+          siteId: entry.siteId,
+          tinyId: entry.tinyId,
+          canonicalTinyId: detailResult.canonicalId,
+          nome: entry.nomeSite || entry.nomeTiny,
+          siteStockBefore: before.estoque,
+          tinyStock: aggregate.estoque,
+          estoqueMudou: before.estoque !== aggregate.estoque,
+          variationCount: aggregate.variationCount,
+          matrixUpdated,
+          matchMethod: entry.matchMethod,
+          erro: "",
+          rateLimited: false,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (isRateLimitError(error)) {
+          rateLimited = true;
+          retryAfterMs = RATE_LIMIT_RETRY_MS;
+          diagnosticos.push({
+            siteId: entry.siteId,
+            tinyId: entry.tinyId,
+            nome: entry.nomeSite || entry.nomeTiny,
+            erro: message,
+            rateLimited: true,
+          });
+          break;
+        }
+
+        falhas += 1;
+        processados += 1;
+        diagnosticos.push({
+          siteId: entry.siteId,
+          tinyId: entry.tinyId,
+          nome: entry.nomeSite || entry.nomeTiny,
+          erro: message,
+          rateLimited: false,
         });
       }
-      variacoesProcessadas += result.variationCount || 0;
     }
 
     return {
       success: true,
       mode: "stock-batch",
-      criados,
+      criados: 0,
       atualizados,
-      ignorados,
+      ignorados: 0,
       falhas,
       estoqueAlterado,
       variacoesProcessadas,
-      processados: cleanEntries.length,
+      processados,
+      rateLimited,
+      retryAfterMs,
       diagnosticos,
     };
   });
+}
+
+async function buildAggregateSafely(detail: TinyDetail, siteId: string): Promise<StockAggregate> {
+  const existing = await prisma.produto.findUnique({
+    where: { id: siteId },
+    select: { tamanhos: true, cores: true },
+  });
+
+  if (!existing) throw new Error(`Produto ${siteId} não existe mais.`);
+
+  const aggregate = aggregateDetail(detail, existing.tamanhos || [], existing.cores || []);
+  if (!aggregate) {
+    throw new Error(`O estoque retornado pelo Olist/Tiny não é confiável para o produto ${siteId}.`);
+  }
+
+  return aggregate;
 }
 
 async function prepareFull() {
@@ -1068,7 +1031,7 @@ async function prepareFull() {
     mode: "prepare-full",
     entries,
     total: entries.length,
-    batchSize: API_READ_BATCH_SIZE,
+    batchSize: STOCK_BATCH_SIZE,
   };
 }
 
@@ -1103,40 +1066,6 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as AnyRecord;
     const mode = str(body.mode || body.action || "quick").toLowerCase();
 
-    if (mode === "prepare-stock") {
-      const prepared = await prepareStockOnly();
-      return NextResponse.json(prepared);
-    }
-
-    if (mode === "stock-one") {
-      const rawEntry = body.entry;
-      if (!rawEntry || typeof rawEntry !== "object") {
-        return NextResponse.json(
-          { success: false, error: "Nenhum produto foi enviado para sincronização de estoque." },
-          { status: 400 }
-        );
-      }
-
-      const entry: SiteSyncEntry = {
-        siteId: (rawEntry as AnyRecord).siteId ? str((rawEntry as AnyRecord).siteId) : null,
-        tinyId: str((rawEntry as AnyRecord).tinyId),
-        nomeSite: (rawEntry as AnyRecord).nomeSite ? str((rawEntry as AnyRecord).nomeSite) : undefined,
-        nomeTiny: (rawEntry as AnyRecord).nomeTiny ? str((rawEntry as AnyRecord).nomeTiny) : undefined,
-        isNew: false,
-        matchMethod: (rawEntry as AnyRecord).matchMethod === "redis" ? "redis" : "id",
-      };
-
-      if (!entry.siteId || !entry.tinyId) {
-        return NextResponse.json(
-          { success: false, error: "siteId/tinyId ausente para sincronização de estoque." },
-          { status: 400 }
-        );
-      }
-
-      const result = await stockOne(entry);
-      return NextResponse.json(result, { status: result.rateLimited ? 429 : (result.success ? 200 : 422) });
-    }
-
     if (mode === "prepare-quick") {
       return NextResponse.json(await withSyncLock(prepareQuick));
     }
@@ -1153,12 +1082,12 @@ export async function POST(request: Request) {
               isNew: Boolean(entry.isNew),
               matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
             }))
-            .filter((entry) => Boolean(entry.tinyId))
+            .filter((entry) => Boolean(entry.tinyId) && Boolean(entry.siteId))
         : [];
 
       if (entries.length === 0) {
         return NextResponse.json(
-          { success: false, error: "Nenhuma associação entre produto do site e produto Tiny foi enviada para sincronização." },
+          { success: false, error: "Nenhum produto existente com associação Tiny foi enviado para sincronização de estoque." },
           { status: 400 }
         );
       }
@@ -1182,7 +1111,7 @@ export async function POST(request: Request) {
               isNew: Boolean(entry.isNew),
               matchMethod: entry.matchMethod === "redis" || entry.matchMethod === "id" || entry.matchMethod === "nome" || entry.matchMethod === "similaridade" || entry.matchMethod === "novo" ? entry.matchMethod : undefined,
             }))
-            .filter((entry) => Boolean(entry.tinyId))
+            .filter((entry) => Boolean(entry.tinyId) && Boolean(entry.siteId))
         : [];
       if (entries.length === 0) {
         return NextResponse.json(
