@@ -347,13 +347,13 @@ export default function PaginaDashboardAdmin() {
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
 
-      // Esta etapa não consulta o Tiny. Para os produtos já existentes no site,
-      // usamos o ID salvo no próprio Produto como ID do produto no Tiny.
-      // Quando houver um vínculo persistido no Redis, a API usa esse vínculo.
+      // IMPORTANTE: o botão normal usa o mesmo caminho da reconciliação completa,
+      // porque foi esse caminho que você confirmou estar trazendo os estoques.
+      // A diferença é que esta ação é apresentada apenas como sincronização de estoque.
       const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "prepare-stock" }),
+        body: JSON.stringify({ mode: "prepare-full" }),
         cache: "no-store",
       })
 
@@ -376,141 +376,107 @@ export default function PaginaDashboardAdmin() {
       }
 
       const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
-
       if (entries.length === 0) {
-        exibirToast("Nenhum produto cadastrado no site para sincronizar.", "success")
+        const detalhe = [
+          Number(prepareData.unmatchedExisting) > 0 ? `${prepareData.unmatchedExisting} produtos sem correspondência` : "",
+          Number(prepareData.ambiguousExisting) > 0 ? `${prepareData.ambiguousExisting} correspondências ambíguas` : "",
+        ].filter(Boolean).join("; ")
+        exibirToast(detalhe || "Nenhum produto existente com associação ao Olist/Tiny foi encontrado.", detalhe ? "error" : "success")
         return
       }
 
+      const batchSize = Math.max(1, Math.min(4, Number(prepareData.batchSize) || 4))
+      let inicio = 0
       let atualizados = 0
-      let estoqueAlterado = 0
       let falhas = 0
-      let processados = 0
-      let rateLimited = 0
-      const diagnosticos: any[] = []
+      let estoqueAlterado = 0
+      let variacoes = 0
+      let rateLimitRetries = 0
 
-      // O Construa permite 30 leituras/minuto por conta. Usamos ~27/min para
-      // deixar margem para outras chamadas da conta e, principalmente, para
-      // não disparar chamadas concorrentes que causaram os 429 anteriores.
-      const INTERVALO_ENTRE_LEITURAS_MS = 2200
+      while (inicio < entries.length) {
+        const lote = entries.slice(inicio, inicio + batchSize)
+        const numeroLote = Math.floor(inicio / batchSize) + 1
+        exibirToast(`Sincronizando estoque: ${inicio}/${entries.length} produtos...`)
+        console.log(`=== ESTOQUE LOTE ${numeroLote} ===`, lote)
 
-      for (let i = 0; i < entries.length; i += 1) {
-        const entry = entries[i]
-        const numero = i + 1
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "full-batch", entries: lote }),
+          cache: "no-store",
+        })
 
-        exibirToast(`Atualizando estoque ${numero}/${entries.length}: ${entry.nomeSite || entry.tinyId}...`)
-        console.log(`=== ESTOQUE ${numero}/${entries.length} ===`, entry)
-
-        let tentativas = 0
-        let concluido = false
-
-        while (!concluido && tentativas < 3) {
-          tentativas += 1
-
-          const stockRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "stock-one", entry }),
-            cache: "no-store",
-          })
-
-          const stockRaw = await stockRes.text()
-          let stockData: any = {}
-          try {
-            stockData = stockRaw ? JSON.parse(stockRaw) : {}
-          } catch {
-            // Uma única chamada demorou/falhou no servidor. Não altera o site.
-            diagnosticos.push({
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nome: entry.nomeSite,
-              siteStockBefore: null,
-              tinyStock: null,
-              estoqueMudou: false,
-              erro: `Resposta inválida do servidor (HTTP ${stockRes.status})`,
-            })
-            falhas += 1
-            break
-          }
-
-          if (stockData.code === "NOT_CONNECTED") {
-            exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
-            return
-          }
-
-          if (stockRes.status === 429 || stockData.rateLimited) {
-            rateLimited += 1
-            const retryMs = Math.max(5000, Number(stockData.retryAfterMs) || 5000)
-            exibirToast(`Limite da API atingido. Aguardando ${Math.ceil(retryMs / 1000)}s e tentando novamente...`, "error")
-            await new Promise((resolve) => setTimeout(resolve, retryMs))
-            continue
-          }
-
-          if (!stockRes.ok || !stockData.success) {
-            diagnosticos.push({
-              siteId: entry.siteId,
-              tinyId: entry.tinyId,
-              nome: entry.nomeSite,
-              siteStockBefore: stockData.siteStockBefore ?? null,
-              tinyStock: stockData.tinyStock ?? null,
-              estoqueMudou: false,
-              erro: stockData.error || `HTTP ${stockRes.status}`,
-            })
-            falhas += 1
-            break
-          }
-
-          atualizados += 1
-          if (stockData.changed) estoqueAlterado += 1
-          processados += 1
-
-          const diagnostico = {
-            siteId: entry.siteId,
-            tinyId: entry.tinyId,
-            nome: entry.nomeSite,
-            siteStockBefore: stockData.siteStockBefore,
-            tinyStock: stockData.tinyStock,
-            reservado: stockData.reservado,
-            disponivel: stockData.disponivel,
-            estoqueMudou: Boolean(stockData.changed),
-            erro: "",
-          }
-          diagnosticos.push(diagnostico)
-          console.table([diagnostico])
-
-          concluido = true
+        const batchRaw = await batchRes.text()
+        let batchData: any = {}
+        try {
+          batchData = batchRaw ? JSON.parse(batchRaw) : {}
+        } catch {
+          throw new Error(`O servidor não retornou JSON válido no lote ${numeroLote}. HTTP ${batchRes.status}`)
         }
 
-        // Dá margem para a janela de 1 minuto do Construa. Não aplica espera
-        // extra depois do último item.
-        if (i < entries.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, INTERVALO_ENTRE_LEITURAS_MS))
+        if (batchData.code === "NOT_CONNECTED") {
+          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
+          return
+        }
+
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${numeroLote}.`)
+        }
+
+        if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
+          console.table(batchData.diagnosticos)
+        }
+
+        atualizados += Number(batchData.atualizados) || 0
+        falhas += Number(batchData.falhas) || 0
+        estoqueAlterado += Number(batchData.estoqueAlterado) || 0
+        variacoes += Number(batchData.variacoesProcessadas) || 0
+
+        const processados = Number(batchData.processados) || 0
+
+        if (batchData.rateLimited) {
+          rateLimitRetries += 1
+          const esperaMs = Math.max(65000, Number(batchData.retryAfterMs) || 65000)
+          exibirToast(`Limite da API atingido. Aguardando ${Math.ceil(esperaMs / 1000)}s para continuar...`, "error")
+          if (rateLimitRetries > 5) {
+            throw new Error("O limite do Olist/Tiny permaneceu ativo após várias tentativas. O restante do estoque não foi alterado.")
+          }
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+          inicio += processados
+          continue
+        }
+
+        rateLimitRetries = 0
+        inicio += processados || lote.length
+
+        // O servidor já aplica 2,5s entre leituras. Uma pequena margem aqui
+        // garante que a próxima requisição HTTP só saia depois do lote anterior.
+        if (inicio < entries.length) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
         }
       }
 
       await carregarProdutos()
 
       const mensagem =
-        `Sincronização concluída: ${estoqueAlterado} estoques alterados, ` +
-        `${atualizados} produtos verificados, ${falhas} falhas` +
-        `${rateLimited > 0 ? ` e ${rateLimited} esperas por limite da API` : ""}.`
+        `Estoque sincronizado: ${estoqueAlterado} produtos alterados, ` +
+        `${atualizados} verificados, ${falhas} falhas e ${variacoes} variações conferidas.`
 
       exibirToast(mensagem, falhas > 0 ? "error" : "success")
       console.log("=== SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 CONCLUÍDA ===", {
         totalProdutos: entries.length,
-        processados,
         atualizados,
         estoqueAlterado,
         falhas,
-        rateLimited,
-        diagnosticos,
+        variacoes,
+        semCorrespondencia: prepareData.unmatchedExisting || 0,
+        ambiguos: prepareData.ambiguousExisting || 0,
       })
-      console.table(diagnosticos)
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
       console.error(error)
       exibirToast(
-        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque com Olist/Tiny.",
+        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque.",
         "error"
       )
     } finally {
@@ -1879,7 +1845,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e mantenha o estoque alinhado com o Olist/Tiny. O botão consulta o saldo real do estoque pela API V3, um produto por vez, sem alterar dados manuais do cadastro.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. Este botão consulta o estoque real dos produtos existentes e não altera dados cadastrais.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1911,7 +1877,7 @@ export default function PaginaDashboardAdmin() {
                   title="Confere todo o catálogo. Use quando precisar reconstruir o estoque completo."
                 >
                   <RefreshCw className="h-4 w-4" />
-                  <span>Reconciliação completa</span>
+                  <span>Reconciliação completa (backup)</span>
                 </button>
 
                 <button
