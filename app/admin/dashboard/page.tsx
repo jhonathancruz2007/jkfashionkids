@@ -334,9 +334,11 @@ export default function PaginaDashboardAdmin() {
   // ============================================================
   // SINCRONIZAÇÃO OLIST/TINY API V3
   // ============================================================
-  // Sincronização de estoque: usa diretamente o endpoint V3 /estoque/{idProduto}.
-  // O processo é serial e espaçado no servidor para respeitar o limite de 30
-  // leituras/minuto do plano Construa. Nenhum outro campo do produto é alterado.
+  // A API V3 não usa dataAlteracao para refletir necessariamente mudanças
+  // de estoque. Por isso, a sincronização de estoque consulta os produtos do
+  // site em lotes de até 28 detalhes por minuto, respeitando o limite de 30
+  // leituras/minuto do plano Construa. A listagem de novos produtos usa
+  // uma leitura adicional no primeiro passo.
   const handleSincronizarTiny = async () => {
     if (sincronizandoTiny) return
 
@@ -345,6 +347,8 @@ export default function PaginaDashboardAdmin() {
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
 
+      // Não consultamos o catálogo inteiro. O backend usa o ID do produto
+      // que já existe no site como ID correspondente no Tiny.
       const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -371,28 +375,31 @@ export default function PaginaDashboardAdmin() {
       }
 
       const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
-
       if (entries.length === 0) {
         exibirToast("Nenhum produto cadastrado para sincronizar.", "success")
         return
       }
 
-      const batchSize = Math.max(1, Math.min(10, Number(prepareData.batchSize) || 10))
+      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
       const totalBatches = Math.ceil(entries.length / batchSize)
 
       let atualizados = 0
-      let alterados = 0
-      let iguais = 0
+      let estoqueAlterado = 0
       let falhas = 0
+      let ignorados = 0
       let processados = 0
-      let rateLimited = false
 
       for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
         const lote = entries.slice(inicio, inicio + batchSize)
         const loteNumero = Math.floor(inicio / batchSize) + 1
 
-        exibirToast(`Sincronizando estoque: lote ${loteNumero}/${totalBatches} (${processados}/${entries.length})...`)
-        console.log(`=== ESTOQUE LOTE ${loteNumero}/${totalBatches} ===`, lote)
+        if (loteNumero > 1) {
+          const esperaMs = 12000
+          exibirToast(`Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`)
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+        }
+
+        exibirToast(`Atualizando estoque — lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos...`)
 
         const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
           method: "POST",
@@ -414,64 +421,54 @@ export default function PaginaDashboardAdmin() {
           return
         }
 
-        if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
-          console.table(batchData.diagnosticos)
-        }
-
-        if (batchRes.status === 429 || batchData.rateLimited) {
-          rateLimited = true
-          const esperaMs = Math.max(10000, Number(batchData.retryAfterMs) || 60000)
-          exibirToast(
-            `Olist/Tiny atingiu o limite de chamadas. Nenhum produto deste lote após o limite será alterado. Aguarde ${Math.ceil(esperaMs / 1000)}s e tente novamente.`,
-            "error"
-          )
-          console.warn("=== SINCRONIZAÇÃO INTERROMPIDA POR RATE LIMIT ===", {
-            lote: loteNumero,
-            retryAfterMs: esperaMs,
-            processadosAntesDoLimite: batchData.processados,
-          })
-          return
-        }
-
         if (!batchRes.ok || !batchData.success) {
           throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`)
         }
 
         atualizados += Number(batchData.atualizados) || 0
-        alterados += Number(batchData.estoqueAlterado) || 0
-        iguais += Number(batchData.estoqueIgual) || 0
+        estoqueAlterado += Number(batchData.estoqueAlterado) || 0
         falhas += Number(batchData.falhas) || 0
-        processados += Number(batchData.processados) || lote.length
+        ignorados += Number(batchData.ignorados) || 0
+        processados += Number(batchData.processados) || 0
+
+        if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
+          console.table(batchData.diagnosticos)
+        }
+
+        if (batchData.rateLimited) {
+          const waitSeconds = Math.ceil((Number(batchData.retryAfterMs) || 60000) / 1000)
+          exibirToast(`O limite da API foi atingido. A sincronização foi pausada. Aguarde ${waitSeconds}s e clique novamente para continuar.`, "error")
+          break
+        }
       }
 
       await carregarProdutos()
 
       const mensagem =
-        `Estoque sincronizado: ${alterados} alterados, ${iguais} já estavam iguais, ` +
-        `${falhas} falhas em ${atualizados} produtos verificados.` +
-        (rateLimited ? " Houve uma pausa automática por limite da API." : "")
+        `Estoque sincronizado: ${estoqueAlterado} estoques alterados, ` +
+        `${atualizados} produtos consultados, ${falhas} falhas e ${ignorados} ignorados.`
 
       exibirToast(mensagem, falhas > 0 ? "error" : "success")
       console.log("=== SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 CONCLUÍDA ===", {
         totalProdutos: entries.length,
-        atualizados,
-        estoqueAlterado: alterados,
-        estoqueIgual: iguais,
-        falhas,
         processados,
-        rateLimited,
+        atualizados,
+        estoqueAlterado,
+        falhas,
+        ignorados,
       })
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
       console.error(error)
       exibirToast(
-        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque com Olist/Tiny.",
+        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque.",
         "error"
       )
     } finally {
       setSincronizandoTiny(false)
     }
   }
+
 
   // RECONCILIAÇÃO COMPLETA OLIST/TINY V3
   // Mantida separada da sincronização rápida para conferir todo o catálogo
@@ -1785,7 +1782,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque (V3)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque"}</span>
                 </button>
 
                 <button
@@ -1833,7 +1830,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. Este botão consulta o saldo do estoque no Olist/Tiny e atualiza somente o campo de estoque dos produtos existentes.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. A sincronização deste botão consulta o saldo real de estoque e atualiza somente o campo de estoque do produto no site.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1854,7 +1851,7 @@ export default function PaginaDashboardAdmin() {
                   className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque (V3)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque"}</span>
                 </button>
 
                 <button
