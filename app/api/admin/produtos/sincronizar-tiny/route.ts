@@ -12,48 +12,63 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
-const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:stock-lock";
-const BATCH_SIZE = 5;
-const LOCK_TTL_SECONDS = 90;
+const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
+const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 
-type AnyRecord = Record<string, unknown>;
+// O plano Construa tem limite publicado de 30 leituras/minuto por conta.
+// A sincronização faz no máximo 18 leituras por lote, em sequência, com
+// intervalo mínimo de 2,1 s entre chamadas. Isso deixa margem para a janela
+// de 60 s e evita rajadas que causam 429.
+const BATCH_SIZE = 18;
+const MIN_DELAY_BETWEEN_TINY_CALLS_MS = 2100;
+const RATE_LIMIT_WAIT_MS = 65_000;
 
-type SyncEntry = {
+// A sincronização deste botão é DELIBERADAMENTE somente de estoque.
+// Não consulta catálogo, não altera produto, não altera preço, imagem,
+// categoria ou faixa etária e não cria novos produtos.
+
+type StockEntry = {
   siteId: string;
-  tinyId: string;
-  nomeSite?: string;
+  tinyId?: string | null;
+  nome?: string;
+  estoqueAntes?: number | null;
 };
 
 type TinyStockResponse = {
-  id?: number | string;
-  nome?: string;
-  codigo?: string;
-  saldo?: number | string | null;
-  reservado?: number | string | null;
-  disponivel?: number | string | null;
+  id?: number | null;
+  nome?: string | null;
+  codigo?: string | null;
+  saldo?: number | null;
+  reservado?: number | null;
+  disponivel?: number | null;
 };
 
 function str(value: unknown): string {
   return value == null ? "" : String(value).trim();
 }
 
-function safeStock(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.round(value);
+function safeInt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value >= 0 ? Math.round(value) : null;
   }
-
   if (value == null || value === "") return null;
+  const n = Number(String(value).replace(",", "."));
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
 
-  const parsed = Number(String(value).replace(",", "."));
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed);
+function isRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /HTTP\s*429|\b429\b|rate.?limit/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const acquired = await redisSetNx(SYNC_LOCK_KEY, owner, LOCK_TTL_SECONDS);
-
-  if (!acquired) {
+  const locked = await redisSetNx(SYNC_LOCK_KEY, owner, 90);
+  if (!locked) {
     throw new Error("Já existe uma sincronização de estoque em andamento. Aguarde terminar.");
   }
 
@@ -64,40 +79,32 @@ async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * O saldo usado pelo site vem do endpoint específico de Estoque da V3.
- * Esse endpoint retorna `saldo` explicitamente; zero é um valor válido quando
- * o próprio Olist/Tiny devolve zero.
- */
-async function getAuthoritativeStock(tinyId: string): Promise<TinyStockResponse> {
+async function getStoredTinyId(siteId: string): Promise<string | null> {
+  return redisGetJson<string>(`${SITE_TINY_MAP_PREFIX}${siteId}`).catch(() => null);
+}
+
+async function getTinyStock(tinyId: string): Promise<TinyStockResponse> {
   return getOlistV3<TinyStockResponse>(
     `/estoque/${encodeURIComponent(tinyId)}`
   );
 }
 
-/**
- * Prepara somente os vínculos de estoque usando o ID do produto do site.
- * Nos produtos atuais da JKfashion, esse ID é o mesmo ID do produto no Tiny,
- * como já confirmado nos diagnósticos anteriores.
- *
- * Importante: esta etapa NÃO faz nenhuma chamada à API V3.
- */
-async function prepareStock(): Promise<AnyRecord> {
-  const produtos = await prisma.produto.findMany({
+async function prepareStock() {
+  const products = await prisma.produto.findMany({
     select: {
       id: true,
       nome: true,
       estoque: true,
     },
-    orderBy: {
-      nome: "asc",
-    },
+    orderBy: { nome: "asc" },
   });
 
-  const entries: SyncEntry[] = produtos.map((produto) => ({
-    siteId: String(produto.id),
-    tinyId: String(produto.id),
-    nomeSite: String(produto.nome || ""),
+  const entries: StockEntry[] = products.map((product) => ({
+    siteId: String(product.id),
+    nome: String(product.nome || ""),
+    estoqueAntes: Number.isFinite(Number(product.estoque))
+      ? Number(product.estoque)
+      : null,
   }));
 
   return {
@@ -106,139 +113,149 @@ async function prepareStock(): Promise<AnyRecord> {
     entries,
     total: entries.length,
     batchSize: BATCH_SIZE,
+    delayMs: MIN_DELAY_BETWEEN_TINY_CALLS_MS,
   };
 }
 
-async function stockBatch(entries: SyncEntry[]) {
-  const cleanEntries = entries
-    .filter((entry) => entry && str(entry.siteId) && str(entry.tinyId))
+async function syncStockBatch(entries: StockEntry[]) {
+  const clean = entries
+    .filter((entry) => entry && str(entry.siteId))
     .slice(0, BATCH_SIZE)
     .map((entry) => ({
+      ...entry,
       siteId: str(entry.siteId),
-      tinyId: str(entry.tinyId),
-      nomeSite: str(entry.nomeSite),
+      tinyId: str(entry.tinyId) || null,
     }));
 
-  if (cleanEntries.length === 0) {
+  if (!clean.length) {
     return {
       success: true,
       mode: "stock-batch",
       processados: 0,
       atualizados: 0,
-      estoqueAlterado: 0,
+      alterados: 0,
+      preservados: 0,
       falhas: 0,
-      ignorados: 0,
       rateLimited: false,
       diagnosticos: [],
     };
   }
 
   return withSyncLock(async () => {
-    // Busca os produtos do site de uma vez, sem gastar chamadas da API V3.
-    const ids = cleanEntries.map((entry) => entry.siteId);
-    const existentes = await prisma.produto.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, estoque: true },
-    });
-    const existingMap = new Map(
-      existentes.map((produto) => [String(produto.id), produto])
-    );
-
-    let processados = 0;
     let atualizados = 0;
-    let estoqueAlterado = 0;
+    let alterados = 0;
+    let preservados = 0;
     let falhas = 0;
-    let ignorados = 0;
+    let processados = 0;
     let rateLimited = false;
+    let retryAfterMs = 0;
+
     const diagnosticos: Array<Record<string, unknown>> = [];
+    let lastCallStartedAt = 0;
 
-    // Intencionalmente sequencial: evita rajadas de requisições que já
-    // provocaram HTTP 429 na sua conta Construa.
-    for (const entry of cleanEntries) {
-      const existente = existingMap.get(entry.siteId);
+    for (const entry of clean) {
+      // Garante intervalo mínimo ENTRE o início das chamadas ao Tiny.
+      const now = Date.now();
+      const elapsed = now - lastCallStartedAt;
+      if (lastCallStartedAt > 0 && elapsed < MIN_DELAY_BETWEEN_TINY_CALLS_MS) {
+        await sleep(MIN_DELAY_BETWEEN_TINY_CALLS_MS - elapsed);
+      }
 
-      if (!existente) {
-        ignorados += 1;
+      const siteProduct = await prisma.produto.findUnique({
+        where: { id: entry.siteId },
+        select: { id: true, nome: true, estoque: true },
+      });
+
+      if (!siteProduct) {
+        falhas += 1;
         diagnosticos.push({
           siteId: entry.siteId,
-          tinyId: entry.tinyId,
-          nome: entry.nomeSite,
-          siteStockBefore: null,
-          tinyStock: null,
-          estoqueMudou: false,
-          erro: "Produto não encontrado no banco do site.",
-          rateLimited: false,
+          tinyId: entry.tinyId || entry.siteId,
+          nome: entry.nome || "",
+          erro: "Produto não existe mais no site.",
         });
         continue;
       }
 
-      try {
-        const stock = await getAuthoritativeStock(entry.tinyId);
-        const tinyStock = safeStock(stock?.saldo);
+      const tinyId = entry.tinyId || (await getStoredTinyId(entry.siteId)) || entry.siteId;
+      lastCallStartedAt = Date.now();
 
-        // Sem saldo explícito, não alteramos nada. Ausência != zero.
-        if (tinyStock == null) {
-          falhas += 1;
+      try {
+        const tiny = await getTinyStock(tinyId);
+        const saldo = safeInt(tiny?.saldo);
+
+        if (saldo == null) {
+          // NUNCA converter ausência de saldo em zero.
+          preservados += 1;
+          processados += 1;
           diagnosticos.push({
-            siteId: entry.siteId,
-            tinyId: entry.tinyId,
-            nome: entry.nomeSite,
-            siteStockBefore: existente.estoque,
+            siteId: siteProduct.id,
+            tinyId,
+            nome: siteProduct.nome,
+            siteStockBefore: siteProduct.estoque,
             tinyStock: null,
+            disponivel: safeInt(tiny?.disponivel),
+            reservado: safeInt(tiny?.reservado),
             estoqueMudou: false,
-            erro: "Olist/Tiny não devolveu um saldo válido. Estoque preservado.",
-            rateLimited: false,
+            preservado: true,
+            erro: "O Tiny não retornou um saldo de estoque válido; estoque do site preservado.",
           });
           continue;
         }
 
-        const changed = existente.estoque !== tinyStock;
+        const mudou = Number(siteProduct.estoque) !== saldo;
 
-        // REGRA PRINCIPAL: somente o estoque total do site é atualizado.
-        // Não tocamos em tamanho, cor, categoria, faixa etária, preço,
-        // descrição ou imagens.
-        if (changed) {
-          await prisma.produto.update({
-            where: { id: entry.siteId },
-            data: { estoque: tinyStock },
-          });
-          estoqueAlterado += 1;
-        }
+        // Para esta versão alteramos SOMENTE o campo estoque.
+        await prisma.produto.update({
+          where: { id: siteProduct.id },
+          data: { estoque: saldo },
+        });
 
         atualizados += 1;
+        if (mudou) alterados += 1;
         processados += 1;
 
         diagnosticos.push({
-          siteId: entry.siteId,
-          tinyId: entry.tinyId,
-          nome: entry.nomeSite,
-          siteStockBefore: existente.estoque,
-          tinyStock,
-          estoqueMudou: changed,
-          erro: "",
-          rateLimited: false,
+          siteId: siteProduct.id,
+          tinyId,
+          nome: siteProduct.nome,
+          siteStockBefore: siteProduct.estoque,
+          tinyStock: saldo,
+          disponivel: safeInt(tiny?.disponivel),
+          reservado: safeInt(tiny?.reservado),
+          estoqueMudou: mudou,
+          preservado: false,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const is429 = /\b429\b|rate.?limit/i.test(message);
-        if (is429) rateLimited = true;
+        if (isRateLimitError(error)) {
+          rateLimited = true;
+          retryAfterMs = RATE_LIMIT_WAIT_MS;
+          falhas += 1;
+          diagnosticos.push({
+            siteId: siteProduct.id,
+            tinyId,
+            nome: siteProduct.nome,
+            siteStockBefore: siteProduct.estoque,
+            tinyStock: null,
+            estoqueMudou: false,
+            rateLimited: true,
+            erro: "Limite da API Olist/Tiny atingido. Nenhuma alteração foi feita neste produto.",
+          });
+          break;
+        }
 
         falhas += 1;
+        processados += 1;
         diagnosticos.push({
-          siteId: entry.siteId,
-          tinyId: entry.tinyId,
-          nome: entry.nomeSite,
-          siteStockBefore: existente.estoque,
+          siteId: siteProduct.id,
+          tinyId,
+          nome: siteProduct.nome,
+          siteStockBefore: siteProduct.estoque,
           tinyStock: null,
           estoqueMudou: false,
-          erro: message,
-          rateLimited: is429,
+          erro: error instanceof Error ? error.message : String(error),
+          rateLimited: false,
         });
-
-        // Se a conta atingiu o limite, não fazemos novas chamadas nesta
-        // mesma requisição. Isso evita transformar um 429 em uma rajada de
-        // novos 429.
-        if (is429) break;
       }
     }
 
@@ -247,11 +264,12 @@ async function stockBatch(entries: SyncEntry[]) {
       mode: "stock-batch",
       processados,
       atualizados,
-      estoqueAlterado,
+      alterados,
+      preservados,
       falhas,
-      ignorados,
       rateLimited,
-      retryAfterMs: rateLimited ? 60000 : 0,
+      retryAfterMs,
+      restamNesteLote: Math.max(0, clean.length - processados),
       diagnosticos,
     };
   });
@@ -281,45 +299,44 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => ({}))) as AnyRecord;
-    const rawMode = str(body.mode || body.action || "stock-batch").toLowerCase();
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const mode = str(body.mode || "stock").toLowerCase();
 
-    // Compatibilidade com a versão do frontend que já está publicada e envia
-    // prepare-stock. Também aceitamos prepare-quick para evitar outro 400.
-    if (rawMode === "prepare-stock" || rawMode === "prepare-quick" || rawMode === "prepare") {
-      return NextResponse.json(await withSyncLock(prepareStock));
+    if (mode === "prepare-stock" || mode === "prepare-quick") {
+      return NextResponse.json(await prepareStock());
     }
 
-    if (rawMode === "stock-batch" || rawMode === "quick" || rawMode === "sync") {
-      const entries: SyncEntry[] = Array.isArray(body.entries)
+    if (mode === "stock-batch" || mode === "stock" || mode === "quick" || mode === "sync") {
+      const entries: StockEntry[] = Array.isArray(body.entries)
         ? body.entries
             .filter((entry) => entry && typeof entry === "object")
-            .map((entry) => ({
-              siteId: str((entry as AnyRecord).siteId),
-              tinyId: str((entry as AnyRecord).tinyId),
-              nomeSite: str((entry as AnyRecord).nomeSite),
+            .map((entry: any) => ({
+              siteId: str(entry.siteId),
+              tinyId: str(entry.tinyId) || null,
+              nome: str(entry.nome || entry.nomeSite),
+              estoqueAntes: safeInt(entry.estoqueAntes ?? entry.siteStockBefore),
             }))
-            .filter((entry) => Boolean(entry.siteId && entry.tinyId))
+            .filter((entry) => Boolean(entry.siteId))
         : [];
 
-      if (entries.length === 0) {
+      if (!entries.length) {
         return NextResponse.json(
-          {
-            success: false,
-            error: "Nenhum produto foi enviado para sincronização de estoque.",
-          },
+          { success: false, error: "Nenhum produto foi enviado para sincronização de estoque." },
           { status: 400 }
         );
       }
 
-      return NextResponse.json(await stockBatch(entries));
+      const result = await syncStockBatch(entries);
+
+      if (result.rateLimited) {
+        return NextResponse.json(result, { status: 429 });
+      }
+
+      return NextResponse.json(result);
     }
 
     return NextResponse.json(
-      {
-        success: false,
-        error: `Modo de sincronização inválido: ${rawMode}`,
-      },
+      { success: false, error: `Modo de sincronização inválido: ${mode}` },
       { status: 400 }
     );
   } catch (error) {
@@ -328,19 +345,27 @@ export async function POST(request: Request) {
 
     if (error instanceof OlistOAuthError) {
       return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.code === "NOT_CONNECTED" ? 401 : 400 }
+      );
+    }
+
+    if (isRateLimitError(error)) {
+      return NextResponse.json(
         {
           success: false,
-          code: error.code,
-          error: error.message,
+          error: "O limite de leituras da API Olist/Tiny foi atingido. Aguarde cerca de 1 minuto e tente novamente.",
+          rateLimited: true,
+          retryAfterMs: RATE_LIMIT_WAIT_MS,
         },
-        { status: error.code === "NOT_CONNECTED" ? 401 : 500 }
+        { status: 429 }
       );
     }
 
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Erro interno ao sincronizar o estoque.",
+        error: error instanceof Error ? error.message : "Erro ao sincronizar o estoque.",
       },
       { status: 500 }
     );
