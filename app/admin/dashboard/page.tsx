@@ -334,11 +334,9 @@ export default function PaginaDashboardAdmin() {
   // ============================================================
   // SINCRONIZAÇÃO OLIST/TINY API V3
   // ============================================================
-  // A API V3 não usa dataAlteracao para refletir necessariamente mudanças
-  // de estoque. Por isso, a sincronização de estoque consulta os produtos do
-  // site em lotes de até 28 detalhes por minuto, respeitando o limite de 30
-  // leituras/minuto do plano Construa. A listagem de novos produtos usa
-  // uma leitura adicional no primeiro passo.
+  // Sincronização de estoque: usa diretamente o endpoint V3 /estoque/{idProduto}.
+  // O processo é serial e espaçado no servidor para respeitar o limite de 30
+  // leituras/minuto do plano Construa. Nenhum outro campo do produto é alterado.
   const handleSincronizarTiny = async () => {
     if (sincronizandoTiny) return
 
@@ -347,13 +345,10 @@ export default function PaginaDashboardAdmin() {
     try {
       console.log("=== INÍCIO DA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
 
-      // IMPORTANTE: o botão normal usa o mesmo caminho da reconciliação completa,
-      // porque foi esse caminho que você confirmou estar trazendo os estoques.
-      // A diferença é que esta ação é apresentada apenas como sincronização de estoque.
       const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "prepare-full" }),
+        body: JSON.stringify({ mode: "prepare-stock" }),
         cache: "no-store",
       })
 
@@ -362,7 +357,7 @@ export default function PaginaDashboardAdmin() {
       try {
         prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
       } catch {
-        throw new Error(`O servidor não retornou JSON válido ao preparar o estoque. HTTP ${prepareRes.status}`)
+        throw new Error(`O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`)
       }
 
       if (prepareData.code === "NOT_CONNECTED") {
@@ -372,37 +367,37 @@ export default function PaginaDashboardAdmin() {
       }
 
       if (!prepareRes.ok || !prepareData.success) {
-        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar o estoque.`)
+        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`)
       }
 
       const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
+
       if (entries.length === 0) {
-        const detalhe = [
-          Number(prepareData.unmatchedExisting) > 0 ? `${prepareData.unmatchedExisting} produtos sem correspondência` : "",
-          Number(prepareData.ambiguousExisting) > 0 ? `${prepareData.ambiguousExisting} correspondências ambíguas` : "",
-        ].filter(Boolean).join("; ")
-        exibirToast(detalhe || "Nenhum produto existente com associação ao Olist/Tiny foi encontrado.", detalhe ? "error" : "success")
+        exibirToast("Nenhum produto cadastrado para sincronizar.", "success")
         return
       }
 
-      const batchSize = Math.max(1, Math.min(4, Number(prepareData.batchSize) || 4))
-      let inicio = 0
-      let atualizados = 0
-      let falhas = 0
-      let estoqueAlterado = 0
-      let variacoes = 0
-      let rateLimitRetries = 0
+      const batchSize = Math.max(1, Math.min(10, Number(prepareData.batchSize) || 10))
+      const totalBatches = Math.ceil(entries.length / batchSize)
 
-      while (inicio < entries.length) {
+      let atualizados = 0
+      let alterados = 0
+      let iguais = 0
+      let falhas = 0
+      let processados = 0
+      let rateLimited = false
+
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
         const lote = entries.slice(inicio, inicio + batchSize)
-        const numeroLote = Math.floor(inicio / batchSize) + 1
-        exibirToast(`Sincronizando estoque: ${inicio}/${entries.length} produtos...`)
-        console.log(`=== ESTOQUE LOTE ${numeroLote} ===`, lote)
+        const loteNumero = Math.floor(inicio / batchSize) + 1
+
+        exibirToast(`Sincronizando estoque: lote ${loteNumero}/${totalBatches} (${processados}/${entries.length})...`)
+        console.log(`=== ESTOQUE LOTE ${loteNumero}/${totalBatches} ===`, lote)
 
         const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "full-batch", entries: lote }),
+          body: JSON.stringify({ mode: "stock-batch", entries: lote }),
           cache: "no-store",
         })
 
@@ -411,7 +406,7 @@ export default function PaginaDashboardAdmin() {
         try {
           batchData = batchRaw ? JSON.parse(batchRaw) : {}
         } catch {
-          throw new Error(`O servidor não retornou JSON válido no lote ${numeroLote}. HTTP ${batchRes.status}`)
+          throw new Error(`O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`)
         }
 
         if (batchData.code === "NOT_CONNECTED") {
@@ -419,71 +414,64 @@ export default function PaginaDashboardAdmin() {
           return
         }
 
-        if (!batchRes.ok || !batchData.success) {
-          throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${numeroLote}.`)
-        }
-
         if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
           console.table(batchData.diagnosticos)
         }
 
+        if (batchRes.status === 429 || batchData.rateLimited) {
+          rateLimited = true
+          const esperaMs = Math.max(10000, Number(batchData.retryAfterMs) || 60000)
+          exibirToast(
+            `Olist/Tiny atingiu o limite de chamadas. Nenhum produto deste lote após o limite será alterado. Aguarde ${Math.ceil(esperaMs / 1000)}s e tente novamente.`,
+            "error"
+          )
+          console.warn("=== SINCRONIZAÇÃO INTERROMPIDA POR RATE LIMIT ===", {
+            lote: loteNumero,
+            retryAfterMs: esperaMs,
+            processadosAntesDoLimite: batchData.processados,
+          })
+          return
+        }
+
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`)
+        }
+
         atualizados += Number(batchData.atualizados) || 0
+        alterados += Number(batchData.estoqueAlterado) || 0
+        iguais += Number(batchData.estoqueIgual) || 0
         falhas += Number(batchData.falhas) || 0
-        estoqueAlterado += Number(batchData.estoqueAlterado) || 0
-        variacoes += Number(batchData.variacoesProcessadas) || 0
-
-        const processados = Number(batchData.processados) || 0
-
-        if (batchData.rateLimited) {
-          rateLimitRetries += 1
-          const esperaMs = Math.max(65000, Number(batchData.retryAfterMs) || 65000)
-          exibirToast(`Limite da API atingido. Aguardando ${Math.ceil(esperaMs / 1000)}s para continuar...`, "error")
-          if (rateLimitRetries > 5) {
-            throw new Error("O limite do Olist/Tiny permaneceu ativo após várias tentativas. O restante do estoque não foi alterado.")
-          }
-          await new Promise((resolve) => setTimeout(resolve, esperaMs))
-          inicio += processados
-          continue
-        }
-
-        rateLimitRetries = 0
-        inicio += processados || lote.length
-
-        // O servidor já aplica 2,5s entre leituras. Uma pequena margem aqui
-        // garante que a próxima requisição HTTP só saia depois do lote anterior.
-        if (inicio < entries.length) {
-          await new Promise((resolve) => setTimeout(resolve, 1500))
-        }
+        processados += Number(batchData.processados) || lote.length
       }
 
       await carregarProdutos()
 
       const mensagem =
-        `Estoque sincronizado: ${estoqueAlterado} produtos alterados, ` +
-        `${atualizados} verificados, ${falhas} falhas e ${variacoes} variações conferidas.`
+        `Estoque sincronizado: ${alterados} alterados, ${iguais} já estavam iguais, ` +
+        `${falhas} falhas em ${atualizados} produtos verificados.` +
+        (rateLimited ? " Houve uma pausa automática por limite da API." : "")
 
       exibirToast(mensagem, falhas > 0 ? "error" : "success")
       console.log("=== SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 CONCLUÍDA ===", {
         totalProdutos: entries.length,
         atualizados,
-        estoqueAlterado,
+        estoqueAlterado: alterados,
+        estoqueIgual: iguais,
         falhas,
-        variacoes,
-        semCorrespondencia: prepareData.unmatchedExisting || 0,
-        ambiguos: prepareData.ambiguousExisting || 0,
+        processados,
+        rateLimited,
       })
     } catch (error) {
       console.error("=== ERRO NA SINCRONIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
       console.error(error)
       exibirToast(
-        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque.",
+        error instanceof Error ? error.message : "Erro de conexão ao sincronizar o estoque com Olist/Tiny.",
         "error"
       )
     } finally {
       setSincronizandoTiny(false)
     }
   }
-
 
   // RECONCILIAÇÃO COMPLETA OLIST/TINY V3
   // Mantida separada da sincronização rápida para conferir todo o catálogo
@@ -1845,7 +1833,7 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. Este botão consulta o estoque real dos produtos existentes e não altera dados cadastrais.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. Este botão consulta o saldo do estoque no Olist/Tiny e atualiza somente o campo de estoque dos produtos existentes.</p>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1877,7 +1865,7 @@ export default function PaginaDashboardAdmin() {
                   title="Confere todo o catálogo. Use quando precisar reconstruir o estoque completo."
                 >
                   <RefreshCw className="h-4 w-4" />
-                  <span>Reconciliação completa (backup)</span>
+                  <span>Reconciliação completa</span>
                 </button>
 
                 <button
