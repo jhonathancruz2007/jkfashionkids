@@ -13,6 +13,7 @@ export interface ItemCarrinho {
 
 interface CarrinhoContextType {
   itens: ItemCarrinho[];
+  carregandoCarrinho: boolean;
   carrinhoAberto: boolean;
   setCarrinhoAberto: (aberto: boolean) => void;
   abrirCarrinho: () => void;
@@ -30,12 +31,18 @@ const CarrinhoContext = createContext<CarrinhoContextType | undefined>(undefined
 
 export function CarrinhoProvider({ children }: { children: ReactNode }) {
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
+  const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
   const [carrinhoAberto, setCarrinhoAberto] = useState(false);
 
-  // 🟢 Busca os itens do banco de dados
+  // Busca os itens do banco de dados.
+  // O estado "carregandoCarrinho" existe para que as páginas não confundam
+  // o estado inicial vazio com um carrinho realmente vazio.
   const recarregarCarrinho = useCallback(async () => {
     try {
-      const res = await fetch("/api/cliente/carrinho");
+      const res = await fetch("/api/cliente/carrinho", {
+        cache: "no-store",
+      });
+
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.itens)) {
@@ -47,30 +54,59 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
       console.error("Erro ao carregar carrinho:", e);
     }
 
-    const carrinhoSalvo = localStorage.getItem("carrinho_jkfashion");
-    if (carrinhoSalvo) {
-      try {
-        setItens(JSON.parse(carrinhoSalvo));
-      } catch (e) {}
+    // Fallback local apenas se a API não retornar os itens.
+    try {
+      const carrinhoSalvo = localStorage.getItem("carrinho_jkfashion");
+
+      if (carrinhoSalvo) {
+        const itensSalvos = JSON.parse(carrinhoSalvo);
+        if (Array.isArray(itensSalvos)) {
+          setItens(itensSalvos);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao recuperar carrinho local:", e);
     }
+
+    setItens([]);
   }, []);
 
+  // Carregamento inicial do carrinho.
   useEffect(() => {
-    recarregarCarrinho();
+    let ativo = true;
+
+    async function inicializarCarrinho() {
+      try {
+        await recarregarCarrinho();
+      } finally {
+        if (ativo) {
+          setCarregandoCarrinho(false);
+        }
+      }
+    }
+
+    inicializarCarrinho();
 
     const handleAtualizar = () => {
       recarregarCarrinho();
     };
 
     window.addEventListener("atualizarCarrinhoGlobal", handleAtualizar);
+
     return () => {
+      ativo = false;
       window.removeEventListener("atualizarCarrinhoGlobal", handleAtualizar);
     };
   }, [recarregarCarrinho]);
 
+  // Só sincroniza com o localStorage depois que o primeiro carregamento
+  // terminou, evitando sobrescrever um carrinho salvo com [] na montagem.
   useEffect(() => {
-    localStorage.setItem("carrinho_jkfashion", JSON.stringify(itens));
-  }, [itens]);
+    if (!carregandoCarrinho) {
+      localStorage.setItem("carrinho_jkfashion", JSON.stringify(itens));
+    }
+  }, [itens, carregandoCarrinho]);
 
   const abrirCarrinho = () => setCarrinhoAberto(true);
   const fecharCarrinho = () => setCarrinhoAberto(false);
@@ -91,14 +127,12 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // 🔴 DELETAR DO BANCO E DA TELA
+  // Deleta do banco e da tela.
   const removerDoCarrinho = async (id: string, tamanho: string) => {
-    // 1. Atualiza na tela instantaneamente
     setItens((itensAtuais) =>
       itensAtuais.filter((item) => !(item.id === id && item.tamanho === tamanho))
     );
 
-    // 2. Avisa o banco de dados
     try {
       await fetch("/api/cliente/carrinho", {
         method: "DELETE",
@@ -110,14 +144,13 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // 🟡 ALTERAR QUANTIDADE NO BANCO E NA TELA
+  // Altera quantidade no banco e na tela.
   const atualizarQuantidade = async (id: string, tamanho: string, quantidade: number) => {
     if (quantidade <= 0) {
       await removerDoCarrinho(id, tamanho);
       return;
     }
 
-    // 1. Atualiza na tela instantaneamente
     setItens((itensAtuais) =>
       itensAtuais.map((item) => {
         if (item.id === id && item.tamanho === tamanho) {
@@ -127,7 +160,6 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
       })
     );
 
-    // 2. Avisa o banco de dados
     try {
       await fetch("/api/cliente/carrinho", {
         method: "PATCH",
@@ -139,9 +171,10 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // 🧹 LIMPAR TUDO NO BANCO E NA TELA
+  // Limpa tudo no banco e na tela.
   const limparCarrinho = async () => {
     setItens([]);
+
     try {
       await fetch("/api/cliente/carrinho", {
         method: "DELETE",
@@ -154,12 +187,16 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
   };
 
   const totalItens = itens.reduce((acc, item) => acc + (item.quantidade || 0), 0);
-  const valorTotal = itens.reduce((acc, item) => acc + (Number(item.preco) || 0) * (item.quantidade || 0), 0);
+  const valorTotal = itens.reduce(
+    (acc, item) => acc + (Number(item.preco) || 0) * (item.quantidade || 0),
+    0
+  );
 
   return (
     <CarrinhoContext.Provider
       value={{
         itens,
+        carregandoCarrinho,
         carrinhoAberto,
         setCarrinhoAberto,
         abrirCarrinho,
