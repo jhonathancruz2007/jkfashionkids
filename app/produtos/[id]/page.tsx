@@ -13,7 +13,6 @@ import {
   Truck,
   ShieldCheck,
   Check,
-  Ruler,
   CreditCard,
   X,
   Bell,
@@ -147,8 +146,6 @@ export default function ProdutoDetalhePage() {
     y: 50,
   });
   const [isHovered, setIsHovered] = useState(false);
-
-  const [modalGuiaTamanhos, setModalGuiaTamanhos] = useState(false);
   const idProd = String(produto?.id || produto?._id || id || "");
   const favoritado = isFavorito(idProd);
 
@@ -943,14 +940,6 @@ export default function ProdutoDetalhePage() {
                   <span className="text-xs font-extrabold uppercase text-slate-700">
                     Selecione o Tamanho:
                   </span>
-
-                  <button
-                    type="button"
-                    onClick={() => setModalGuiaTamanhos(true)}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
-                  >
-                    <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
-                  </button>
                 </div>
 
                 <div className="flex gap-2.5 flex-wrap">
@@ -1163,52 +1152,6 @@ export default function ProdutoDetalhePage() {
           </div>
         </div>
       </div>
-
-      {/* MODAL GUIA DE TAMANHOS */}
-      {modalGuiaTamanhos && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl relative">
-            <button
-              type="button"
-              onClick={() => setModalGuiaTamanhos(false)}
-              className="absolute top-4 right-4 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="flex items-center gap-2 mb-4">
-              <Ruler className="h-5 w-5 text-slate-900" />
-              <h3 className="text-base font-bold text-slate-900">
-                Guia de Tamanhos
-              </h3>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Tamanho</th>
-                    <th className="p-3">Idade</th>
-                    <th className="p-3">Altura (cm)</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100 text-slate-600">
-                  <tr><td className="p-3 font-semibold text-slate-900">RN</td><td className="p-3">0 a 1 mês</td><td className="p-3">50 - 55</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">P</td><td className="p-3">1 a 3 meses</td><td className="p-3">55 - 60</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">M</td><td className="p-3">3 a 6 meses</td><td className="p-3">60 - 65</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">G</td><td className="p-3">6 a 9 meses</td><td className="p-3">65 - 70</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">GG</td><td className="p-3">9 a 12 meses</td><td className="p-3">70 - 75</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">1</td><td className="p-3">12 a 18 meses</td><td className="p-3">75 - 82</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">2</td><td className="p-3">2 anos</td><td className="p-3">82 - 88</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">3</td><td className="p-3">3 anos</td><td className="p-3">88 - 95</td></tr>
-                  <tr><td className="p-3 font-semibold text-slate-900">4</td><td className="p-3">4 anos</td><td className="p-3">95 - 104</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL AVISE-ME */}
       {modalAviseMe && (
