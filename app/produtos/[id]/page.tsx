@@ -21,6 +21,8 @@ import {
   AlertCircle,
   Palette,
   MessageCircle,
+  RotateCcw,
+  PackageCheck,
 } from "lucide-react";
 
 const ORDEM_TAMANHOS = [
@@ -1076,23 +1078,85 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
-            {/* SUPORTE / EXPERIÊNCIA DE COMPRA */}
-            <div className="border-t border-slate-100 pt-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm">
-                    <MessageCircle className="h-4 w-4 text-slate-700" />
+            {/* INFORMAÇÕES DA COMPRA */}
+            <div className="border-t border-slate-100 pt-5 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
+                      <PackageCheck className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900">
+                        Envio para todo o Brasil
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        Seu pedido é enviado com acompanhamento e atualização do transporte.
+                      </p>
+                    </div>
                   </div>
+                </div>
 
-                  <div className="min-w-0">
-                    <p className="text-xs font-extrabold text-slate-900">
-                      Precisa de ajuda?
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
+                      <CreditCard className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900">
+                        Pagamento facilitado
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        Consulte as condições de pagamento disponíveis no fechamento do pedido.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
+                      <RotateCcw className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900">
+                        Trocas e devoluções
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        Primeira troca grátis em até 7 dias após o recebimento, com o produto sem marcas de uso e etiquetas originais.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
+                      <MessageCircle className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900">
+                        Precisa de ajuda?
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        Nossa equipe pode ajudar com dúvidas sobre o produto, escolha de variação e compra.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-900 p-4 text-white shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-extrabold">
+                      Compra segura do início ao fim
                     </p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                      Ficou com alguma dúvida sobre o produto, cores, tamanhos ou
-                      compra? Nossa equipe está pronta para ajudar.
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-300">
+                      Escolha suas opções, adicione ao carrinho e finalize seu pedido com tranquilidade.
                     </p>
                   </div>
+                  <ShieldCheck className="h-7 w-7 flex-shrink-0 text-white/80" />
                 </div>
               </div>
             </div>
