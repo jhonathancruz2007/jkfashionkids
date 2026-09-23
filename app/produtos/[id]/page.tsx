@@ -568,7 +568,7 @@ export default function ProdutoDetalhePage() {
     setImagemDaCor(imagem);
   };
 
-  const handleAdicionarCarrinho = async (): Promise<boolean> => {
+  const handleAdicionarCarrinho = async (atualizarCarrinho = true): Promise<boolean> => {
     if (!produto) return false;
 
     if (listaCores.length > 0 && !corSelecionada) {
@@ -623,7 +623,10 @@ export default function ProdutoDetalhePage() {
 
       setSucessoAdicao(true);
 
-      if (typeof recarregarCarrinho === "function") {
+      // Para "Adicionar ao carrinho", mantemos a atualização do contexto.
+      // No "Comprar agora", o redirecionamento acontece imediatamente após
+      // a confirmação da API, evitando uma espera desnecessária nesta página.
+      if (atualizarCarrinho && typeof recarregarCarrinho === "function") {
         await recarregarCarrinho();
       }
 
@@ -638,7 +641,10 @@ export default function ProdutoDetalhePage() {
   };
 
   const handleComprarAgora = async () => {
-    const adicionado = await handleAdicionarCarrinho();
+    // Não espera a recarga do contexto do carrinho aqui.
+    // O POST já confirmou que o item foi salvo no servidor, então podemos
+    // seguir imediatamente para a etapa de confirmação.
+    const adicionado = await handleAdicionarCarrinho(false);
 
     if (adicionado) {
       window.location.href = "/checkout/confirmacao";
