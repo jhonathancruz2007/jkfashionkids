@@ -641,7 +641,7 @@ export default function ProdutoDetalhePage() {
     const adicionado = await handleAdicionarCarrinho();
 
     if (adicionado) {
-      window.location.href = "/checkout";
+      window.location.href = "/checkout/confirmacao";
     }
   };
 
