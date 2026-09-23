@@ -1,25 +1,4 @@
-Texto colado (10).txt
-Documento
-quero deixar meu header melhor. Com uma animação, design, tudo melhor. Consegue?
 
-Sim — e eu faria uma mudança mais profunda no visual, não apenas colocando mais animate-pulse.
-
-Seu header atual já tem bastante animação, mas há muitos elementos pulsando, saltando e girando simultaneamente, especialmente no fundo e no logo. Além disso, a estrutura principal já separa corretamente logo, navegação e ações, então dá para melhorar bastante sem mexer na lógica do site.
-
-A proposta abaixo mantém login, carrinho, WhatsApp, menu mobile e categorias exatamente como estão, mas transforma o header em algo mais moderno e “premium”.
-
-O que eu mudaria
-Fundo com efeito glassmorphism mais elegante.
-Brilhos no fundo se movimentando lentamente.
-Logo com animação suave em vez de ficar pulsando.
-Navegação com indicador deslizante no hover.
-Botões com efeito de iluminação.
-Carrinho com badge mais chamativo, sem ficar piscando continuamente.
-WhatsApp sem animate-pulse constante.
-Barra colorida inferior com gradiente em movimento.
-Menu mobile com entrada suave.
-Animações que diminuem automaticamente para quem usa prefers-reduced-motion.
-Substitua seu Header.tsx por este
 "use client"
 
 import { useState, useEffect } from "react"
