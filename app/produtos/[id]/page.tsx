@@ -699,21 +699,26 @@ export default function ProdutoDetalhePage() {
     );
   }
 
-  const precoAtual = Number(
-    produto.precoPromocional ?? produto.preco ?? 0
-  );
-
   const precoOriginal = Number(produto.preco ?? 0);
+  const precoPromocional = Number(produto.precoPromocional ?? 0);
 
-  const porcentagemDesconto =
-    produto.precoPromocional &&
-    precoOriginal > produto.precoPromocional
-      ? Math.round(
-          ((precoOriginal - produto.precoPromocional) /
-            precoOriginal) *
-            100
-        )
-      : 0;
+  // 0 ou valor inválido em precoPromocional significa "sem promoção".
+  // A promoção só é aplicada quando o preço promocional é positivo e
+  // realmente menor que o preço normal.
+  const temPromocao =
+    Number.isFinite(precoPromocional) &&
+    precoPromocional > 0 &&
+    Number.isFinite(precoOriginal) &&
+    precoOriginal > 0 &&
+    precoPromocional < precoOriginal;
+
+  const precoAtual = temPromocao ? precoPromocional : precoOriginal;
+
+  const porcentagemDesconto = temPromocao
+    ? Math.round(
+        ((precoOriginal - precoPromocional) / precoOriginal) * 100
+      )
+    : 0;
 
   const valorParcela = (precoAtual / 6).toLocaleString(
     "pt-BR",
@@ -859,8 +864,7 @@ export default function ProdutoDetalhePage() {
                   })}
                 </span>
 
-                {produto.precoPromocional &&
-                  precoOriginal > produto.precoPromocional && (
+                {temPromocao && (
                     <span className="text-sm text-slate-400 line-through font-semibold">
                       De {precoOriginal.toLocaleString("pt-BR", {
                         style: "currency",
