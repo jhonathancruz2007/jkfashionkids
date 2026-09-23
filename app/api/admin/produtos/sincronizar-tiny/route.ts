@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
-const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical:v19";
+const TINY_CATALOG_CACHE_KEY = "jkfashion:olist:v3:catalog:canonical:v20";
 const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
 const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 // Janela usada apenas para descobrir produtos novos no modo rápido.
@@ -43,7 +43,11 @@ type TinyListItem = {
   grade?: TinyGrade;
 };
 
-type TinyGrade = Array<{ chave?: string | null; valor?: string | null }> | null | undefined;
+type TinyGrade =
+  | Array<{ chave?: string | null; valor?: string | null }>
+  | Record<string, unknown>
+  | null
+  | undefined;
 
 type TinyVariation = {
   id?: number;
@@ -71,7 +75,9 @@ type TinyDetail = {
     quantidade?: number | null;
   } | null;
   anexos?: Array<{ id?: number; url?: string; externo?: boolean }> | null;
-  variacoes?: TinyVariation[] | null;
+  variacoes?: any[] | null;
+  variations?: any[] | null;
+  produto?: { variacoes?: any[] | null; variations?: any[] | null } | null;
   tipoVariacao?: string | null;
   produtoPai?: { id?: number | null; sku?: string | null } | null;
 };
@@ -197,6 +203,28 @@ function sortSizes(values: string[]): string[] {
   });
 }
 
+function getVariationObject(rawVariation: any): any {
+  if (rawVariation && typeof rawVariation === "object") {
+    return rawVariation.variacao || rawVariation.variation || rawVariation;
+  }
+  return rawVariation;
+}
+
+function getRawVariationsFromDetail(detail: TinyDetail): any[] {
+  const candidates = [
+    (detail as any)?.variacoes,
+    (detail as any)?.variations,
+    (detail as any)?.produto?.variacoes,
+    (detail as any)?.produto?.variations,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+}
+
 function parseGrade(
   grade: TinyGrade,
   descricao: string,
@@ -233,6 +261,27 @@ function parseGrade(
   if (Array.isArray(grade)) {
     for (const item of grade) {
       inspect(item?.chave, item?.valor);
+    }
+  } else if (grade && typeof grade === "object") {
+    // A Olist/Tiny pode retornar a grade como um objeto simples, por exemplo:
+    // { "Tamanho": "GG", "Cor": "Branco" }.
+    const gradeObj = grade as Record<string, unknown>;
+
+    // Também aceita { chave: "Tamanho", valor: "GG" }.
+    if ("chave" in gradeObj && "valor" in gradeObj) {
+      inspect(gradeObj.chave, gradeObj.valor);
+    }
+
+    for (const [key, value] of Object.entries(gradeObj)) {
+      if (key === "chave" || key === "valor") continue;
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const nested = value as Record<string, unknown>;
+        if ("valor" in nested) {
+          inspect(key, nested.valor);
+          continue;
+        }
+      }
+      inspect(key, value);
     }
   }
 
@@ -315,15 +364,28 @@ function extractVariationAttributes(
   };
 
   // Variações retornadas dentro do detalhe do produto pai.
-  for (const variation of Array.isArray(detail.variacoes) ? detail.variacoes : []) {
-    consume(variation.grade, variation.descricao);
+  // Aceita tanto { ... } quanto { variacao: { ... } }.
+  for (const rawVariation of getRawVariationsFromDetail(detail)) {
+    const variation = getVariationObject(rawVariation);
+    consume(
+      variation?.grade,
+      str(variation?.descricao) ||
+        str(variation?.nome) ||
+        str(variation?.titulo)
+    );
   }
 
   // Variações que aparecem como produtos "V" na listagem geral do Tiny/Olist.
   // A listagem é a fonte complementar para não perder variações que não vieram
   // embutidas no detalhe do produto pai.
-  for (const variation of variationHeaders) {
-    consume(variation.grade, variation.descricao);
+  for (const rawVariation of variationHeaders) {
+    const variation = getVariationObject(rawVariation);
+    consume(
+      variation?.grade,
+      str(variation?.descricao) ||
+        str(variation?.nome) ||
+        str(variation?.titulo)
+    );
   }
 
   return {
