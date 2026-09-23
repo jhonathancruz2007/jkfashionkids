@@ -230,6 +230,108 @@ const formatarMoeda = (valor: number): string => {
   }).format(valor || 0)
 }
 
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_IMAGE_DIMENSION = 1600
+const MAX_IMAGES_PER_PRODUCT = 12
+
+const EXTENSOES_IMAGEM = /\.(jpe?g|png|webp|gif|avif|bmp|svg)$/i
+
+function arquivoEhImagem(file: File): boolean {
+  return file.type.startsWith("image/") || EXTENSOES_IMAGEM.test(file.name)
+}
+
+function lerArquivoComoDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : ""
+      if (!result) {
+        reject(new Error(`Não foi possível ler a imagem \"${file.name}\".`))
+        return
+      }
+      resolve(result)
+    }
+    reader.onerror = () => reject(new Error(`Não foi possível ler a imagem \"${file.name}\".`))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function prepararImagemParaUpload(file: File): Promise<string> {
+  if (!arquivoEhImagem(file)) {
+    throw new Error(`O arquivo \"${file.name}\" não é uma imagem válida.`)
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error(`A imagem \"${file.name}\" é maior que 10 MB.`)
+  }
+
+  // JPG/JPEG e PNG pequenos são preservados para evitar perda de qualidade.
+  if (file.size <= 2 * 1024 * 1024 && /^(image\/(jpeg|png))$/i.test(file.type)) {
+    return lerArquivoComoDataUrl(file)
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error(`O navegador não conseguiu abrir a imagem \"${file.name}\".`))
+      image.src = objectUrl
+    })
+
+    const larguraOriginal = img.naturalWidth || img.width
+    const alturaOriginal = img.naturalHeight || img.height
+
+    if (!larguraOriginal || !alturaOriginal) {
+      return lerArquivoComoDataUrl(file)
+    }
+
+    const escala = Math.min(
+      1,
+      MAX_IMAGE_DIMENSION / larguraOriginal,
+      MAX_IMAGE_DIMENSION / alturaOriginal
+    )
+
+    const largura = Math.max(1, Math.round(larguraOriginal * escala))
+    const altura = Math.max(1, Math.round(alturaOriginal * escala))
+
+    const canvas = document.createElement("canvas")
+    canvas.width = largura
+    canvas.height = altura
+
+    const ctx = canvas.getContext("2d", { alpha: true })
+    if (!ctx) return lerArquivoComoDataUrl(file)
+
+    ctx.drawImage(img, 0, 0, largura, altura)
+
+    // Mantém transparência quando possível e reduz imagens grandes para não estourar o JSON da API.
+    const mimeOriginal = file.type.toLowerCase()
+    if (mimeOriginal === "image/png") {
+      const png = canvas.toDataURL("image/png")
+      if (png.length <= 5_000_000) return png
+
+      const webp = canvas.toDataURL("image/webp", 0.86)
+      if (webp.startsWith("data:image/webp")) return webp
+    }
+
+    if (mimeOriginal === "image/webp" && file.size <= 2 * 1024 * 1024 && escala === 1) {
+      return lerArquivoComoDataUrl(file)
+    }
+
+    const webp = canvas.toDataURL("image/webp", 0.86)
+    if (webp.startsWith("data:image/webp")) return webp
+
+    return canvas.toDataURL("image/jpeg", 0.84)
+  } catch {
+    // Alguns formatos dependem do suporte do navegador (por exemplo, certos formatos
+    // de foto de celular). Nesse caso ainda tentamos preservar o arquivo como data URL.
+    return lerArquivoComoDataUrl(file)
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
 export default function PaginaDashboardAdmin() {
   const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config">("geral")
   const [saindo, setSaindo] = useState<boolean>(false)
@@ -332,27 +434,25 @@ export default function PaginaDashboardAdmin() {
   }
 
   // ============================================================
-  // ATUALIZAÇÃO DE ESTOQUE OLIST/TINY API V3
+  // SINCRONIZAÇÃO OLIST/TINY API V3
   // ============================================================
-  // Esta rotina foi simplificada para atualizar SOMENTE estoque.
-  // Ela não altera nome, descrição, preço, imagens, categoria, faixa etária,
-  // tamanhos ou cores cadastrados manualmente no site.
+  // A API V3 não usa dataAlteracao para refletir necessariamente mudanças
+  // de estoque. Por isso, a sincronização de estoque consulta os produtos do
+  // site em lotes de até 28 detalhes por minuto, respeitando o limite de 30
+  // leituras/minuto do plano Construa. A listagem de novos produtos usa
+  // uma leitura adicional no primeiro passo.
   const handleSincronizarTiny = async () => {
     if (sincronizandoTiny) return
 
     setSincronizandoTiny(true)
 
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-    const API_BATCH_SIZE = 5
-    const API_BATCH_INTERVAL_MS = 12000
-
     try {
-      console.log("=== INÍCIO DA ATUALIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
+      console.log("=== INÍCIO DA SINCRONIZAÇÃO OLIST/TINY V3 ===")
 
       const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "prepare-stock" }),
+        body: JSON.stringify({ mode: "prepare-quick" }),
         cache: "no-store",
       })
 
@@ -361,7 +461,7 @@ export default function PaginaDashboardAdmin() {
       try {
         prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
       } catch {
-        throw new Error(`Resposta inválida ao preparar estoque. HTTP ${prepareRes.status}`)
+        throw new Error(`O servidor não retornou JSON válido ao preparar a sincronização. HTTP ${prepareRes.status}`)
       }
 
       if (prepareData.code === "NOT_CONNECTED") {
@@ -371,231 +471,261 @@ export default function PaginaDashboardAdmin() {
       }
 
       if (!prepareRes.ok || !prepareData.success) {
-        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar estoque.`)
+        throw new Error(prepareData.error || `Erro HTTP ${prepareRes.status} ao preparar a sincronização.`)
       }
 
       const entries = Array.isArray(prepareData.entries) ? prepareData.entries : []
+
       if (entries.length === 0) {
-        exibirToast("Nenhum produto cadastrado para atualizar o estoque.", "success")
+        const detalhe = [
+          Number(prepareData.unmatchedExisting) > 0 ? `${prepareData.unmatchedExisting} produtos do site sem correspondência` : "",
+          Number(prepareData.ambiguousExisting) > 0 ? `${prepareData.ambiguousExisting} correspondências ambíguas` : "",
+        ].filter(Boolean).join("; ")
+        exibirToast(
+          detalhe || "Nenhum produto foi encontrado no catálogo do Olist/Tiny.",
+          detalhe ? "error" : "success"
+        )
         return
       }
 
-      const directUpdates: Record<string, any> = {}
-      const variationTargets: any[] = []
-      const failures: any[] = []
-      let phaseProcessed = 0
+      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const totalBatches = Math.ceil(entries.length / batchSize)
 
-      const totalInitialBatches = Math.ceil(entries.length / API_BATCH_SIZE)
+      let criados = 0
+      let atualizados = 0
+      let ignorados = 0
+      let falhas = 0
+      let estoqueAlterado = 0
+      let variacoes = 0
+      let processados = 0
 
-      // Fase 1: produtos simples e leitura das variações dos produtos com grade.
-      for (let inicio = 0; inicio < entries.length; inicio += API_BATCH_SIZE) {
-        const lote = entries.slice(inicio, inicio + API_BATCH_SIZE)
-        const loteNumero = Math.floor(inicio / API_BATCH_SIZE) + 1
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
+        const loteNumero = Math.floor(inicio / batchSize) + 1
 
         if (loteNumero > 1) {
-          exibirToast(`Aguardando limite da API... lote ${loteNumero}/${totalInitialBatches}`)
-          await sleep(API_BATCH_INTERVAL_MS)
+          // Construa: 30 leituras/min. 5 detalhes por lote + intervalo de 12s mantém margem para as leituras de preparação.
+          const esperaMs = 12000
+          exibirToast(`Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`)
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
         }
 
-        exibirToast(`Lendo estoque: ${phaseProcessed}/${entries.length} produtos...`)
+        exibirToast(`Sincronizando lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos processados...`)
+        console.log(`=== SINCRONIZAÇÃO LOTE ${loteNumero}/${totalBatches} ===`, lote)
 
-        const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mode: "stock-batch", entries: lote }),
           cache: "no-store",
         })
 
-        const raw = await res.text()
-        let data: any = {}
+        const batchRaw = await batchRes.text()
+        let batchData: any = {}
         try {
-          data = raw ? JSON.parse(raw) : {}
+          batchData = batchRaw ? JSON.parse(batchRaw) : {}
         } catch {
-          throw new Error(`Resposta inválida no lote ${loteNumero}/${totalInitialBatches}. HTTP ${res.status}`)
+          throw new Error(`O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`)
         }
 
-        if (data.code === "NOT_CONNECTED") {
+        if (batchData.code === "NOT_CONNECTED") {
           exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
           return
         }
 
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || `Erro HTTP ${res.status} no lote ${loteNumero}/${totalInitialBatches}.`)
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(batchData.error || `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`)
         }
 
-        for (const update of Array.isArray(data.updates) ? data.updates : []) {
-          if (update.status === "ready" && update.siteId && Number.isFinite(Number(update.estoque))) {
-            directUpdates[String(update.siteId)] = update
-          } else if (update.status === "needs-variation-stock" && update.siteId) {
-            for (const target of Array.isArray(update.variationTargets) ? update.variationTargets : []) {
-              variationTargets.push({
-                ...target,
-                siteId: String(update.siteId),
-              })
-            }
-          } else if (update.status === "failed") {
-            failures.push(update)
-          }
+        criados += Number(batchData.criados) || 0
+        atualizados += Number(batchData.atualizados) || 0
+        ignorados += Number(batchData.ignorados) || 0
+        falhas += Number(batchData.falhas) || 0
+        estoqueAlterado += Number(batchData.estoqueAlterado) || 0
+        variacoes += Number(batchData.variacoesProcessadas) || 0
+
+        if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
+          console.table(batchData.diagnosticos)
         }
-
-        phaseProcessed += lote.length
-      }
-
-      // Fase 2: quando o detalhe V3 não trouxe saldo confiável para as variações,
-      // consulta o estoque pelo ID de cada variação. Aqui usamos saldo físico real.
-      const variationResultsBySite: Record<string, any[]> = {}
-      const totalVariationBatches = Math.ceil(variationTargets.length / API_BATCH_SIZE)
-
-      for (let inicio = 0; inicio < variationTargets.length; inicio += API_BATCH_SIZE) {
-        const lote = variationTargets.slice(inicio, inicio + API_BATCH_SIZE)
-        const loteNumero = Math.floor(inicio / API_BATCH_SIZE) + 1
-
-        if (loteNumero > 1) {
-          exibirToast(`Aguardando limite da API... variações ${loteNumero}/${totalVariationBatches}`)
-          await sleep(API_BATCH_INTERVAL_MS)
-        }
-
-        exibirToast(`Confirmando estoque das variações: ${Math.min(inicio + lote.length, variationTargets.length)}/${variationTargets.length}...`)
-
-        const res = await fetch("/api/admin/produtos/sincronizar-tiny", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "variation-stock-batch", targets: lote }),
-          cache: "no-store",
-        })
-
-        const raw = await res.text()
-        let data: any = {}
-        try {
-          data = raw ? JSON.parse(raw) : {}
-        } catch {
-          throw new Error(`Resposta inválida no lote de variações ${loteNumero}/${totalVariationBatches}. HTTP ${res.status}`)
-        }
-
-        if (data.code === "NOT_CONNECTED") {
-          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
-          return
-        }
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || `Erro HTTP ${res.status} no lote de variações ${loteNumero}/${totalVariationBatches}.`)
-        }
-
-        for (const result of Array.isArray(data.results) ? data.results : []) {
-          if (result.status === "ok" && result.siteId) {
-            const siteId = String(result.siteId)
-            if (!variationResultsBySite[siteId]) variationResultsBySite[siteId] = []
-            variationResultsBySite[siteId].push(result)
-          } else if (result.status === "failed") {
-            failures.push(result)
-          }
-        }
-      }
-
-      // Monta os updates finais. Produto só é gravado se a fonte necessária
-      // tiver retornado dados válidos.
-      const finalUpdates = Object.values(directUpdates).map((update: any) => ({
-        siteId: String(update.siteId),
-        estoque: Number(update.estoque),
-        estoquePorTamanho: update.estoquePorTamanho,
-        estoquePorCor: update.estoquePorCor,
-        matrizCompleta: Boolean(update.matrizCompleta),
-      }))
-
-      for (const [siteId, results] of Object.entries(variationResultsBySite)) {
-        if (!results.length) continue
-
-        const total = results.reduce((acc: number, item: any) => acc + Number(item.saldo), 0)
-        const tamanhosExistentes = new Set<string>()
-        const coresExistentes = new Set<string>()
-        const porTamanho: Record<string, number> = {}
-        const porCor: Record<string, Record<string, number>> = {}
-        let gradeCompleta = true
-
-        for (const item of results) {
-          const tamanho = String(item.tamanho || "").trim()
-          const cor = String(item.cor || "").trim()
-          const saldo = Number(item.saldo)
-
-          if (!Number.isFinite(saldo) || saldo < 0) {
-            gradeCompleta = false
-            continue
-          }
-
-          if (tamanho) {
-            tamanhosExistentes.add(tamanho)
-            porTamanho[tamanho] = (porTamanho[tamanho] || 0) + saldo
-          }
-          if (cor) {
-            coresExistentes.add(cor)
-            porCor[cor] ||= {}
-            if (tamanho) porCor[cor][tamanho] = saldo
-          }
-
-          if (!tamanho && !cor) gradeCompleta = false
-        }
-
-        finalUpdates.push({
-          siteId,
-          estoque: Math.round(total),
-          estoquePorTamanho: porTamanho,
-          estoquePorCor: porCor,
-          matrizCompleta: gradeCompleta,
-        })
-      }
-
-      if (finalUpdates.length === 0) {
-        throw new Error(
-          `Nenhum estoque pôde ser confirmado. ${failures.length ? `${failures.length} leituras falharam.` : "Nenhum dado válido retornado pelo Olist/Tiny."}`
-        )
-      }
-
-      const applyRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "apply-stock", updates: finalUpdates }),
-        cache: "no-store",
-      })
-
-      const applyRaw = await applyRes.text()
-      let applyData: any = {}
-      try {
-        applyData = applyRaw ? JSON.parse(applyRaw) : {}
-      } catch {
-        throw new Error(`Resposta inválida ao aplicar estoque. HTTP ${applyRes.status}`)
-      }
-
-      if (!applyRes.ok || !applyData.success) {
-        throw new Error(applyData.error || `Erro HTTP ${applyRes.status} ao gravar os estoques.`)
+        processados += Number(batchData.processados) || lote.length
       }
 
       await carregarProdutos()
 
-      console.table([
-        ...(Array.isArray(applyData.diagnosticos) ? applyData.diagnosticos : []),
-        ...failures,
-      ])
+      const mensagem =
+        `Sincronização concluída: ${criados} novos, ${atualizados} verificados, ` +
+        `${estoqueAlterado} estoques realmente alterados, ${ignorados} ignorados, ` +
+        `${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
 
-      const alterados = Number(applyData.estoqueAlterado) || 0
-      const verificados = Number(applyData.verificados) || 0
-      const falhas = failures.length + (Number(applyData.falhas) || 0)
-
-      exibirToast(
-        `Estoque atualizado: ${alterados} alterações em ${verificados} produtos${falhas ? `; ${falhas} falhas preservadas.` : "."}`,
-        falhas ? "error" : "success"
-      )
-
-      console.log("=== ATUALIZAÇÃO DE ESTOQUE OLIST/TINY V3 CONCLUÍDA ===", {
-        verificados,
-        estoqueAlterado: alterados,
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+      console.log("=== SINCRONIZAÇÃO OLIST/TINY V3 CONCLUÍDA ===", {
+        totalProdutos: entries.length,
+        criados,
+        atualizados,
+        estoqueAlterado,
+        ignorados,
         falhas,
-        variacoesConfirmadas: variationTargets.length,
+        variacoes,
+        semCorrespondencia: prepareData.unmatchedExisting || 0,
+        ambiguos: prepareData.ambiguousExisting || 0,
       })
     } catch (error) {
-      console.error("=== ERRO NA ATUALIZAÇÃO DE ESTOQUE OLIST/TINY V3 ===")
+      console.error("=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===")
       console.error(error)
       exibirToast(
-        error instanceof Error ? error.message : "Erro ao atualizar estoque com Olist/Tiny.",
+        error instanceof Error ? error.message : "Erro de conexão ao sincronizar com Olist/Tiny.",
+        "error"
+      )
+    } finally {
+      setSincronizandoTiny(false)
+    }
+  }
+
+
+  // RECONCILIAÇÃO COMPLETA OLIST/TINY V3
+  // Mantida separada da sincronização rápida para conferir todo o catálogo
+  // quando necessário. Usa as associações devolvidas pelo endpoint prepare-full.
+  const handleReconcilacaoCompletaTiny = async () => {
+    if (sincronizandoTiny) return
+
+    setSincronizandoTiny(true)
+
+    try {
+      console.log("=== INÍCIO DA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+
+      const prepareRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "prepare-full" }),
+        cache: "no-store",
+      })
+
+      const prepareRaw = await prepareRes.text()
+      let prepareData: any = {}
+      try {
+        prepareData = prepareRaw ? JSON.parse(prepareRaw) : {}
+      } catch {
+        throw new Error(
+          `O servidor não retornou JSON válido ao preparar a reconciliação. HTTP ${prepareRes.status}`
+        )
+      }
+
+      if (prepareData.code === "NOT_CONNECTED") {
+        exibirToast("Conecte o Olist/Tiny primeiro. Abrindo autorização...", "error")
+        window.location.href = "/api/tiny/oauth"
+        return
+      }
+
+      if (!prepareRes.ok || !prepareData.success) {
+        throw new Error(
+          prepareData.error ||
+          `Erro HTTP ${prepareRes.status} ao preparar a reconciliação.`
+        )
+      }
+
+      const entries = Array.isArray(prepareData.entries)
+        ? prepareData.entries
+            .filter((entry: any) => entry && typeof entry === "object" && entry.tinyId)
+            .map((entry: any) => ({
+              siteId: entry.siteId ? String(entry.siteId) : null,
+              tinyId: String(entry.tinyId),
+              nomeSite: entry.nomeSite ? String(entry.nomeSite) : undefined,
+              nomeTiny: entry.nomeTiny ? String(entry.nomeTiny) : undefined,
+              isNew: Boolean(entry.isNew),
+            }))
+        : []
+
+      if (entries.length === 0) {
+        exibirToast("Nenhum produto com correspondência foi encontrado para a reconciliação.", "error")
+        return
+      }
+
+      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const totalBatches = Math.ceil(entries.length / batchSize)
+
+      let criados = 0
+      let atualizados = 0
+      let ignorados = 0
+      let falhas = 0
+      let variacoes = 0
+      let processados = 0
+
+      for (let inicio = 0; inicio < entries.length; inicio += batchSize) {
+        const lote = entries.slice(inicio, inicio + batchSize)
+        const loteNumero = Math.floor(inicio / batchSize) + 1
+
+        if (loteNumero > 1) {
+          const esperaMs = 12000
+          exibirToast(
+            `Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
+          )
+          await new Promise((resolve) => setTimeout(resolve, esperaMs))
+        }
+
+        exibirToast(
+          `Reconciliação lote ${loteNumero}/${totalBatches}: ${processados}/${entries.length} produtos processados...`
+        )
+
+        const batchRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "full-batch", entries: lote }),
+          cache: "no-store",
+        })
+
+        const batchRaw = await batchRes.text()
+        let batchData: any = {}
+        try {
+          batchData = batchRaw ? JSON.parse(batchRaw) : {}
+        } catch {
+          throw new Error(
+            `O servidor não retornou JSON válido no lote ${loteNumero}/${totalBatches}. HTTP ${batchRes.status}`
+          )
+        }
+
+        if (batchData.code === "NOT_CONNECTED") {
+          exibirToast("A conexão com Olist/Tiny expirou. Reconecte a conta.", "error")
+          return
+        }
+
+        if (!batchRes.ok || !batchData.success) {
+          throw new Error(
+            batchData.error ||
+            `Erro HTTP ${batchRes.status} no lote ${loteNumero}/${totalBatches}.`
+          )
+        }
+
+        criados += Number(batchData.criados) || 0
+        atualizados += Number(batchData.atualizados) || 0
+        ignorados += Number(batchData.ignorados) || 0
+        falhas += Number(batchData.falhas) || 0
+        variacoes += Number(batchData.variacoesProcessadas) || 0
+        processados += Number(batchData.processados) || lote.length
+      }
+
+      await carregarProdutos()
+
+      const mensagem =
+        `Reconciliação completa concluída: ${criados} novos, ${atualizados} atualizados, ` +
+        `${ignorados} ignorados, ${falhas} falhas e ${variacoes} variações em ${processados} produtos.`
+
+      exibirToast(mensagem, falhas > 0 ? "error" : "success")
+
+      console.log("=== RECONCILIAÇÃO COMPLETA OLIST/TINY V3 CONCLUÍDA ===", {
+        totalProdutos: entries.length,
+        criados,
+        atualizados,
+        ignorados,
+        falhas,
+        variacoes,
+      })
+    } catch (error) {
+      console.error("=== ERRO NA RECONCILIAÇÃO COMPLETA OLIST/TINY V3 ===")
+      console.error(error)
+      exibirToast(
+        error instanceof Error
+          ? error.message
+          : "Erro de conexão durante a reconciliação completa.",
         "error"
       )
     } finally {
@@ -1076,7 +1206,7 @@ export default function PaginaDashboardAdmin() {
     setCorManualInput("")
   }
 
-  const handleImagemCorFileChange = (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImagemCorFileChange = async (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
 
     if (!file) {
@@ -1084,21 +1214,19 @@ export default function PaginaDashboardAdmin() {
       return
     }
 
-    const reader = new FileReader()
-
-    reader.onloadend = () => {
-      const result = reader.result as string
-
-      if (result) {
-        setFormImagensPorCor((prev) => ({
-          ...prev,
-          [cor]: result,
-        }))
-      }
+    try {
+      const result = await prepararImagemParaUpload(file)
+      setFormImagensPorCor((prev) => ({
+        ...prev,
+        [cor]: result,
+      }))
+      exibirToast(`Foto da cor ${cor} carregada com sucesso!`)
+    } catch (error) {
+      console.error("Erro ao preparar imagem da cor:", error)
+      exibirToast(error instanceof Error ? error.message : "Não foi possível carregar a imagem.", "error")
+    } finally {
+      e.target.value = ""
     }
-
-    reader.readAsDataURL(file)
-    e.target.value = ""
   }
 
   const handleImagemCorUrlChange = (cor: string, url: string) => {
@@ -1206,18 +1334,44 @@ export default function PaginaDashboardAdmin() {
       }, {} as Record<string, number>)
     : formEstoquePorTamanho
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const result = reader.result as string
-        if (result) {
-          setFormImagens((prev) => [...prev, result])
-        }
-      }
-      reader.readAsDataURL(file)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+
+    if (files.length === 0) {
+      e.target.value = ""
+      return
     }
+
+    const espacoDisponivel = Math.max(0, MAX_IMAGES_PER_PRODUCT - formImagens.length)
+    const arquivos = files.slice(0, espacoDisponivel)
+
+    if (arquivos.length === 0) {
+      exibirToast(`Você já atingiu o limite de ${MAX_IMAGES_PER_PRODUCT} imagens por produto.`, "error")
+      e.target.value = ""
+      return
+    }
+
+    const resultados: string[] = []
+    const erros: string[] = []
+
+    for (const file of arquivos) {
+      try {
+        resultados.push(await prepararImagemParaUpload(file))
+      } catch (error) {
+        erros.push(error instanceof Error ? error.message : `Não foi possível carregar ${file.name}.`)
+      }
+    }
+
+    if (resultados.length > 0) {
+      setFormImagens((prev) => [...prev, ...resultados].slice(0, MAX_IMAGES_PER_PRODUCT))
+      exibirToast(`${resultados.length} imagem(ns) adicionada(s).`)
+    }
+
+    if (erros.length > 0) {
+      console.warn("Imagens rejeitadas:", erros)
+      exibirToast(erros[0], "error")
+    }
+
     e.target.value = ""
   }
 
@@ -1764,7 +1918,7 @@ export default function PaginaDashboardAdmin() {
                   className="px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50 shrink-0"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <RefreshCw className="h-3.5 w-3.5 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Atualizar Estoque (Olist/Tiny)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando Tiny..." : "Sincronizar Estoque + Novos Produtos (V3)"}</span>
                 </button>
 
                 <button
@@ -1812,14 +1966,14 @@ export default function PaginaDashboardAdmin() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-white">Gestão de Produtos</h1>
-                <p className="text-xs text-slate-400 mt-1">Cadastre e edite produtos. O botão de sincronização atualiza somente o estoque real do Olist/Tiny e não altera os demais dados cadastrados no site.</p>
+                <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. A sincronização consulta o saldo real dos produtos em lotes controlados pela API V3 e também cadastra produtos novos encontrados no Tiny.</p>
               </div>
 
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => { window.location.href = "/api/tiny/oauth" }}
-                  className="flex items-center justify-center gap-2 bg-slate-950 border border-slate-800 text-slate-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-slate-900 transition-colors shrink-0"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-950 border border-slate-800 text-slate-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-slate-900 transition-colors shrink-0"
                   title="Conectar ou reconectar sua conta Olist/Tiny"
                 >
                   <Key className="h-4 w-4" />
@@ -1830,16 +1984,27 @@ export default function PaginaDashboardAdmin() {
                   type="button"
                   onClick={handleSincronizarTiny}
                   disabled={sincronizandoTiny}
-                  className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
-                  <span>{sincronizandoTiny ? "Sincronizando..." : "Atualizar Estoque (Olist/Tiny)"}</span>
+                  <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (V3)"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReconcilacaoCompletaTiny}
+                  disabled={sincronizandoTiny}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-950 border border-amber-500/30 text-amber-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
+                  title="Confere todo o catálogo. Use quando precisar reconstruir o estoque completo."
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Reconciliação completa</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleAbrirNovoProduto}
-                  className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
                 >
                   <Plus className="h-4 w-4" /> Cadastrar Produto
                 </button>
@@ -1867,6 +2032,10 @@ export default function PaginaDashboardAdmin() {
                   Nenhum produto encontrado.
                 </div>
               ) : (
+                <div className="md:hidden text-[10px] text-slate-500 flex items-center gap-2">
+                  <Pencil className="h-3.5 w-3.5 text-amber-400" /> Deslize a tabela para os lados. O botão Editar fica preso à direita.
+                </div>
+
                 <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
                   <table className="w-full text-left text-xs text-slate-300 min-w-[700px]">
                     <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
@@ -1878,7 +2047,7 @@ export default function PaginaDashboardAdmin() {
                         <th className="p-3">Local do Card</th>
                         <th className="p-3">Variações (Tamanhos & Cores)</th>
                         <th className="p-3">Estoque Total</th>
-                        <th className="p-3 text-right">Ações</th>
+                        <th className="p-3 text-right sticky right-0 z-20 bg-slate-950/95 backdrop-blur border-l border-slate-800 shadow-[-8px_0_16px_-12px_rgba(0,0,0,0.8)]">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
@@ -1993,7 +2162,7 @@ export default function PaginaDashboardAdmin() {
                                 {prod.estoque} un.
                               </span>
                             </td>
-                            <td className="p-3 text-right">
+                            <td className="p-2 sm:p-3 text-right sticky right-0 z-10 bg-slate-900/95 backdrop-blur border-l border-slate-800 shadow-[-8px_0_16px_-12px_rgba(0,0,0,0.8)]">
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
@@ -2505,9 +2674,9 @@ export default function PaginaDashboardAdmin() {
 
       {/* MODAL CADASTRAR OU EDITAR PRODUTO */}
       {modalProduto && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center p-0 sm:p-4 z-[100] overscroll-contain">
+          <div className="bg-slate-900 border-0 sm:border border-slate-800 w-full max-w-lg h-[100dvh] sm:h-auto sm:max-h-[92dvh] rounded-none sm:rounded-2xl px-3 py-3 sm:p-6 space-y-5 shadow-2xl overflow-y-auto overscroll-contain">
+            <div className="sticky top-0 z-30 -mx-3 -mt-3 px-3 pt-3 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-slate-900/95 backdrop-blur border-b border-slate-800 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
                 {produtoEditando ? "Editar Produto e Estoque" : "Novo Produto"}
               </h2>
@@ -2747,20 +2916,21 @@ export default function PaginaDashboardAdmin() {
                   <span className="flex items-center gap-1.5">
                     <ImageIcon className="h-3.5 w-3.5 text-rose-500" /> Imagens do Produto ({formImagens.length})
                   </span>
-                  <span className="text-[10px] text-slate-400">A 1ª imagem será a capa principal</span>
+                  <span className="text-[10px] text-slate-400 text-right">JPG, JPEG, PNG, WEBP e outros formatos de imagem. A 1ª será a capa.</span>
                 </label>
 
                 <input
                   type="file"
                   ref={fileInputRef}
-                  accept="image/*"
+                  accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp"
+                  multiple
                   className="hidden"
                   onChange={handleFileChange}
                 />
                 <input
                   type="file"
                   ref={cameraInputRef}
-                  accept="image/*"
+                  accept="image/*,.jpg,.jpeg,.png,.webp"
                   capture="environment"
                   className="hidden"
                   onChange={handleFileChange}
@@ -2826,7 +2996,7 @@ export default function PaginaDashboardAdmin() {
                     </div>
                     <div>
                       <span className="text-xs font-bold text-white block">Enviar Arquivo</span>
-                      <span className="text-[10px] text-slate-400">Galeria / PC</span>
+                      <span className="text-[10px] text-slate-400">Galeria / PC • JPG / PNG / WEBP</span>
                     </div>
                   </button>
                 </div>
@@ -3115,7 +3285,7 @@ export default function PaginaDashboardAdmin() {
                               <input
                                 id={inputId}
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp"
                                 className="hidden"
                                 onChange={(e) => handleImagemCorFileChange(cor, e)}
                               />
@@ -3275,18 +3445,18 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
-              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+              <div className="sticky bottom-0 z-30 -mx-3 sm:-mx-6 px-3 sm:px-6 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-slate-900/95 backdrop-blur border-t border-slate-800 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => setModalProduto(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={salvandoProduto}
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center gap-2 disabled:opacity-50"
+                  className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center gap-2 disabled:opacity-50"
                 >
                   {salvandoProduto && <Loader2 className="h-4 w-4 animate-spin" />}
                   {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
