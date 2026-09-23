@@ -14,15 +14,13 @@ import {
   ShieldCheck,
   Check,
   Ruler,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
   CreditCard,
   X,
   Bell,
   Tag,
   AlertCircle,
   Palette,
+  MessageCircle,
 } from "lucide-react";
 
 const ORDEM_TAMANHOS = [
@@ -149,10 +147,6 @@ export default function ProdutoDetalhePage() {
   const [isHovered, setIsHovered] = useState(false);
 
   const [modalGuiaTamanhos, setModalGuiaTamanhos] = useState(false);
-  const [abaAberta, setAbaAberta] = useState<"cuidados" | "trocas" | null>(
-    "cuidados"
-  );
-
   const idProd = String(produto?.id || produto?._id || id || "");
   const favoritado = isFavorito(idProd);
 
@@ -941,51 +935,53 @@ export default function ProdutoDetalhePage() {
             )}
 
             {/* SELEÇÃO DE TAMANHOS */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold uppercase text-slate-700">
-                  Selecione o Tamanho:
-                </span>
+            {!produtoSemTamanhos && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase text-slate-700">
+                    Selecione o Tamanho:
+                  </span>
 
-                <button
-                  type="button"
-                  onClick={() => setModalGuiaTamanhos(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
-                >
-                  <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setModalGuiaTamanhos(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
+                  >
+                    <Ruler className="h-3.5 w-3.5" /> Guia de tamanhos
+                  </button>
+                </div>
 
-              <div className="flex gap-2.5 flex-wrap">
-                {listaTamanhos.map((tam: string) => {
-                  const esgotado = isTamanhoEsgotado(tam);
-                  const selecionado = tamanhoSelecionado === tam;
+                <div className="flex gap-2.5 flex-wrap">
+                  {listaTamanhos.map((tam: string) => {
+                    const esgotado = isTamanhoEsgotado(tam);
+                    const selecionado = tamanhoSelecionado === tam;
 
-                  return (
-                    <button
-                      key={tam}
-                      type="button"
-                      onClick={() => setTamanhoSelecionado(tam)}
-                      className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
-                        selecionado
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
-                      }`}
-                    >
-                      <span
-                        className={
-                          esgotado && !selecionado
-                            ? "line-through opacity-50"
-                            : ""
-                        }
+                    return (
+                      <button
+                        key={tam}
+                        type="button"
+                        onClick={() => setTamanhoSelecionado(tam)}
+                        className={`h-11 min-w-[48px] px-3.5 rounded-2xl text-xs font-bold uppercase border transition-all ${
+                          selecionado
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                        }`}
                       >
-                        {tam}
-                      </span>
-                    </button>
-                  );
-                })}
+                        <span
+                          className={
+                            esgotado && !selecionado
+                              ? "line-through opacity-50"
+                              : ""
+                          }
+                        >
+                          {tam}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* AÇÃO E VERIFICAÇÃO DE ESTOQUE */}
             <div className="space-y-3 pt-2">
@@ -1080,68 +1076,24 @@ export default function ProdutoDetalhePage() {
               </div>
             </div>
 
-            {/* SANFONADOS */}
-            <div className="border-t border-slate-100 pt-4 space-y-2">
-              <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAbaAberta(
-                      abaAberta === "cuidados" ? null : "cuidados"
-                    )
-                  }
-                  className="w-full px-4 py-3.5 flex items-center justify-between text-left text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100/80 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="h-4 w-4 text-slate-600" />
-                    Cuidados com a Peça
-                  </span>
-
-                  {abaAberta === "cuidados" ? (
-                    <ChevronUp className="h-4 w-4 text-slate-500" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-500" />
-                  )}
-                </button>
-
-                {abaAberta === "cuidados" && (
-                  <div className="p-4 text-xs text-slate-600 space-y-1.5 bg-white border-t border-slate-100 leading-relaxed">
-                    <p>• Lavar preferencialmente à mão ou em ciclo delicado na máquina.</p>
-                    <p>• Não usar alvejantes a base de cloro.</p>
-                    <p>• Secar à sombra para preservar a vivacidade das cores.</p>
-                    <p>• Passar a ferro em temperatura baixa/média.</p>
+            {/* SUPORTE / EXPERIÊNCIA DE COMPRA */}
+            <div className="border-t border-slate-100 pt-5">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm">
+                    <MessageCircle className="h-4 w-4 text-slate-700" />
                   </div>
-                )}
-              </div>
 
-              <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAbaAberta(
-                      abaAberta === "trocas" ? null : "trocas"
-                    )
-                  }
-                  className="w-full px-4 py-3.5 flex items-center justify-between text-left text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100/80 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-slate-600" />
-                    Trocas e Devoluções
-                  </span>
-
-                  {abaAberta === "trocas" ? (
-                    <ChevronUp className="h-4 w-4 text-slate-500" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-500" />
-                  )}
-                </button>
-
-                {abaAberta === "trocas" && (
-                  <div className="p-4 text-xs text-slate-600 space-y-1.5 bg-white border-t border-slate-100 leading-relaxed">
-                    <p>• Primeira troca grátis em até 7 dias após o recebimento.</p>
-                    <p>• O produto deve estar sem marcas de uso e com as etiquetas originais afixadas.</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold text-slate-900">
+                      Precisa de ajuda?
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      Ficou com alguma dúvida sobre o produto, cores, tamanhos ou
+                      compra? Nossa equipe está pronta para ajudar.
+                    </p>
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </div>
