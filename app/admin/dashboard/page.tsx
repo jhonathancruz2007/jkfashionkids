@@ -230,108 +230,6 @@ const formatarMoeda = (valor: number): string => {
   }).format(valor || 0)
 }
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const MAX_IMAGE_DIMENSION = 1600
-const MAX_IMAGES_PER_PRODUCT = 12
-
-const EXTENSOES_IMAGEM = /\.(jpe?g|png|webp|gif|avif|bmp|svg)$/i
-
-function arquivoEhImagem(file: File): boolean {
-  return file.type.startsWith("image/") || EXTENSOES_IMAGEM.test(file.name)
-}
-
-function lerArquivoComoDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : ""
-      if (!result) {
-        reject(new Error(`Não foi possível ler a imagem \"${file.name}\".`))
-        return
-      }
-      resolve(result)
-    }
-    reader.onerror = () => reject(new Error(`Não foi possível ler a imagem \"${file.name}\".`))
-    reader.readAsDataURL(file)
-  })
-}
-
-async function prepararImagemParaUpload(file: File): Promise<string> {
-  if (!arquivoEhImagem(file)) {
-    throw new Error(`O arquivo \"${file.name}\" não é uma imagem válida.`)
-  }
-
-  if (file.size > MAX_IMAGE_BYTES) {
-    throw new Error(`A imagem \"${file.name}\" é maior que 10 MB.`)
-  }
-
-  // JPG/JPEG e PNG pequenos são preservados para evitar perda de qualidade.
-  if (file.size <= 2 * 1024 * 1024 && /^(image\/(jpeg|png))$/i.test(file.type)) {
-    return lerArquivoComoDataUrl(file)
-  }
-
-  const objectUrl = URL.createObjectURL(file)
-
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image()
-      image.onload = () => resolve(image)
-      image.onerror = () => reject(new Error(`O navegador não conseguiu abrir a imagem \"${file.name}\".`))
-      image.src = objectUrl
-    })
-
-    const larguraOriginal = img.naturalWidth || img.width
-    const alturaOriginal = img.naturalHeight || img.height
-
-    if (!larguraOriginal || !alturaOriginal) {
-      return lerArquivoComoDataUrl(file)
-    }
-
-    const escala = Math.min(
-      1,
-      MAX_IMAGE_DIMENSION / larguraOriginal,
-      MAX_IMAGE_DIMENSION / alturaOriginal
-    )
-
-    const largura = Math.max(1, Math.round(larguraOriginal * escala))
-    const altura = Math.max(1, Math.round(alturaOriginal * escala))
-
-    const canvas = document.createElement("canvas")
-    canvas.width = largura
-    canvas.height = altura
-
-    const ctx = canvas.getContext("2d", { alpha: true })
-    if (!ctx) return lerArquivoComoDataUrl(file)
-
-    ctx.drawImage(img, 0, 0, largura, altura)
-
-    // Mantém transparência quando possível e reduz imagens grandes para não estourar o JSON da API.
-    const mimeOriginal = file.type.toLowerCase()
-    if (mimeOriginal === "image/png") {
-      const png = canvas.toDataURL("image/png")
-      if (png.length <= 5_000_000) return png
-
-      const webp = canvas.toDataURL("image/webp", 0.86)
-      if (webp.startsWith("data:image/webp")) return webp
-    }
-
-    if (mimeOriginal === "image/webp" && file.size <= 2 * 1024 * 1024 && escala === 1) {
-      return lerArquivoComoDataUrl(file)
-    }
-
-    const webp = canvas.toDataURL("image/webp", 0.86)
-    if (webp.startsWith("data:image/webp")) return webp
-
-    return canvas.toDataURL("image/jpeg", 0.84)
-  } catch {
-    // Alguns formatos dependem do suporte do navegador (por exemplo, certos formatos
-    // de foto de celular). Nesse caso ainda tentamos preservar o arquivo como data URL.
-    return lerArquivoComoDataUrl(file)
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
-}
-
 export default function PaginaDashboardAdmin() {
   const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config">("geral")
   const [saindo, setSaindo] = useState<boolean>(false)
@@ -488,7 +386,7 @@ export default function PaginaDashboardAdmin() {
         return
       }
 
-      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const batchSize = 4
       const totalBatches = Math.ceil(entries.length / batchSize)
 
       let criados = 0
@@ -505,7 +403,7 @@ export default function PaginaDashboardAdmin() {
 
         if (loteNumero > 1) {
           // Construa: 30 leituras/min. 5 detalhes por lote + intervalo de 12s mantém margem para as leituras de preparação.
-          const esperaMs = 12000
+          const esperaMs = 15000
           exibirToast(`Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`)
           await new Promise((resolve) => setTimeout(resolve, esperaMs))
         }
@@ -547,7 +445,38 @@ export default function PaginaDashboardAdmin() {
         if (Array.isArray(batchData.diagnosticos) && batchData.diagnosticos.length > 0) {
           console.table(batchData.diagnosticos)
         }
-        processados += Number(batchData.processados) || lote.length
+        processados += Number(batchData.processados) || 0
+
+        // Se o Olist devolveu 429, esperamos uma janela inteira e repetimos
+        // somente os itens que falharam. Nunca consideramos 429 como estoque 0.
+        if (batchData.rateLimited && Array.isArray(batchData.failedEntries) && batchData.failedEntries.length > 0) {
+          const retryEntries = batchData.failedEntries
+          const retryMs = Math.max(65000, Number(batchData.retryAfterMs) || 65000)
+          exibirToast(`Limite da API atingido. Aguardando ${Math.ceil(retryMs / 1000)}s para repetir apenas os ${retryEntries.length} produtos que falharam...`, "error")
+          await new Promise((resolve) => setTimeout(resolve, retryMs))
+
+          const retryRes = await fetch("/api/admin/produtos/sincronizar-tiny", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "stock-batch", entries: retryEntries }),
+            cache: "no-store",
+          })
+          const retryRaw = await retryRes.text()
+          const retryData = retryRaw ? JSON.parse(retryRaw) : {}
+          if (!retryRes.ok || !retryData.success) {
+            throw new Error(retryData.error || `Erro HTTP ${retryRes.status} ao repetir o lote ${loteNumero}/${totalBatches}.`)
+          }
+          criados += Number(retryData.criados) || 0
+          atualizados += Number(retryData.atualizados) || 0
+          ignorados += Number(retryData.ignorados) || 0
+          falhas += Number(retryData.falhas) || 0
+          estoqueAlterado += Number(retryData.estoqueAlterado) || 0
+          variacoes += Number(retryData.variacoesProcessadas) || 0
+          processados += Number(retryData.processados) || 0
+          if (Array.isArray(retryData.diagnosticos) && retryData.diagnosticos.length > 0) {
+            console.table(retryData.diagnosticos)
+          }
+        }
       }
 
       await carregarProdutos()
@@ -640,7 +569,7 @@ export default function PaginaDashboardAdmin() {
         return
       }
 
-      const batchSize = Math.max(1, Math.min(5, Number(prepareData.batchSize) || 5))
+      const batchSize = 4
       const totalBatches = Math.ceil(entries.length / batchSize)
 
       let criados = 0
@@ -655,7 +584,7 @@ export default function PaginaDashboardAdmin() {
         const loteNumero = Math.floor(inicio / batchSize) + 1
 
         if (loteNumero > 1) {
-          const esperaMs = 12000
+          const esperaMs = 15000
           exibirToast(
             `Aguardando limite da API... próximo lote em ${Math.ceil(esperaMs / 1000)}s (${loteNumero}/${totalBatches}).`
           )
@@ -1206,7 +1135,7 @@ export default function PaginaDashboardAdmin() {
     setCorManualInput("")
   }
 
-  const handleImagemCorFileChange = async (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImagemCorFileChange = (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
 
     if (!file) {
@@ -1214,19 +1143,21 @@ export default function PaginaDashboardAdmin() {
       return
     }
 
-    try {
-      const result = await prepararImagemParaUpload(file)
-      setFormImagensPorCor((prev) => ({
-        ...prev,
-        [cor]: result,
-      }))
-      exibirToast(`Foto da cor ${cor} carregada com sucesso!`)
-    } catch (error) {
-      console.error("Erro ao preparar imagem da cor:", error)
-      exibirToast(error instanceof Error ? error.message : "Não foi possível carregar a imagem.", "error")
-    } finally {
-      e.target.value = ""
+    const reader = new FileReader()
+
+    reader.onloadend = () => {
+      const result = reader.result as string
+
+      if (result) {
+        setFormImagensPorCor((prev) => ({
+          ...prev,
+          [cor]: result,
+        }))
+      }
     }
+
+    reader.readAsDataURL(file)
+    e.target.value = ""
   }
 
   const handleImagemCorUrlChange = (cor: string, url: string) => {
@@ -1334,44 +1265,18 @@ export default function PaginaDashboardAdmin() {
       }, {} as Record<string, number>)
     : formEstoquePorTamanho
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-
-    if (files.length === 0) {
-      e.target.value = ""
-      return
-    }
-
-    const espacoDisponivel = Math.max(0, MAX_IMAGES_PER_PRODUCT - formImagens.length)
-    const arquivos = files.slice(0, espacoDisponivel)
-
-    if (arquivos.length === 0) {
-      exibirToast(`Você já atingiu o limite de ${MAX_IMAGES_PER_PRODUCT} imagens por produto.`, "error")
-      e.target.value = ""
-      return
-    }
-
-    const resultados: string[] = []
-    const erros: string[] = []
-
-    for (const file of arquivos) {
-      try {
-        resultados.push(await prepararImagemParaUpload(file))
-      } catch (error) {
-        erros.push(error instanceof Error ? error.message : `Não foi possível carregar ${file.name}.`)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        if (result) {
+          setFormImagens((prev) => [...prev, result])
+        }
       }
+      reader.readAsDataURL(file)
     }
-
-    if (resultados.length > 0) {
-      setFormImagens((prev) => [...prev, ...resultados].slice(0, MAX_IMAGES_PER_PRODUCT))
-      exibirToast(`${resultados.length} imagem(ns) adicionada(s).`)
-    }
-
-    if (erros.length > 0) {
-      console.warn("Imagens rejeitadas:", erros)
-      exibirToast(erros[0], "error")
-    }
-
     e.target.value = ""
   }
 
@@ -1969,11 +1874,11 @@ export default function PaginaDashboardAdmin() {
                 <p className="text-xs text-slate-400 mt-1">Cadastre, edite e alinhe o estoque com o Olist/Tiny. A sincronização consulta o saldo real dos produtos em lotes controlados pela API V3 e também cadastra produtos novos encontrados no Tiny.</p>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+              <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => { window.location.href = "/api/tiny/oauth" }}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-950 border border-slate-800 text-slate-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-slate-900 transition-colors shrink-0"
+                  className="flex items-center justify-center gap-2 bg-slate-950 border border-slate-800 text-slate-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-slate-900 transition-colors shrink-0"
                   title="Conectar ou reconectar sua conta Olist/Tiny"
                 >
                   <Key className="h-4 w-4" />
@@ -1984,7 +1889,7 @@ export default function PaginaDashboardAdmin() {
                   type="button"
                   onClick={handleSincronizarTiny}
                   disabled={sincronizandoTiny}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors shadow-lg shrink-0 disabled:opacity-50"
                 >
                   {sincronizandoTiny ? <Loader2 className="h-4 w-4 animate-spin text-rose-500" /> : <RefreshCw className="h-4 w-4 text-rose-500" />}
                   <span>{sincronizandoTiny ? "Sincronizando..." : "Sincronizar Estoque + Novos Produtos (V3)"}</span>
@@ -1994,7 +1899,7 @@ export default function PaginaDashboardAdmin() {
                   type="button"
                   onClick={handleReconcilacaoCompletaTiny}
                   disabled={sincronizandoTiny}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-950 border border-amber-500/30 text-amber-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-slate-950 border border-amber-500/30 text-amber-300 font-bold text-xs px-3 py-2.5 rounded-xl hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
                   title="Confere todo o catálogo. Use quando precisar reconstruir o estoque completo."
                 >
                   <RefreshCw className="h-4 w-4" />
@@ -2004,7 +1909,7 @@ export default function PaginaDashboardAdmin() {
                 <button
                   type="button"
                   onClick={handleAbrirNovoProduto}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
+                  className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-600/20 shrink-0"
                 >
                   <Plus className="h-4 w-4" /> Cadastrar Produto
                 </button>
@@ -2032,10 +1937,6 @@ export default function PaginaDashboardAdmin() {
                   Nenhum produto encontrado.
                 </div>
               ) : (
-                <div className="md:hidden text-[10px] text-slate-500 flex items-center gap-2">
-                  <Pencil className="h-3.5 w-3.5 text-amber-400" /> Deslize a tabela para os lados. O botão Editar fica preso à direita.
-                </div>
-
                 <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
                   <table className="w-full text-left text-xs text-slate-300 min-w-[700px]">
                     <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider">
@@ -2047,7 +1948,7 @@ export default function PaginaDashboardAdmin() {
                         <th className="p-3">Local do Card</th>
                         <th className="p-3">Variações (Tamanhos & Cores)</th>
                         <th className="p-3">Estoque Total</th>
-                        <th className="p-3 text-right sticky right-0 z-20 bg-slate-950/95 backdrop-blur border-l border-slate-800 shadow-[-8px_0_16px_-12px_rgba(0,0,0,0.8)]">Ações</th>
+                        <th className="p-3 text-right">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
@@ -2162,7 +2063,7 @@ export default function PaginaDashboardAdmin() {
                                 {prod.estoque} un.
                               </span>
                             </td>
-                            <td className="p-2 sm:p-3 text-right sticky right-0 z-10 bg-slate-900/95 backdrop-blur border-l border-slate-800 shadow-[-8px_0_16px_-12px_rgba(0,0,0,0.8)]">
+                            <td className="p-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
@@ -2674,9 +2575,9 @@ export default function PaginaDashboardAdmin() {
 
       {/* MODAL CADASTRAR OU EDITAR PRODUTO */}
       {modalProduto && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center p-0 sm:p-4 z-[100] overscroll-contain">
-          <div className="bg-slate-900 border-0 sm:border border-slate-800 w-full max-w-lg h-[100dvh] sm:h-auto sm:max-h-[92dvh] rounded-none sm:rounded-2xl px-3 py-3 sm:p-6 space-y-5 shadow-2xl overflow-y-auto overscroll-contain">
-            <div className="sticky top-0 z-30 -mx-3 -mt-3 px-3 pt-3 pb-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6 bg-slate-900/95 backdrop-blur border-b border-slate-800 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-4 md:p-6 space-y-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
                 {produtoEditando ? "Editar Produto e Estoque" : "Novo Produto"}
               </h2>
@@ -2916,21 +2817,20 @@ export default function PaginaDashboardAdmin() {
                   <span className="flex items-center gap-1.5">
                     <ImageIcon className="h-3.5 w-3.5 text-rose-500" /> Imagens do Produto ({formImagens.length})
                   </span>
-                  <span className="text-[10px] text-slate-400 text-right">JPG, JPEG, PNG, WEBP e outros formatos de imagem. A 1ª será a capa.</span>
+                  <span className="text-[10px] text-slate-400">A 1ª imagem será a capa principal</span>
                 </label>
 
                 <input
                   type="file"
                   ref={fileInputRef}
-                  accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp"
-                  multiple
+                  accept="image/*"
                   className="hidden"
                   onChange={handleFileChange}
                 />
                 <input
                   type="file"
                   ref={cameraInputRef}
-                  accept="image/*,.jpg,.jpeg,.png,.webp"
+                  accept="image/*"
                   capture="environment"
                   className="hidden"
                   onChange={handleFileChange}
@@ -2996,7 +2896,7 @@ export default function PaginaDashboardAdmin() {
                     </div>
                     <div>
                       <span className="text-xs font-bold text-white block">Enviar Arquivo</span>
-                      <span className="text-[10px] text-slate-400">Galeria / PC • JPG / PNG / WEBP</span>
+                      <span className="text-[10px] text-slate-400">Galeria / PC</span>
                     </div>
                   </button>
                 </div>
@@ -3285,7 +3185,7 @@ export default function PaginaDashboardAdmin() {
                               <input
                                 id={inputId}
                                 type="file"
-                                accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp"
+                                accept="image/*"
                                 className="hidden"
                                 onChange={(e) => handleImagemCorFileChange(cor, e)}
                               />
@@ -3445,18 +3345,18 @@ export default function PaginaDashboardAdmin() {
                 </div>
               )}
 
-              <div className="sticky bottom-0 z-30 -mx-3 sm:-mx-6 px-3 sm:px-6 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-slate-900/95 backdrop-blur border-t border-slate-800 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
+              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setModalProduto(false)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+                  className="px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={salvandoProduto}
-                  className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors shadow-lg shadow-rose-600/20 flex items-center gap-2 disabled:opacity-50"
                 >
                   {salvandoProduto && <Loader2 className="h-4 w-4 animate-spin" />}
                   {produtoEditando ? "Salvar Alterações" : "Cadastrar Produto"}
