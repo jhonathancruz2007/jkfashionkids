@@ -230,6 +230,123 @@ const formatarMoeda = (valor: number): string => {
   }).format(valor || 0)
 }
 
+// ============================================================
+// FOTOS: COMPACTAÇÃO PARA CELULAR / REDE MÓVEL
+//
+// O formulário antigo convertia a foto original diretamente
+// para Base64 e colocava tudo dentro do JSON do produto.
+// Fotos de celulares podem ter vários MB; o Base64 ainda
+// aumenta o tamanho do arquivo em aproximadamente 33%.
+// Aqui reduzimos dimensão e qualidade antes do envio.
+// ============================================================
+const MAX_DIMENSAO_IMAGEM = 1280
+const QUALIDADE_IMAGEM = 0.76
+const MAX_BYTES_IMAGEM = 650 * 1024
+const MAX_BYTES_TOTAL_IMAGENS = 3 * 1024 * 1024
+
+function lerBlobComoDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result === "string" && result) {
+        resolve(result)
+      } else {
+        reject(new Error("Não foi possível preparar a imagem."))
+      }
+    }
+    reader.onerror = () => reject(new Error("Falha ao ler a imagem."))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function carregarImagemParaCanvas(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error("Este formato de imagem não pôde ser processado pelo navegador."))
+    img.src = src
+  })
+}
+
+async function comprimirImagemFonte(source: File | string): Promise<string> {
+  const originalSource =
+    typeof source === "string"
+      ? source
+      : await lerBlobComoDataUrl(source)
+
+  // URLs normais já são compactas/externas e não precisam ser processadas.
+  if (!originalSource.startsWith("data:")) {
+    return originalSource.trim()
+  }
+
+  const img = await carregarImagemParaCanvas(originalSource)
+  const larguraOriginal = img.naturalWidth || img.width
+  const alturaOriginal = img.naturalHeight || img.height
+
+  if (!larguraOriginal || !alturaOriginal) {
+    throw new Error("Não foi possível identificar o tamanho da imagem.")
+  }
+
+  const escala = Math.min(
+    1,
+    MAX_DIMENSAO_IMAGEM / Math.max(larguraOriginal, alturaOriginal)
+  )
+
+  const largura = Math.max(1, Math.round(larguraOriginal * escala))
+  const altura = Math.max(1, Math.round(alturaOriginal * escala))
+
+  const canvas = document.createElement("canvas")
+  canvas.width = largura
+  canvas.height = altura
+
+  const ctx = canvas.getContext("2d", { alpha: false })
+  if (!ctx) {
+    throw new Error("O navegador não conseguiu preparar a imagem.")
+  }
+
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = "high"
+  ctx.fillStyle = "#ffffff"
+  ctx.fillRect(0, 0, largura, altura)
+  ctx.drawImage(img, 0, 0, largura, altura)
+
+  const blobInicial = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/webp", QUALIDADE_IMAGEM)
+  )
+
+  if (!blobInicial) {
+    const fallback = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", QUALIDADE_IMAGEM)
+    )
+
+    if (!fallback) {
+      throw new Error("Não foi possível comprimir a imagem.")
+    }
+
+    return lerBlobComoDataUrl(fallback)
+  }
+
+  // Se ainda ficou grande, reduzimos novamente para manter o envio leve.
+  if (blobInicial.size > MAX_BYTES_IMAGEM) {
+    const blobMenor = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", 0.58)
+    )
+
+    if (blobMenor && blobMenor.size < blobInicial.size) {
+      return lerBlobComoDataUrl(blobMenor)
+    }
+  }
+
+  return lerBlobComoDataUrl(blobInicial)
+}
+
+function tamanhoAproximadoDataUrl(dataUrl: string): number {
+  if (!dataUrl.startsWith("data:")) return 0
+  const base64 = dataUrl.split(",", 2)[1] || ""
+  return Math.ceil((base64.length * 3) / 4)
+}
+
 export default function PaginaDashboardAdmin() {
   const [abaAtiva, setAbaAtiva] = useState<"geral" | "produtos" | "pedidos" | "clientes" | "conta" | "config">("geral")
   const [saindo, setSaindo] = useState<boolean>(false)
@@ -1135,29 +1252,27 @@ export default function PaginaDashboardAdmin() {
     setCorManualInput("")
   }
 
-  const handleImagemCorFileChange = (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImagemCorFileChange = async (cor: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-
-    if (!file) {
-      e.target.value = ""
-      return
-    }
-
-    const reader = new FileReader()
-
-    reader.onloadend = () => {
-      const result = reader.result as string
-
-      if (result) {
-        setFormImagensPorCor((prev) => ({
-          ...prev,
-          [cor]: result,
-        }))
-      }
-    }
-
-    reader.readAsDataURL(file)
     e.target.value = ""
+
+    if (!file) return
+
+    try {
+      const imagemCompactada = await comprimirImagemFonte(file)
+      setFormImagensPorCor((prev) => ({
+        ...prev,
+        [cor]: imagemCompactada,
+      }))
+      exibirToast("Foto da cor preparada para o celular.")
+    } catch (error) {
+      console.error("Erro ao processar foto da cor:", error)
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível processar esta foto. Tente JPG, PNG ou WEBP."
+      )
+    }
   }
 
   const handleImagemCorUrlChange = (cor: string, url: string) => {
@@ -1265,19 +1380,30 @@ export default function PaginaDashboardAdmin() {
       }, {} as Record<string, number>)
     : formEstoquePorTamanho
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const result = reader.result as string
-        if (result) {
-          setFormImagens((prev) => [...prev, result])
-        }
-      }
-      reader.readAsDataURL(file)
-    }
     e.target.value = ""
+
+    if (!file) return
+
+    // Evita travamentos de memória em celulares ao carregar fotos enormes.
+    if (file.size > 20 * 1024 * 1024) {
+      alert("Esta foto tem mais de 20 MB. Escolha uma foto menor.")
+      return
+    }
+
+    try {
+      const imagemCompactada = await comprimirImagemFonte(file)
+      setFormImagens((prev) => [...prev, imagemCompactada])
+      exibirToast("Foto preparada e compactada para o envio.")
+    } catch (error) {
+      console.error("Erro ao processar imagem do produto:", error)
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível processar esta foto. Tente JPG, PNG ou WEBP."
+      )
+    }
   }
 
   const handleAdicionarUrlImagem = () => {
@@ -1482,59 +1608,150 @@ export default function PaginaDashboardAdmin() {
 
   const handleSalvarProduto = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (salvandoProduto) return
+
     setSalvandoProduto(true)
 
-    const url = produtoEditando ? `/api/admin/produtos/${produtoEditando.id}` : "/api/admin/produtos"
+    const url = produtoEditando
+      ? `/api/admin/produtos/${produtoEditando.id}`
+      : "/api/admin/produtos"
     const method = produtoEditando ? "PUT" : "POST"
 
-    const imagemPrincipal = formImagens.length > 0 ? formImagens[0] : ""
     const precoParsed = parseFloat(String(formPreco).replace(",", "."))
-    const precoPromocionalParsed = formPrecoPromocional ? parseFloat(String(formPrecoPromocional).replace(",", ".")) : null
+    const precoPromocionalParsed = formPrecoPromocional
+      ? parseFloat(String(formPrecoPromocional).replace(",", "."))
+      : null
 
-    const estoqueFinal = (formTamanhos.length > 0 || formCores.length > 0) 
-      ? totalEstoqueCalculado 
-      : (parseInt(formEstoqueManual) || 0)
+    const estoqueFinal =
+      formTamanhos.length > 0 || formCores.length > 0
+        ? totalEstoqueCalculado
+        : parseInt(formEstoqueManual, 10) || 0
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(produtoEditando?.id ? { id: produtoEditando.id } : {}),
-          nome: formNome,
-          descricao: formDesc,
-          preco: isNaN(precoParsed) ? 0 : precoParsed,
-          precoPromocional: precoPromocionalParsed !== null && !isNaN(precoPromocionalParsed) ? precoPromocionalParsed : null,
-          imagemUrl: imagemPrincipal,
-          imagens: formImagens,
-          estoque: estoqueFinal,
-          tamanhos: formTamanhos,
-          estoquePorTamanho: estoquePorTamanhoFinal,
-          cores: formCores,
-          estoquePorCor: estoquePorCorFinal,
-          coresDetalhes: formImagensPorCor,
-          genero: formGenero,
-          // No schema atual, a FK do produto é Produto.categoriaNome.
-          // Mantemos categoriaId apenas para compatibilidade com APIs antigas.
-          categoriaNome: formCategoria,
-          categoriaId: formCategoria,
-          faixaEtaria: formFaixaEtaria.join(","),
-          localCard: formLocalCard,
-        }),
-      })
+      // Compacta também imagens antigas que já estavam salvas em Base64.
+      // URLs comuns permanecem intactas.
+      const imagensCompactadas: string[] = []
 
-      if (res.ok) {
-        setModalProduto(false)
-        setProdutoEditando(null)
-        exibirToast(produtoEditando ? "Produto atualizado com sucesso!" : "Produto cadastrado com sucesso!")
-        carregarProdutos()
-      } else {
-        const data = await res.json().catch(() => ({}))
-        alert(data.error || data.message || "Erro ao salvar produto.")
+      for (const imagem of formImagens) {
+        if (!imagem) continue
+        imagensCompactadas.push(await comprimirImagemFonte(imagem))
       }
+
+      const imagensPorCorCompactadas: Record<string, string> = {}
+
+      for (const [cor, imagem] of Object.entries(formImagensPorCor)) {
+        if (!imagem) continue
+        imagensPorCorCompactadas[cor] = await comprimirImagemFonte(imagem)
+      }
+
+      const totalBytesImagens =
+        imagensCompactadas.reduce(
+          (total, imagem) => total + tamanhoAproximadoDataUrl(imagem),
+          0
+        ) +
+        Object.values(imagensPorCorCompactadas).reduce(
+          (total, imagem) => total + tamanhoAproximadoDataUrl(imagem),
+          0
+        )
+
+      if (totalBytesImagens > MAX_BYTES_TOTAL_IMAGENS) {
+        throw new Error(
+          "As fotos deste produto ainda ficaram muito pesadas. Remova uma ou duas imagens e tente salvar novamente."
+        )
+      }
+
+      const imagemPrincipal = imagensCompactadas[0] || ""
+
+      const payload = {
+        ...(produtoEditando?.id ? { id: produtoEditando.id } : {}),
+        nome: formNome.trim(),
+        descricao: formDesc,
+        preco: isNaN(precoParsed) ? 0 : precoParsed,
+        precoPromocional:
+          precoPromocionalParsed !== null && !isNaN(precoPromocionalParsed)
+            ? precoPromocionalParsed
+            : null,
+        imagemUrl: imagemPrincipal,
+        imagens: imagensCompactadas,
+        estoque: estoqueFinal,
+        tamanhos: formTamanhos,
+        estoquePorTamanho: estoquePorTamanhoFinal,
+        cores: formCores,
+        estoquePorCor: estoquePorCorFinal,
+        coresDetalhes: imagensPorCorCompactadas,
+        genero: formGenero,
+        // No schema atual, a FK do produto é Produto.categoriaNome.
+        categoriaNome: formCategoria,
+        categoriaId: formCategoria,
+        faixaEtaria: formFaixaEtaria.join(","),
+        localCard: formLocalCard,
+      }
+
+      const corpo = JSON.stringify(payload)
+
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 45000)
+
+      let res: Response
+
+      try {
+        res = await fetch(url, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: corpo,
+          cache: "no-store",
+          signal: controller.signal,
+        })
+      } finally {
+        window.clearTimeout(timeout)
+      }
+
+      const respostaTexto = await res.text()
+      let data: any = {}
+
+      if (respostaTexto) {
+        try {
+          data = JSON.parse(respostaTexto)
+        } catch {
+          data = { message: respostaTexto }
+        }
+      }
+
+      if (!res.ok) {
+        const detalhe =
+          data?.erro ||
+          data?.error ||
+          data?.message ||
+          `Erro HTTP ${res.status}`
+
+        throw new Error(`Não foi possível salvar o produto. ${detalhe}`)
+      }
+
+      setModalProduto(false)
+      setProdutoEditando(null)
+      exibirToast(
+        produtoEditando
+          ? "Produto atualizado com sucesso!"
+          : "Produto cadastrado com sucesso!"
+      )
+      carregarProdutos()
     } catch (err) {
       console.error("Erro de conexão ao salvar produto:", err)
-      alert("Erro de conexão ao salvar produto.")
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        alert(
+          "O celular demorou demais para concluir o envio. Verifique a conexão e tente novamente."
+        )
+      } else {
+        alert(
+          err instanceof Error
+            ? err.message
+            : "Erro de conexão ao salvar produto."
+        )
+      }
     } finally {
       setSalvandoProduto(false)
     }
@@ -2823,14 +3040,14 @@ export default function PaginaDashboardAdmin() {
                 <input
                   type="file"
                   ref={fileInputRef}
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   className="hidden"
                   onChange={handleFileChange}
                 />
                 <input
                   type="file"
                   ref={cameraInputRef}
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   capture="environment"
                   className="hidden"
                   onChange={handleFileChange}
@@ -3185,7 +3402,7 @@ export default function PaginaDashboardAdmin() {
                               <input
                                 id={inputId}
                                 type="file"
-                                accept="image/*"
+                                accept="image/jpeg,image/png,image/webp"
                                 className="hidden"
                                 onChange={(e) => handleImagemCorFileChange(cor, e)}
                               />
