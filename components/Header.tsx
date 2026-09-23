@@ -108,29 +108,54 @@ export default function Header() {
             {menuAberto ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
 
-          <Link href="/" className="group inline-flex items-center gap-1.5 sm:gap-2.5 transition-all">
-            <span 
-              className="text-lg sm:text-2xl 2xl:text-3xl font-black tracking-tight transition-all group-hover:brightness-110 flex items-center select-none"
+          <Link
+            href="/"
+            aria-label="Voltar ao início"
+            title="Voltar ao início"
+            className="group relative isolate inline-flex items-center gap-1.5 sm:gap-2.5 py-1 pr-1 transition-all duration-500 hover:scale-[1.04] active:scale-95"
+          >
+            {/* brilho animado que percorre o botão */}
+            <span className="pointer-events-none absolute -inset-2 -z-10 rounded-2xl bg-gradient-to-r from-[#81d4fa]/0 via-[#f48fb1]/25 to-[#ffd54f]/0 opacity-0 blur-xl transition-opacity duration-500 group-hover:opacity-100 animate-pulse" />
+
+            {/* pequenas estrelas em órbita */}
+            <span className="pointer-events-none absolute -left-2 top-0 hidden sm:block text-[#81d4fa] opacity-0 transition-all duration-500 group-hover:opacity-100 group-hover:-translate-x-1 group-hover:-translate-y-2">
+              <Sparkles className="h-3 w-3 animate-spin" style={{ animationDuration: "3.5s" }} />
+            </span>
+            <span className="pointer-events-none absolute -right-2 bottom-0 hidden sm:block text-[#f48fb1] opacity-0 transition-all duration-500 group-hover:opacity-100 group-hover:translate-x-1 group-hover:translate-y-2">
+              <Star className="h-3 w-3 animate-spin" style={{ animationDuration: "4.5s" }} />
+            </span>
+
+            {/* Logo com movimento contínuo + reação ao mouse */}
+            <span
+              className="relative flex items-center select-none text-lg sm:text-2xl 2xl:text-3xl font-black tracking-tight transition-all duration-500 ease-out animate-pulse group-hover:brightness-110 group-hover:-translate-y-0.5 group-hover:scale-105"
               style={{
                 WebkitTextStroke: "1px #292524",
                 paintOrder: "stroke fill",
+                animationDuration: "3.2s",
               }}
             >
-              <span className="text-[#81d4fa]">J</span>
-              <span className="text-[#f48fb1]">K</span>
+              <span className="text-[#81d4fa] transition-transform duration-300 group-hover:-rotate-3">J</span>
+              <span className="text-[#f48fb1] transition-transform duration-300 group-hover:rotate-3">K</span>
               <span className="w-1"></span>
-              <span className="text-[#ff8a65]">F</span>
-              <span className="text-[#ce93d8]">a</span>
-              <span className="text-[#a5d6a7]">s</span>
-              <span className="text-[#f06292]">h</span>
-              <span className="text-[#4fc3f7]">i</span>
-              <span className="text-[#ffd54f]">o</span>
-              <span className="text-[#b39ddb]">n</span>
+              <span className="text-[#ff8a65] transition-transform duration-300 group-hover:-rotate-2">F</span>
+              <span className="text-[#ce93d8] transition-transform duration-300 group-hover:rotate-2">a</span>
+              <span className="text-[#a5d6a7] transition-transform duration-300 group-hover:-rotate-2">s</span>
+              <span className="text-[#f06292] transition-transform duration-300 group-hover:rotate-2">h</span>
+              <span className="text-[#4fc3f7] transition-transform duration-300 group-hover:-rotate-2">i</span>
+              <span className="text-[#ffd54f] transition-transform duration-300 group-hover:rotate-2">o</span>
+              <span className="text-[#b39ddb] transition-transform duration-300 group-hover:-rotate-3">n</span>
             </span>
-            
-            <span className="relative flex items-center justify-center rounded-full border border-[#f48fb1]/50 bg-[#f48fb1]/20 px-2 sm:px-3 py-0.5 text-[9px] sm:text-[10px] 2xl:text-xs font-black uppercase tracking-widest text-[#d81b60] shadow-xs transition-all duration-300 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-[#f48fb1] group-hover:text-white">
+
+            {/* Badge Kids com pulso e pequeno salto ao passar o mouse */}
+            <span className="relative flex items-center justify-center rounded-full border border-[#f48fb1]/50 bg-[#f48fb1]/20 px-2 sm:px-3 py-0.5 text-[9px] sm:text-[10px] 2xl:text-xs font-black uppercase tracking-widest text-[#d81b60] shadow-xs transition-all duration-500 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-[#f48fb1] group-hover:text-white animate-[pulse_2.4s_ease-in-out_infinite]">
               Kids
               <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-[#b39ddb] animate-ping opacity-75" />
+              <span className="absolute -bottom-1 -left-1 h-1.5 w-1.5 rounded-full bg-[#81d4fa] animate-ping opacity-60" style={{ animationDelay: "0.8s" }} />
+            </span>
+
+            {/* pequeno indicador de retorno */}
+            <span className="pointer-events-none absolute -bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-stone-900 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-300 group-hover:opacity-100 group-hover:-translate-y-0.5 hidden sm:block whitespace-nowrap">
+              início
             </span>
           </Link>
         </div>
