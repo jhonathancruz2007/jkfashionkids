@@ -58,7 +58,11 @@ function mascararCEP(valor: string) {
 }
 
 export default function PaginaConfirmacao() {
-  const { itens = [], valorTotal = 0 } = useCarrinho();
+  const {
+    itens = [],
+    valorTotal = 0,
+    carregandoCarrinho,
+  } = useCarrinho();
   const router = useRouter();
 
   const secaoFormularioRef = useRef<HTMLDivElement>(null);
@@ -145,7 +149,7 @@ export default function PaginaConfirmacao() {
           // Calcula o frete e atualiza os dados completos se houver CEP
           if (cepCadastrado) {
             calcularFretePorDistancia(cepCadastrado);
-            
+
             // Se falta rua no perfil, busca via ViaCEP
             if (!enderecoFormatado.rua && cepCadastrado.replace(/\D/g, "").length === 8) {
               fetch(`https://viacep.com.br/ws/${cepCadastrado.replace(/\D/g, "")}/json/`)
@@ -311,6 +315,23 @@ export default function PaginaConfirmacao() {
       setProcessandoPagamento(false);
     }
   };
+
+  // Importante: só mostramos "carrinho vazio" depois que o contexto terminou
+  // de carregar os dados. Isso elimina o flash de carrinho vazio ao entrar
+  // rapidamente nesta página após o "Comprar agora".
+  if (carregandoCarrinho) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-20 text-center font-sans text-slate-800">
+        <Loader2 className="mx-auto h-8 w-8 animate-spin text-violet-600" />
+        <h2 className="mt-4 font-display text-lg font-bold text-slate-900">
+          Carregando seu pedido...
+        </h2>
+        <p className="mt-2 text-sm text-slate-500">
+          Estamos preparando os produtos para você.
+        </p>
+      </div>
+    );
+  }
 
   if (!itens || itens.length === 0) {
     return (
