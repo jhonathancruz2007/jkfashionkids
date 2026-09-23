@@ -568,21 +568,21 @@ export default function ProdutoDetalhePage() {
     setImagemDaCor(imagem);
   };
 
-  const handleAdicionarCarrinho = async () => {
-    if (!produto) return;
+  const handleAdicionarCarrinho = async (): Promise<boolean> => {
+    if (!produto) return false;
 
     if (listaCores.length > 0 && !corSelecionada) {
       mostrarToast(
         "Por favor, selecione uma cor/modelo antes de adicionar ao carrinho."
       );
-      return;
+      return false;
     }
 
     if (qtdNoCarrinho >= estoqueMaxAtual) {
       mostrarToast(
         `Limite de estoque atingido! Restam apenas ${estoqueMaxAtual} unidade(s) no estoque.`
       );
-      return;
+      return false;
     }
 
     setAdicionando(true);
@@ -603,7 +603,7 @@ export default function ProdutoDetalhePage() {
 
       if (res.status === 401) {
         window.location.href = "/login";
-        return;
+        return false;
       }
 
       const responseData = await res.json().catch(() => ({}));
@@ -618,7 +618,7 @@ export default function ProdutoDetalhePage() {
           await recarregarCarrinho();
         }
 
-        return;
+        return false;
       }
 
       setSucessoAdicao(true);
@@ -628,10 +628,20 @@ export default function ProdutoDetalhePage() {
       }
 
       setTimeout(() => setSucessoAdicao(false), 2000);
+      return true;
     } catch (e: any) {
       mostrarToast("Erro ao adicionar ao carrinho. Tente novamente.");
+      return false;
     } finally {
       setAdicionando(false);
+    }
+  };
+
+  const handleComprarAgora = async () => {
+    const adicionado = await handleAdicionarCarrinho();
+
+    if (adicionado) {
+      window.location.href = "/carrinho";
     }
   };
 
@@ -998,30 +1008,60 @@ export default function ProdutoDetalhePage() {
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleAdicionarCarrinho}
-                  disabled={adicionando}
-                  className={`w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-xs font-black uppercase text-white transition-all ${
-                    sucessoAdicao
-                      ? "bg-emerald-600 hover:bg-emerald-700"
-                      : "bg-slate-900 hover:bg-slate-800"
-                  }`}
-                >
-                  {adicionando ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : sucessoAdicao ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <ShoppingBag className="h-4 w-4" />
-                  )}
+                <div className="space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={handleComprarAgora}
+                    disabled={adicionando}
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 text-xs font-black uppercase tracking-wide text-white shadow-sm transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {adicionando ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ShoppingBag className="h-4 w-4" />
+                    )}
+                    {adicionando ? "Processando..." : "Comprar agora"}
+                  </button>
 
-                  {adicionando
-                    ? "Adicionando..."
-                    : sucessoAdicao
-                    ? "Adicionado ao Carrinho!"
-                    : "Adicionar ao Carrinho"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleAdicionarCarrinho}
+                    disabled={adicionando}
+                    className={`w-full flex items-center justify-center gap-2 rounded-2xl border py-3.5 text-xs font-black uppercase tracking-wide transition-all disabled:cursor-not-allowed disabled:opacity-70 ${
+                      sucessoAdicao
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-white text-slate-800 hover:border-slate-400 hover:bg-slate-50"
+                    }`}
+                  >
+                    {sucessoAdicao ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <ShoppingBag className="h-4 w-4" />
+                    )}
+                    {sucessoAdicao ? "Adicionado ao carrinho" : "Adicionar ao carrinho"}
+                  </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    <div className="flex items-center gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <Truck className="h-4 w-4 text-slate-700 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold leading-tight text-slate-600">
+                        Envio para todo o Brasil
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <CreditCard className="h-4 w-4 text-slate-700 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold leading-tight text-slate-600">
+                        Até 6x sem juros
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-2xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <ShieldCheck className="h-4 w-4 text-slate-700 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold leading-tight text-slate-600">
+                        Compra segura
+                      </span>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -1038,71 +1078,46 @@ export default function ProdutoDetalhePage() {
               </div>
             )}
 
-            {/* SELOS E BENEFÍCIOS */}
-            <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-5">
-              <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                <Truck className="h-5 w-5 text-slate-700 flex-shrink-0" />
-
-                <div className="text-[11px]">
-                  <p className="font-bold text-slate-900">
-                    Entrega para todo Brasil
-                  </p>
-                  <p className="text-slate-500">
-                    Com rastreamento online
-                  </p>
+            {/* DETALHES E INFORMAÇÕES */}
+            <div className="border-t border-slate-100 pt-6 space-y-4">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  Detalhes do produto
+                </h3>
+                <div className="mt-3 rounded-2xl border border-slate-200 overflow-hidden">
+                  {[
+                    ["Marca", produto?.marca],
+                    ["Tecido", produto?.tecido],
+                    ["Material", produto?.material],
+                    ["Composição", produto?.composicao],
+                    ["Modelagem", produto?.modelagem],
+                  ]
+                    .filter(([, valor]) => valor !== undefined && valor !== null && String(valor).trim() !== "")
+                    .map(([label, valor], index, lista) => (
+                      <div
+                        key={label}
+                        className={`flex items-start justify-between gap-4 px-4 py-3 bg-white ${
+                          index < lista.length - 1 ? "border-b border-slate-100" : ""
+                        }`}
+                      >
+                        <span className="text-[11px] font-bold text-slate-500">{label}</span>
+                        <span className="text-[11px] font-semibold text-slate-900 text-right max-w-[65%]">
+                          {Array.isArray(valor) ? valor.join(", ") : String(valor)}
+                        </span>
+                      </div>
+                    ))}
+                  {![produto?.marca, produto?.tecido, produto?.material, produto?.composicao, produto?.modelagem].some(
+                    (valor) => valor !== undefined && valor !== null && String(valor).trim() !== ""
+                  ) && (
+                    <div className="px-4 py-3 text-[11px] text-slate-500">
+                      Consulte a descrição acima para conhecer os detalhes desta peça.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                <ShieldCheck className="h-5 w-5 text-slate-700 flex-shrink-0" />
-
-                <div className="text-[11px]">
-                  <p className="font-bold text-slate-900">
-                    Compra 100% Segura
-                  </p>
-                  <p className="text-slate-500">
-                    Garantia e suporte
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* INFORMAÇÕES DA COMPRA */}
-            <div className="border-t border-slate-100 pt-5 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
-                      <PackageCheck className="h-5 w-5 text-slate-700" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-extrabold text-slate-900">
-                        Envio para todo o Brasil
-                      </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                        Seu pedido é enviado com acompanhamento e atualização do transporte.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
-                      <CreditCard className="h-5 w-5 text-slate-700" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-extrabold text-slate-900">
-                        Pagamento facilitado
-                      </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                        Consulte as condições de pagamento disponíveis no fechamento do pedido.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
                       <RotateCcw className="h-5 w-5 text-slate-700" />
@@ -1111,14 +1126,14 @@ export default function ProdutoDetalhePage() {
                       <p className="text-xs font-extrabold text-slate-900">
                         Trocas e devoluções
                       </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                        Primeira troca grátis em até 7 dias após o recebimento, com o produto sem marcas de uso e etiquetas originais.
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        Primeira troca grátis em até 7 dias após o recebimento, conforme as condições da loja. O produto deve estar sem marcas de uso e com as etiquetas originais.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 border border-slate-100">
                       <MessageCircle className="h-5 w-5 text-slate-700" />
@@ -1127,8 +1142,8 @@ export default function ProdutoDetalhePage() {
                       <p className="text-xs font-extrabold text-slate-900">
                         Precisa de ajuda?
                       </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                        Nossa equipe pode ajudar com dúvidas sobre o produto, escolha de variação e compra.
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                        Nossa equipe pode ajudar com dúvidas sobre o produto, cores, tamanhos e finalização da compra.
                       </p>
                     </div>
                   </div>
@@ -1139,13 +1154,16 @@ export default function ProdutoDetalhePage() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
                     <p className="text-xs font-extrabold">
-                      Compra segura do início ao fim
+                      Compre com tranquilidade
                     </p>
                     <p className="mt-1 text-[11px] leading-relaxed text-slate-300">
-                      Escolha suas opções, adicione ao carrinho e finalize seu pedido com tranquilidade.
+                      Confira as opções da peça, escolha a variação desejada e finalize seu pedido com segurança.
                     </p>
                   </div>
-                  <ShieldCheck className="h-7 w-7 flex-shrink-0 text-white/80" />
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white/80">
+                    <PackageCheck className="h-5 w-5" />
+                    Pedido acompanhado
+                  </div>
                 </div>
               </div>
             </div>
