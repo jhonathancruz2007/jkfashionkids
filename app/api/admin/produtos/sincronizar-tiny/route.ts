@@ -39,6 +39,8 @@ type TinyListItem = {
   dataAlteracao?: string | null;
   tipoVariacao?: string | null;
   produtoPai?: { id?: number | null } | null;
+  // Em algumas respostas da API a grade também pode vir no item da listagem.
+  grade?: TinyGrade;
 };
 
 type TinyGrade = Array<{ chave?: string | null; valor?: string | null }> | null | undefined;
@@ -97,6 +99,11 @@ type StockAggregate = {
   estoquePorCor: Record<string, any>;
   variationCount: number;
   matrixComplete: boolean;
+};
+
+type VariationAttributes = {
+  tamanhos: string[];
+  cores: string[];
 };
 
 type SiteSyncEntry = {
@@ -231,28 +238,121 @@ function parseGrade(
 
   if ((!tamanho || !cor) && descricao) {
     const parts = descricao
-      .split(" - ")
+      .split(/\s+-\s+|\s*\|\s*|\s+\/\s+/)
       .map((part) => part.trim())
       .filter(Boolean);
 
-    if (parts.length >= 2) {
+    // Primeiro tenta encontrar, em qualquer trecho, valores que já conhecemos.
+    for (const part of parts) {
+      if (!tamanho && knownSizeMap.has(normalize(part))) {
+        tamanho = knownSizeMap.get(normalize(part))!;
+      }
+      if (!cor && knownColorMap.has(normalize(part))) {
+        cor = knownColorMap.get(normalize(part))!;
+      }
+    }
+
+    // Fallback para descrições do tipo "Produto - M - Azul".
+    if ((!tamanho || !cor) && parts.length >= 2) {
       const tailA = parts[parts.length - 2];
       const tailB = parts[parts.length - 1];
-      if (!tamanho && knownSizeMap.has(normalize(tailA))) tamanho = knownSizeMap.get(normalize(tailA))!;
-      if (!cor && knownColorMap.has(normalize(tailA))) cor = knownColorMap.get(normalize(tailA))!;
-      if (!tamanho && knownSizeMap.has(normalize(tailB))) tamanho = knownSizeMap.get(normalize(tailB))!;
-      if (!cor && knownColorMap.has(normalize(tailB))) cor = knownColorMap.get(normalize(tailB))!;
+
+      if (!tamanho && knownSizeMap.has(normalize(tailA))) {
+        tamanho = knownSizeMap.get(normalize(tailA))!;
+      }
+      if (!cor && knownColorMap.has(normalize(tailA))) {
+        cor = knownColorMap.get(normalize(tailA))!;
+      }
+      if (!tamanho && knownSizeMap.has(normalize(tailB))) {
+        tamanho = knownSizeMap.get(normalize(tailB))!;
+      }
+      if (!cor && knownColorMap.has(normalize(tailB))) {
+        cor = knownColorMap.get(normalize(tailB))!;
+      }
 
       if (!tamanho && !cor && parts.length >= 3) {
         tamanho = tailA;
         cor = tailB;
       } else if (!tamanho && !cor) {
-        tamanho = tailA;
+        // Antes de assumir que o último trecho é tamanho, tenta padrões comuns.
+        const candidato = normalize(tailB);
+        if (/^(rn|pp|p|m|g|gg|xg|xxg|xgg|eg|egg|exg|\d{1,2})$/i.test(candidato)) {
+          tamanho = tailB;
+        } else {
+          tamanho = tailA;
+        }
       }
     }
   }
 
   return { tamanho, cor };
+}
+
+/**
+ * Extrai somente as opções de variação (tamanhos e cores) de TODAS as variações
+ * conhecidas do produto. Esta rotina é propositalmente separada da lógica de
+ * estoque: ela não calcula nem altera estoquePorTamanho, estoquePorCor ou estoque.
+ */
+function extractVariationAttributes(
+  detail: TinyDetail,
+  variationHeaders: TinyListItem[] = [],
+  knownSizes: string[] = [],
+  knownColors: string[] = []
+): VariationAttributes {
+  const sizes = new Set<string>();
+  const colors = new Set<string>();
+
+  const consume = (grade: TinyGrade, descricao: unknown) => {
+    const parsed = parseGrade(
+      grade,
+      str(descricao),
+      knownSizes,
+      knownColors
+    );
+
+    if (parsed.tamanho) sizes.add(parsed.tamanho.trim());
+    if (parsed.cor) colors.add(parsed.cor.trim());
+  };
+
+  // Variações retornadas dentro do detalhe do produto pai.
+  for (const variation of Array.isArray(detail.variacoes) ? detail.variacoes : []) {
+    consume(variation.grade, variation.descricao);
+  }
+
+  // Variações que aparecem como produtos "V" na listagem geral do Tiny/Olist.
+  // A listagem é a fonte complementar para não perder variações que não vieram
+  // embutidas no detalhe do produto pai.
+  for (const variation of variationHeaders) {
+    consume(variation.grade, variation.descricao);
+  }
+
+  return {
+    tamanhos: sortSizes([...sizes]),
+    cores: [...colors].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" })),
+  };
+}
+
+function buildVariationHeadersByParent(
+  tinyHeaders: TinyListItem[]
+): Map<string, TinyListItem[]> {
+  const result = new Map<string, TinyListItem[]>();
+
+  for (const item of tinyHeaders) {
+    const tipoVariacao = normalize(str(item.tipoVariacao));
+    if (tipoVariacao !== "v") continue;
+
+    const parentId = str(item.produtoPai?.id);
+    const variationId = canonicalId(item);
+    if (!parentId || !variationId) continue;
+
+    const current = result.get(parentId) || [];
+    if (!current.some((existing) => canonicalId(existing) === variationId)) {
+      current.push(item);
+    }
+    result.set(parentId, current);
+  }
+
+  return result;
 }
 
 function aggregateDetail(
@@ -351,7 +451,7 @@ function aggregateDetail(
     );
   }
 
-  // Só substituímos a matriz do site quando todas as quantidades das variações
+  // Só substituímos a matriz quando todas as quantidades das variações
   // são válidas e conseguimos reconhecer pelo menos uma grade. Caso contrário,
   // o total ainda pode ser atualizado, mas a matriz atual do site é preservada.
   const matrixComplete = todasQuantidadesValidas && todosGradesReconhecidos;
@@ -514,7 +614,8 @@ async function mapWithConcurrency<T, R>(
 
 async function updateExistingProduct(
   id: string,
-  detail: TinyDetail
+  detail: TinyDetail,
+  variationAttributes?: VariationAttributes
 ): Promise<{
   updated: boolean;
   changed: boolean;
@@ -573,11 +674,8 @@ async function updateExistingProduct(
       : "product";
   let confirmed = false;
 
-  // Regra de segurança:
-  // - Produtos com variações: usamos o total do pai quando positivo; se o pai vier 0,
-  //   aggregateDetail já usa a soma das variações.
-  // - Produtos sem variações: se o detalhe disser 0 enquanto o site tem estoque,
-  //   fazemos UMA confirmação pelo endpoint oficial de estoque antes de gravar 0.
+  // REGRA DE ESTOQUE: mantida exatamente como estava.
+  // A sincronização das variações abaixo é independente deste bloco.
   if (!hasVariations && tinyStock === 0 && Number(existing.estoque || 0) > 0) {
     tinyStock = await getConfirmedStock(id);
     stockSource = "confirmed-stock";
@@ -588,11 +686,22 @@ async function updateExistingProduct(
     estoque: tinyStock,
   };
 
-  // Só substitui a matriz se todas as variações vieram com quantidade válida e grade reconhecida.
+  // ===============================================================
+  // NOVO: atualiza SOMENTE as opções de variação (tamanhos/cores).
+  // Não toca nas matrizes de estoque existentes.
+  // ===============================================================
+  if (variationAttributes) {
+    if (variationAttributes.tamanhos.length > 0) {
+      data.tamanhos = variationAttributes.tamanhos;
+    }
+    if (variationAttributes.cores.length > 0) {
+      data.cores = variationAttributes.cores;
+    }
+  }
+
+  // A lógica de estoque/matrizes existente permanece intacta.
   if (aggregate.matrixComplete) {
-    data.tamanhos = aggregate.tamanhos;
     data.estoquePorTamanho = aggregate.estoquePorTamanho;
-    data.cores = aggregate.cores;
     data.estoquePorCor = aggregate.estoquePorCor;
   }
 
@@ -613,7 +722,11 @@ async function updateExistingProduct(
   };
 }
 
-async function createNewProduct(id: string, detail: TinyDetail): Promise<{ created: boolean; variationCount: number }> {
+async function createNewProduct(
+  id: string,
+  detail: TinyDetail,
+  variationAttributes?: VariationAttributes
+): Promise<{ created: boolean; variationCount: number }> {
   const existing = await prisma.produto.findUnique({ where: { id }, select: { id: true } });
   if (existing) return { created: false, variationCount: 0 };
 
@@ -643,10 +756,18 @@ async function createNewProduct(id: string, detail: TinyDetail): Promise<{ creat
       imagemUrl: imagens[0] || PLACEHOLDER_IMAGE,
       imagens,
       estoque: aggregate.estoque,
-      tamanhos: aggregate.tamanhos,
+      // Estoque permanece vindo do aggregate atual.
       estoquePorTamanho: aggregate.estoquePorTamanho,
-      cores: aggregate.cores,
       estoquePorCor: aggregate.estoquePorCor,
+      // Variações são substituídas pela coleta completa quando houver.
+      tamanhos:
+        variationAttributes?.tamanhos?.length
+          ? variationAttributes.tamanhos
+          : aggregate.tamanhos,
+      cores:
+        variationAttributes?.cores?.length
+          ? variationAttributes.cores
+          : aggregate.cores,
       coresDetalhes: undefined,
       genero: null,
       faixaEtaria: null,
@@ -784,7 +905,6 @@ async function matchSiteProduct(
   return null;
 }
 
-
 async function findNewTinyProducts(
   siteTinyIds: Set<string>
 ): Promise<SiteSyncEntry[]> {
@@ -869,6 +989,11 @@ async function prepareQuick() {
     ambiguousExisting,
     batchSize: API_READ_BATCH_SIZE,
     catalogoConsultado: maps.tinyHeaders.length,
+    // Mantém o catálogo completo na preparação; as variações V são associadas
+    // depois por produto durante cada batch.
+    variacoesDetectadasNoCatalogo: maps.tinyHeaders.filter(
+      (item) => normalize(str(item.tipoVariacao)) === "v"
+    ).length,
   };
 }
 
@@ -897,7 +1022,16 @@ async function stockBatch(entries: SiteSyncEntry[]) {
     let falhas = 0;
     let variacoesProcessadas = 0;
     let estoqueAlterado = 0;
+    let produtosComVariacoesSincronizadas = 0;
+    let variacoesDetectadasNaListagem = 0;
     const diagnosticos: Array<Record<string, unknown>> = [];
+
+    // A listagem já contém produtos do tipo V. Mantemos os produtos canônicos
+    // para o pareamento, mas também montamos um índice pai -> todas as V.
+    // Isso é usado APENAS para completar tamanhos/cores e não altera a lógica
+    // de estoque existente.
+    const maps = await buildTinyCanonicalMap();
+    const variationHeadersByParent = buildVariationHeadersByParent(maps.tinyHeaders);
 
     type BatchResult = {
       kind: "created" | "updated" | "ignored" | "failed";
@@ -914,6 +1048,8 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       rateLimited?: boolean;
       stockSource?: "product" | "variations" | "confirmed-stock";
       confirmed?: boolean;
+      variationOptions?: VariationAttributes;
+      variationHeadersCount?: number;
     };
 
     const results = await mapWithConcurrency<SiteSyncEntry, BatchResult>(
@@ -923,6 +1059,38 @@ async function stockBatch(entries: SiteSyncEntry[]) {
         try {
           const detail = await getDetail(entry.tinyId);
 
+          // Busca TODAS as V da listagem pertencentes ao produto pai.
+          const variationHeaders =
+            variationHeadersByParent.get(entry.tinyId) || [];
+
+          let knownSizes: string[] = [];
+          let knownColors: string[] = [];
+
+          if (entry.siteId) {
+            const existingForVariation = await prisma.produto.findUnique({
+              where: { id: entry.siteId },
+              select: { tamanhos: true, cores: true },
+            });
+            knownSizes = existingForVariation?.tamanhos || [];
+            knownColors = existingForVariation?.cores || [];
+          }
+
+          const variationOptions = extractVariationAttributes(
+            detail,
+            variationHeaders,
+            knownSizes,
+            knownColors
+          );
+
+          if (
+            variationOptions.tamanhos.length > 0 ||
+            variationOptions.cores.length > 0
+          ) {
+            produtosComVariacoesSincronizadas += 1;
+          }
+
+          variacoesDetectadasNaListagem += variationHeaders.length;
+
           if (entry.siteId) {
             const existing = await prisma.produto.findUnique({
               where: { id: entry.siteId },
@@ -930,22 +1098,38 @@ async function stockBatch(entries: SiteSyncEntry[]) {
             });
 
             if (!existing) {
-              const result = await createNewProduct(entry.tinyId, detail);
+              const result = await createNewProduct(
+                entry.tinyId,
+                detail,
+                variationOptions
+              );
               return {
                 kind: result.created ? "created" : "ignored",
-                variationCount: result.variationCount,
+                variationCount: Math.max(
+                  result.variationCount,
+                  variationHeaders.length
+                ),
                 siteId: entry.siteId,
                 tinyId: entry.tinyId,
                 nomeSite: entry.nomeSite,
                 nomeTiny: entry.nomeTiny,
                 matchMethod: entry.matchMethod,
+                variationOptions,
+                variationHeadersCount: variationHeaders.length,
               };
             }
 
-            const result = await updateExistingProduct(entry.siteId, detail);
+            const result = await updateExistingProduct(
+              entry.siteId,
+              detail,
+              variationOptions
+            );
             return {
               kind: result.updated ? "updated" : "ignored",
-              variationCount: result.variationCount,
+              variationCount: Math.max(
+                result.variationCount,
+                variationHeaders.length
+              ),
               changed: result.changed,
               siteStockBefore: result.siteStockBefore,
               tinyStock: result.tinyStock,
@@ -956,23 +1140,39 @@ async function stockBatch(entries: SiteSyncEntry[]) {
               matchMethod: entry.matchMethod,
               stockSource: result.stockSource,
               confirmed: result.confirmed,
+              variationOptions,
+              variationHeadersCount: variationHeaders.length,
             };
           }
 
           if (str(detail.situacao).toUpperCase() !== "E") {
-            const result = await createNewProduct(entry.tinyId, detail);
+            const result = await createNewProduct(
+              entry.tinyId,
+              detail,
+              variationOptions
+            );
             return {
               kind: result.created ? "created" : "ignored",
-              variationCount: result.variationCount,
+              variationCount: Math.max(
+                result.variationCount,
+                variationHeaders.length
+              ),
               siteId: entry.siteId,
               tinyId: entry.tinyId,
               nomeSite: entry.nomeSite,
               nomeTiny: entry.nomeTiny,
               matchMethod: entry.matchMethod,
+              variationOptions,
+              variationHeadersCount: variationHeaders.length,
             };
           }
 
-          return { kind: "ignored", variationCount: 0 };
+          return {
+            kind: "ignored",
+            variationCount: variationHeaders.length,
+            variationOptions,
+            variationHeadersCount: variationHeaders.length,
+          };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const rateLimited = /API 429|HTTP 429|rate limit/i.test(errorMessage);
@@ -997,7 +1197,9 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       else if (result.kind === "updated") atualizados += 1;
       else if (result.kind === "ignored") ignorados += 1;
       else falhas += 1;
+
       if (result.kind === "updated" && result.changed) estoqueAlterado += 1;
+
       if (result.tinyId) {
         diagnosticos.push({
           siteId: result.siteId,
@@ -1010,9 +1212,13 @@ async function stockBatch(entries: SiteSyncEntry[]) {
           estoqueMudou: Boolean(result.changed),
           stockSource: result.stockSource,
           confirmado: Boolean(result.confirmed),
+          variacoesDaListagem: result.variationHeadersCount || 0,
+          tamanhosSincronizados: result.variationOptions?.tamanhos || [],
+          coresSincronizadas: result.variationOptions?.cores || [],
           erro: result.error,
         });
       }
+
       variacoesProcessadas += result.variationCount || 0;
     }
 
@@ -1040,6 +1246,8 @@ async function stockBatch(entries: SiteSyncEntry[]) {
       falhas,
       estoqueAlterado,
       variacoesProcessadas,
+      produtosComVariacoesSincronizadas,
+      variacoesDetectadasNaListagem,
       processados: results.filter((result) => result.kind !== "failed" || !result.rateLimited).length,
       rateLimited,
       retryAfterMs: rateLimited ? 65000 : 0,
@@ -1157,6 +1365,7 @@ export async function POST(request: Request) {
             }))
             .filter((entry) => Boolean(entry.tinyId))
         : [];
+
       if (entries.length === 0) {
         return NextResponse.json(
           { success: false, error: "Nenhuma associação de produto foi enviada para a reconciliação completa." },
