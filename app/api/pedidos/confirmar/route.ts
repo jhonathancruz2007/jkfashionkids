@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { StatusPedido } from "@prisma/client";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const EMAIL_LOJA = "contato@jkfashionkids.com.br";
+const EMAIL_FROM = "JK Fashion Kids <contato@jkfashionkids.com.br>";
 
 const TINY_BASE_URL = "https://api.tiny.com.br/api2";
 
@@ -17,6 +22,191 @@ function normalizar(valor: unknown): string {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toUpperCase();
+}
+
+function escaparHtml(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatarMoeda(valor: unknown): string {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function montarEndereco(cliente: any): string {
+  if (!cliente) return "Não informado";
+
+  const partes = [
+    cliente.rua,
+    cliente.numero ? `nº ${cliente.numero}` : null,
+    cliente.complemento,
+    cliente.bairro,
+    cliente.cidade,
+    cliente.estado,
+    cliente.cep ? `CEP ${cliente.cep}` : null,
+  ].filter((parte) => String(parte ?? "").trim());
+
+  return partes.length > 0 ? partes.join(", ") : "Não informado";
+}
+
+async function enviarEmailsPedidoPago(
+  pedido: any,
+  transactionId: string | null = null
+) {
+  const cliente = pedido?.cliente;
+  const idCurto = String(pedido?.id || "").slice(0, 8) || "------";
+  const primeiroNome =
+    cliente?.nome?.trim()?.split(/\s+/)?.[0] || "Cliente";
+
+  const itens = Array.isArray(pedido?.itens) ? pedido.itens : [];
+  const total = Number(pedido?.total || 0);
+  const metodoPagamento =
+    String(pedido?.metodoPagamento || "Não informado").trim() ||
+    "Não informado";
+  const endereco = montarEndereco(cliente);
+
+  const linhasItens = itens
+    .map((item: any) => {
+      const nome = escaparHtml(
+        item?.produto?.nome || item?.nome || "Produto"
+      );
+      const quantidade = Number(item?.quantidade || 1);
+      const tamanho = item?.tamanho
+        ? ` · Tamanho: <strong>${escaparHtml(item.tamanho)}</strong>`
+        : "";
+      const cor = item?.cor
+        ? ` · Cor: <strong>${escaparHtml(item.cor)}</strong>`
+        : "";
+      const valorUnitario = Number(item?.precoUnitario || 0);
+      const subtotal = quantidade * valorUnitario;
+
+      return `
+        <tr>
+          <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
+            <strong>${quantidade}x ${nome}</strong><br />
+            <span style="font-size:12px;color:#64748b;">${tamanho}${cor}</span>
+          </td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;white-space:nowrap;">
+            ${formatarMoeda(valorUnitario)} / un.<br />
+            <strong>${formatarMoeda(subtotal)}</strong>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const linhasEndereco = escaparHtml(endereco);
+  const linhasCliente = {
+    nome: escaparHtml(cliente?.nome || "Não informado"),
+    email: escaparHtml(cliente?.email || "Não informado"),
+    telefone: escaparHtml(cliente?.telefone || "Não informado"),
+  };
+
+  const transactionHtml = transactionId
+    ? `<p style="margin:6px 0;"><strong>ID da transação:</strong> ${escaparHtml(transactionId)}</p>`
+    : `<p style="margin:6px 0;"><strong>ID da transação:</strong> Não informado</p>`;
+
+  const assuntoLoja = `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`;
+
+  try {
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: [EMAIL_LOJA],
+      subject: assuntoLoja,
+      html: `
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+          <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+            <div style="padding:24px;background:#111827;color:#ffffff;">
+              <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;opacity:.75;">JK Fashion Kids</div>
+              <h1 style="margin:6px 0 0;font-size:24px;">Novo pedido pago 📦</h1>
+              <p style="margin:8px 0 0;font-size:14px;opacity:.85;">Pedido #${escaparHtml(idCurto)} confirmado pelo sistema.</p>
+            </div>
+
+            <div style="padding:24px;">
+              <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Dados do cliente</h2>
+                <p style="margin:6px 0;"><strong>Nome:</strong> ${linhasCliente.nome}</p>
+                <p style="margin:6px 0;"><strong>E-mail:</strong> ${linhasCliente.email}</p>
+                <p style="margin:6px 0;"><strong>Telefone:</strong> ${linhasCliente.telefone}</p>
+                <p style="margin:6px 0;"><strong>Endereço:</strong> ${linhasEndereco}</p>
+              </div>
+
+              <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
+                <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
+                <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+                ${transactionHtml}
+                <p style="margin:6px 0;"><strong>Total do pedido:</strong> <span style="font-size:18px;font-weight:700;">${formatarMoeda(total)}</span></p>
+              </div>
+
+              <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Produtos comprados</h2>
+                <table style="width:100%;border-collapse:collapse;">
+                  <tbody>
+                    ${linhasItens || '<tr><td style="padding:10px 8px;">Nenhum item encontrado.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
+                Este e-mail foi enviado automaticamente após a confirmação do pagamento. A baixa do estoque local e a baixa correspondente no Tiny são processadas pelo fluxo de confirmação do pedido.
+              </div>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(`✅ [E-MAIL LOJA ENVIADO] Pedido #${idCurto}`);
+  } catch (error: any) {
+    console.error("❌ Erro ao enviar e-mail interno da loja:", error);
+  }
+
+  if (cliente?.email) {
+    try {
+      await resend.emails.send({
+        from: EMAIL_FROM,
+        to: [cliente.email],
+        subject: `Pagamento confirmado! Pedido #${idCurto}`,
+        html: `
+          <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+            <div style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
+              <h1 style="margin:0 0 8px;font-size:24px;">Olá, ${escaparHtml(primeiroNome)}! 🎉</h1>
+              <p style="margin:0 0 18px;">Seu pagamento foi confirmado para o pedido <strong>#${escaparHtml(idCurto)}</strong>.</p>
+
+              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Resumo da compra</h2>
+                <table style="width:100%;border-collapse:collapse;">
+                  <tbody>${linhasItens || '<tr><td style="padding:10px 0;">Nenhum item encontrado.</td></tr>'}</tbody>
+                </table>
+              </div>
+
+              <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+              <p style="margin:6px 0 16px;"><strong>Total:</strong> ${formatarMoeda(total)}</p>
+
+              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                <p style="margin:0 0 6px;"><strong>Endereço:</strong></p>
+                <p style="margin:0;color:#475569;line-height:1.6;">${linhasEndereco}</p>
+              </div>
+
+              <p style="margin:20px 0 0;color:#475569;">Já estamos preparando seu pedido. Obrigado por comprar com a <strong>JK Fashion Kids</strong>!</p>
+            </div>
+          </div>
+        `,
+      });
+
+      console.log(`✅ [E-MAIL CLIENTE ENVIADO] Para: ${cliente.email}`);
+    } catch (error: any) {
+      console.error("❌ Erro ao enviar e-mail para o cliente:", error);
+    }
+  }
 }
 
 function obterVariacoesTiny(produto: any): TinyVariacao[] {
@@ -295,7 +485,13 @@ async function sincronizarItemComTiny(
 
 export async function POST(req: Request) {
   try {
-    const { orderId } = await req.json();
+    const body = await req.json();
+    const orderId = body?.orderId;
+    const transactionId = body?.transactionId
+      ? String(body.transactionId)
+      : null;
+
+    let pedidoFoiConfirmadoAgora = false;
 
     if (!orderId) {
       return NextResponse.json(
@@ -307,7 +503,12 @@ export async function POST(req: Request) {
     let pedido = await prisma.pedido.findUnique({
       where: { id: String(orderId) },
       include: {
-        itens: true,
+        cliente: true,
+        itens: {
+          include: {
+            produto: true,
+          },
+        },
       },
     });
 
@@ -402,11 +603,20 @@ export async function POST(req: Request) {
         };
       });
 
+      if (!resultado.jaProcessado) {
+        pedidoFoiConfirmadoAgora = true;
+      }
+
       if (resultado.jaProcessado) {
         pedido = await prisma.pedido.findUnique({
           where: { id: String(orderId) },
           include: {
-            itens: true,
+            cliente: true,
+            itens: {
+              include: {
+                produto: true,
+              },
+            },
           },
         });
 
@@ -440,6 +650,12 @@ export async function POST(req: Request) {
     const falhasTiny = resultadosTiny.filter(
       (resultado) => !resultado.sucesso
     );
+
+    // Envia os e-mails somente na primeira confirmação efetiva do pedido.
+    // Recarregar a página de sucesso não dispara novos e-mails.
+    if (pedidoFoiConfirmadoAgora) {
+      await enviarEmailsPedidoPago(pedido, transactionId);
+    }
 
     return NextResponse.json({
       success: true,
