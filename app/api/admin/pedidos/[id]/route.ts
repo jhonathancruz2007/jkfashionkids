@@ -80,7 +80,8 @@ async function enviarPedidoParaTiny(pedido: any) {
         },
 
         formaPagamento:
-          'Site / Cartão / Pix',
+          pedido.metodoPagamento ||
+          'Não informado',
 
         itens: itensFormatados,
 
@@ -271,203 +272,153 @@ export async function PUT(
         )
 
       // ===================================================
-      // 2. E-MAIL DE CONFIRMAÇÃO PARA O CLIENTE
+      // 2. E-MAILS DE CONFIRMAÇÃO
+      //
+      // O fluxo principal de pagamento usa /api/pedidos/confirmar.
+      // Este PUT continua enviando os e-mails quando o admin muda
+      // manualmente o pedido para PAGO pela primeira vez.
       // ===================================================
-      if (cliente?.email) {
+
+      const clienteSeguro = (pedidoAtualizado as any).cliente || null
+      const itensPedido = (pedidoAtualizado as any).itens || []
+      const totalPedido = Number((pedidoAtualizado as any).total || 0)
+      const metodoPagamento =
+        String((pedidoAtualizado as any).metodoPagamento || 'Não informado').trim() ||
+        'Não informado'
+
+      const escaparHtml = (valor: any) =>
+        String(valor ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;')
+
+      const formatarMoeda = (valor: any) =>
+        Number(valor || 0).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        })
+
+      const endereco = [
+        clienteSeguro?.rua,
+        clienteSeguro?.numero ? `nº ${clienteSeguro.numero}` : null,
+        clienteSeguro?.complemento,
+        clienteSeguro?.bairro,
+        clienteSeguro?.cidade,
+        clienteSeguro?.estado,
+        clienteSeguro?.cep ? `CEP ${clienteSeguro.cep}` : null,
+      ]
+        .filter((item: any) => String(item ?? '').trim())
+        .join(', ') || 'Não informado'
+
+      let itensHtml = ''
+
+      for (const item of itensPedido) {
+        const nomeProduto = escaparHtml(
+          item?.produto?.nome || item?.nome || 'Produto'
+        )
+
+        const tamanho = item?.tamanho
+          ? ` · Tamanho: <strong>${escaparHtml(item.tamanho)}</strong>`
+          : ''
+
+        const cor = item?.cor
+          ? ` · Cor: <strong>${escaparHtml(item.cor)}</strong>`
+          : ''
+
+        const qtd = Number(item?.quantidade || 1)
+        const precoUnit = Number(item?.precoUnitario || 0)
+        const subtotal = qtd * precoUnit
+
+        itensHtml += `
+          <tr>
+            <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
+              <strong>${qtd}x ${nomeProduto}</strong><br/>
+              <span style="font-size:12px;color:#64748b;">${tamanho}${cor}</span>
+            </td>
+            <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;white-space:nowrap;">
+              ${formatarMoeda(precoUnit)} / un.<br/>
+              <strong>${formatarMoeda(subtotal)}</strong>
+            </td>
+          </tr>
+        `
+      }
+
+      if (clienteSeguro?.email) {
         try {
           await resend.emails.send({
-            from:
-              'JK Fashion Kids <contato@jkfashionkids.com.br>',
-
-            to: [
-              cliente.email,
-            ],
-
-            subject:
-              `Pagamento Aprovado! Pedido #${idCurto}`,
-
+            from: 'JK Fashion Kids <contato@jkfashionkids.com.br>',
+            to: [clienteSeguro.email],
+            subject: `Pagamento confirmado! Pedido #${idCurto}`,
             html: `
-              <div style="font-family: Arial, sans-serif; color: #333; padding: 20px;">
-                <h2>Olá, ${primeiroNome}! 🎉</h2>
-
-                <p>
-                  Recebemos a confirmação do pagamento
-                  do seu pedido
-                  <strong>#${idCurto}</strong>.
-                </p>
-
-                <p>
-                  Já estamos separando e preparando
-                  tudo com muito carinho para envio!
-                </p>
-
-                <hr
-                  style="
-                    border: none;
-                    border-top: 1px solid #eee;
-                    margin: 20px 0;
-                  "
-                />
-
-                <p>
-                  Obrigado por comprar conosco na
-                  <strong>JK Fashion Kids</strong>!
-                </p>
+              <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+                <div style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
+                  <h1 style="margin:0 0 8px;font-size:24px;">Olá, ${escaparHtml(String(clienteSeguro.nome || 'Cliente').split(/\s+/)[0])}! 🎉</h1>
+                  <p>Seu pagamento foi confirmado para o pedido <strong>#${escaparHtml(idCurto)}</strong>.</p>
+                  <h2 style="font-size:16px;">Resumo da compra</h2>
+                  <table style="width:100%;border-collapse:collapse;"><tbody>${itensHtml || '<tr><td>Nenhum item encontrado.</td></tr>'}</tbody></table>
+                  <p><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+                  <p><strong>Total:</strong> ${formatarMoeda(totalPedido)}</p>
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                    <p style="margin:0 0 6px;"><strong>Endereço:</strong></p>
+                    <p style="margin:0;color:#475569;line-height:1.6;">${escaparHtml(endereco)}</p>
+                  </div>
+                  <p style="margin-top:20px;">Obrigado por comprar com a <strong>JK Fashion Kids</strong>!</p>
+                </div>
               </div>
             `,
           })
 
-          console.log(
-            `✅ [E-MAIL CLIENTE ENVIADO] Para: ${cliente.email}`
-          )
+          console.log(`✅ [E-MAIL CLIENTE ENVIADO] Para: ${clienteSeguro.email}`)
         } catch (emailErr: any) {
-          console.error(
-            '❌ Erro ao enviar e-mail para o cliente:',
-            emailErr
-          )
+          console.error('❌ Erro ao enviar e-mail para o cliente:', emailErr)
         }
       }
 
-      // ===================================================
-      // 3. MONTA ITENS PARA E-MAIL INTERNO
-      // ===================================================
-      let itensHtml = ''
-
-      const itensPedido =
-        (pedidoAtualizado as any).itens || []
-
-      for (const item of itensPedido) {
-        const nomeProduto =
-          item.produto?.nome ||
-          item.nome ||
-          'Produto'
-
-        const tamanho =
-          item.tamanho
-            ? ` | Tamanho: <strong>${item.tamanho}</strong>`
-            : ''
-
-        const cor =
-          item.cor
-            ? ` | Cor: <strong>${item.cor}</strong>`
-            : ''
-
-        const qtd =
-          Number(item.quantidade || 1)
-
-        const precoUnit =
-          Number(
-            item.precoUnitario ||
-              item.preco ||
-              0
-          ).toFixed(2)
-
-        itensHtml += `
-          <li style="margin-bottom: 8px;">
-            <strong>${qtd}x</strong>
-            ${nomeProduto}
-            ${tamanho}
-            ${cor}
-            —
-            R$ ${precoUnit} un.
-          </li>
-        `
-      }
-
-      // ===================================================
-      // 4. E-MAIL INTERNO DA LOJA
-      // ===================================================
-      const emailLoja =
-        'contato@jkfashionkids.com.br'
+      const emailLoja = 'contato@jkfashionkids.com.br'
 
       try {
         await resend.emails.send({
-          from:
-            'JK Fashion Kids <contato@jkfashionkids.com.br>',
-
-          to: [
-            emailLoja,
-          ],
-
-          subject:
-            `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`,
-
+          from: 'JK Fashion Kids <contato@jkfashionkids.com.br>',
+          to: [emailLoja],
+          subject: `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`,
           html: `
-            <div
-              style="
-                font-family: Arial, sans-serif;
-                color: #333;
-                padding: 20px;
-              "
-            >
-              <h2 style="color: #2563eb;">
-                Novo Pedido Aprovado! 📦
-              </h2>
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+              <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+                <div style="padding:24px;background:#111827;color:#ffffff;">
+                  <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;opacity:.75;">JK Fashion Kids</div>
+                  <h1 style="margin:6px 0 0;font-size:24px;">Novo pedido pago 📦</h1>
+                </div>
+                <div style="padding:24px;">
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                    <h2 style="margin:0 0 10px;font-size:16px;">Cliente</h2>
+                    <p style="margin:6px 0;"><strong>Nome:</strong> ${escaparHtml(clienteSeguro?.nome || 'Não informado')}</p>
+                    <p style="margin:6px 0;"><strong>E-mail:</strong> ${escaparHtml(clienteSeguro?.email || 'Não informado')}</p>
+                    <p style="margin:6px 0;"><strong>Telefone:</strong> ${escaparHtml(clienteSeguro?.telefone || 'Não informado')}</p>
+                    <p style="margin:6px 0;"><strong>Endereço:</strong> ${escaparHtml(endereco)}</p>
+                  </div>
 
-              <p>
-                O pagamento do pedido
-                <strong>#${idCurto}</strong>
-                foi confirmado.
-              </p>
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                    <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
+                    <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
+                    <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+                    <p style="margin:6px 0;"><strong>Total:</strong> <span style="font-size:18px;font-weight:700;">${formatarMoeda(totalPedido)}</span></p>
+                  </div>
 
-              <p>
-                A integração do pedido com o Tiny
-                foi processada.
-              </p>
-
-              <div
-                style="
-                  background-color: #f8fafc;
-                  padding: 15px;
-                  border-radius: 6px;
-                  margin: 15px 0;
-                "
-              >
-                <p style="margin: 0 0 10px 0;">
-                  <strong>Cliente:</strong>
-                  ${cliente?.nome || 'Não informado'}
-                  (${cliente?.telefone || 'Sem tel'})
-                </p>
-
-                <p style="margin: 0;">
-                  <strong>Itens Comprados:</strong>
-                </p>
-
-                <ul
-                  style="
-                    padding-left: 20px;
-                    margin-top: 5px;
-                  "
-                >
-                  ${itensHtml}
-                </ul>
+                  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                    <h2 style="margin:0 0 10px;font-size:16px;">Produtos comprados</h2>
+                    <table style="width:100%;border-collapse:collapse;"><tbody>${itensHtml || '<tr><td>Nenhum item encontrado.</td></tr>'}</tbody></table>
+                  </div>
+                </div>
               </div>
-
-              <p
-                style="
-                  font-size: 12px;
-                  color: #64748b;
-                "
-              >
-                Este é um aviso automático
-                gerado pelo sistema integrado
-                da sua loja.
-              </p>
             </div>
           `,
         })
 
-        console.log(
-          `✅ [E-MAIL LOJA ENVIADO] Para: ${emailLoja}`
-        )
+        console.log(`✅ [E-MAIL LOJA ENVIADO] Para: ${emailLoja}`)
       } catch (lojaErr: any) {
-        // CORRIGIDO:
-        // antes estava usando "emailErr",
-        // que não existe neste escopo.
-        console.error(
-          '❌ Erro ao enviar e-mail interno para a loja:',
-          lojaErr
-        )
+        console.error('❌ Erro ao enviar e-mail interno para a loja:', lojaErr)
       }
     }
 
