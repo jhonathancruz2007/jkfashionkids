@@ -15,8 +15,7 @@ export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 
-// v21 = nova estrutura de leitura das variações.
-// Trocar a versão força a reconstrução do cache do catálogo.
+// v21 = cache atualizado para a nova regra de variações.
 const TINY_CATALOG_CACHE_KEY =
   "jkfashion:olist:v3:catalog:canonical:v21";
 
@@ -26,7 +25,8 @@ const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
 
 // Janela usada apenas para descobrir produtos novos no modo rápido.
 // Não controla a atualização de estoque dos produtos já cadastrados.
-const QUICK_NEW_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const QUICK_NEW_LOOKBACK_MS =
+  30 * 24 * 60 * 60 * 1000;
 
 const API_READ_BATCH_SIZE = 4;
 const DETAIL_CONCURRENCY = 2;
@@ -51,7 +51,8 @@ type TinyListItem = {
     id?: number | null;
   } | null;
 
-  // Em algumas respostas da API a grade também pode vir no item da listagem.
+  // Em algumas respostas da API a grade também pode vir
+  // no item da listagem.
   grade?: TinyGrade;
 };
 
@@ -66,11 +67,8 @@ type TinyGrade =
 
 type TinyVariation = {
   id?: number;
-
   descricao?: string | null;
-
   sku?: string | null;
-
   gtin?: string | null;
 
   estoque?: {
@@ -82,15 +80,10 @@ type TinyVariation = {
 
 type TinyDetail = {
   id?: number | null;
-
   sku?: string | null;
-
   descricao?: string | null;
-
   tipo?: string | null;
-
   descricaoComplementar?: string | null;
-
   situacao?: string | null;
 
   categoria?: {
@@ -115,7 +108,6 @@ type TinyDetail = {
   }> | null;
 
   variacoes?: any[] | null;
-
   variations?: any[] | null;
 
   produto?: {
@@ -143,15 +135,10 @@ type TinyListResponse = {
 
 type TinyStockResponse = {
   id?: number | null;
-
   nome?: string | null;
-
   codigo?: string | null;
-
   saldo?: number | null;
-
   reservado?: number | null;
-
   disponivel?: number | null;
 
   depositos?: Array<{
@@ -194,31 +181,53 @@ type SiteSyncEntry = {
 
   isNew?: boolean;
 
-  matchMethod?: "redis" | "id" | "nome" | "similaridade" | "novo";
+  matchMethod?:
+    | "redis"
+    | "id"
+    | "nome"
+    | "similaridade"
+    | "novo";
 };
 
 function str(value: unknown): string {
-  return value == null ? "" : String(value).trim();
+  return value == null
+    ? ""
+    : String(value).trim();
 }
 
 function num(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
     return value;
   }
 
-  if (value == null || value === "") {
+  if (
+    value == null ||
+    value === ""
+  ) {
     return null;
   }
 
-  const parsed = Number(String(value).replace(",", "."));
+  const parsed = Number(
+    String(value).replace(",", ".")
+  );
 
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
 }
 
-function safeNonNegativeInt(value: unknown): number | null {
+function safeNonNegativeInt(
+  value: unknown
+): number | null {
   const n = num(value);
 
-  if (n == null || n < 0) {
+  if (
+    n == null ||
+    n < 0
+  ) {
     return null;
   }
 
@@ -233,42 +242,72 @@ function normalize(value: string): string {
     .trim();
 }
 
-function tokenizeName(value: string): string[] {
+function tokenizeName(
+  value: string
+): string[] {
   return normalize(value)
     .replace(/[^a-z0-9]+/g, " ")
     .split(" ")
-    .filter((token) => token.length >= 2);
+    .filter(
+      (token) =>
+        token.length >= 2
+    );
 }
 
-function nameSimilarity(a: string, b: string): number {
-  const aa = new Set(tokenizeName(a));
-  const bb = new Set(tokenizeName(b));
+function nameSimilarity(
+  a: string,
+  b: string
+): number {
+  const aa = new Set(
+    tokenizeName(a)
+  );
 
-  if (aa.size === 0 || bb.size === 0) {
+  const bb = new Set(
+    tokenizeName(b)
+  );
+
+  if (
+    aa.size === 0 ||
+    bb.size === 0
+  ) {
     return 0;
   }
 
   let intersection = 0;
 
   for (const token of aa) {
-    if (bb.has(token)) {
+    if (
+      bb.has(token)
+    ) {
       intersection += 1;
     }
   }
 
-  const union = new Set([...aa, ...bb]).size;
+  const union =
+    new Set([
+      ...aa,
+      ...bb,
+    ]).size;
 
-  const jaccard = union ? intersection / union : 0;
+  const jaccard =
+    union
+      ? intersection / union
+      : 0;
 
   const na = normalize(a);
   const nb = normalize(b);
 
   const containsBonus =
-    na.includes(nb) || nb.includes(na)
+    na.includes(nb) ||
+    nb.includes(na)
       ? 0.15
       : 0;
 
-  return Math.min(1, jaccard + containsBonus);
+  return Math.min(
+    1,
+    jaccard +
+      containsBonus
+  );
 }
 
 async function getStoredTinyId(
@@ -276,7 +315,9 @@ async function getStoredTinyId(
 ): Promise<string | null> {
   return redisGetJson<string>(
     `${SITE_TINY_MAP_PREFIX}${siteId}`
-  ).catch(() => null);
+  ).catch(
+    () => null
+  );
 }
 
 async function setStoredTinyId(
@@ -287,32 +328,52 @@ async function setStoredTinyId(
     `${SITE_TINY_MAP_PREFIX}${siteId}`,
     tinyId,
     365 * 24 * 60 * 60
-  ).catch(() => undefined);
+  ).catch(
+    () => undefined
+  );
 }
 
-function sortSizes(values: string[]): string[] {
-  const order = new Map<string, number>([
-    ["pp", 1],
-    ["p", 2],
-    ["m", 3],
-    ["g", 4],
-    ["gg", 5],
-    ["xg", 6],
-    ["xxg", 7],
-  ]);
+function sortSizes(
+  values: string[]
+): string[] {
+  const order =
+    new Map<string, number>([
+      ["pp", 1],
+      ["p", 2],
+      ["m", 3],
+      ["g", 4],
+      ["gg", 5],
+      ["xg", 6],
+      ["xxg", 7],
+    ]);
 
-  return [...new Set(values)].sort((a, b) => {
+  return [
+    ...new Set(values),
+  ].sort((a, b) => {
     const na = Number(a);
     const nb = Number(b);
 
-    if (Number.isFinite(na) && Number.isFinite(nb)) {
+    if (
+      Number.isFinite(na) &&
+      Number.isFinite(nb)
+    ) {
       return na - nb;
     }
 
-    const oa = order.get(normalize(a));
-    const ob = order.get(normalize(b));
+    const oa =
+      order.get(
+        normalize(a)
+      );
 
-    if (oa != null && ob != null) {
+    const ob =
+      order.get(
+        normalize(b)
+      );
+
+    if (
+      oa != null &&
+      ob != null
+    ) {
       return oa - ob;
     }
 
@@ -324,16 +385,23 @@ function sortSizes(values: string[]): string[] {
       return 1;
     }
 
-    return a.localeCompare(b, "pt-BR", {
-      numeric: true,
-    });
+    return a.localeCompare(
+      b,
+      "pt-BR",
+      {
+        numeric: true,
+      }
+    );
   });
 }
 
-function getVariationObject(rawVariation: any): any {
+function getVariationObject(
+  rawVariation: any
+): any {
   if (
     rawVariation &&
-    typeof rawVariation === "object"
+    typeof rawVariation ===
+      "object"
   ) {
     return (
       rawVariation.variacao ||
@@ -351,12 +419,18 @@ function getRawVariationsFromDetail(
   const candidates = [
     (detail as any)?.variacoes,
     (detail as any)?.variations,
-    (detail as any)?.produto?.variacoes,
-    (detail as any)?.produto?.variations,
+    (detail as any)?.produto
+      ?.variacoes,
+    (detail as any)?.produto
+      ?.variations,
   ];
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
+  for (
+    const candidate of candidates
+  ) {
+    if (
+      Array.isArray(candidate)
+    ) {
       return candidate;
     }
   }
@@ -366,48 +440,26 @@ function getRawVariationsFromDetail(
 
 /**
  * =============================================================
- * INTERPRETAÇÃO DA GRADE DO TINY / OLIST
+ * PARSE DA GRADE
  * =============================================================
  *
  * REGRA:
  *
- * - somente uma característica cujo nome seja de tamanho
- *   será enviada para "tamanho";
+ * SOMENTE grades de tamanho são consideradas "tamanho".
  *
- * - qualquer outra característica encontrada será tratada
- *   como "cor".
+ * Qualquer outra grade será considerada "cor".
  *
  * Exemplos:
  *
  * Tamanho + Modelo
- *   10 + CORAÇÃO
- *   10 + PRETTY
- *
- * vira:
- *
- * tamanho = 10
- * cor = CORAÇÃO
- *
- *
  * Tamanho + Estampa
- *   M + FLORAL
+ * Tamanho + Personagem
+ * Tamanho + Tema
+ * Tamanho + Cor
+ * Tamanho + Material
+ * Tamanho + qualquer outro campo
  *
- * vira:
- *
- * tamanho = M
- * cor = FLORAL
- *
- *
- * Tamanho + Modelo + Estampa
- *   10 + CORAÇÃO + ROSA
- *
- * vira:
- *
- * tamanho = 10
- * cor = CORAÇÃO / ROSA
- *
- * Portanto o site não precisa conhecer os nomes das grades
- * utilizadas no Tiny.
+ * Tudo que não for tamanho será tratado como "cor".
  */
 function parseGrade(
   grade: TinyGrade,
@@ -420,118 +472,122 @@ function parseGrade(
 } {
   let tamanho = "";
 
-  // Todas as características diferentes de tamanho
-  // serão armazenadas aqui.
   const corValues: string[] = [];
 
-  const knownSizeMap = new Map(
-    knownSizes.map((v) => [
-      normalize(v),
-      v,
-    ])
-  );
+  const knownSizeMap =
+    new Map(
+      knownSizes.map(
+        (v) => [
+          normalize(v),
+          v,
+        ]
+      )
+    );
 
-  const knownColorMap = new Map(
-    knownColors.map((v) => [
-      normalize(v),
-      v,
-    ])
-  );
+  const knownColorMap =
+    new Map(
+      knownColors.map(
+        (v) => [
+          normalize(v),
+          v,
+        ]
+      )
+    );
 
   /**
-   * Adiciona uma opção de variação na coleção de "cores".
+   * Adiciona uma opção no campo "cor".
    */
-  const addCor = (valueRaw: unknown) => {
-    const value = str(valueRaw);
+  const addCor = (
+    valueRaw: unknown
+  ) => {
+    const value =
+      str(valueRaw);
 
     if (!value) {
       return;
     }
 
-    const normalizedValue = normalize(value);
+    const normalizedValue =
+      normalize(value);
 
-    // Preserva a grafia que já existe no site,
-    // quando o valor já estiver cadastrado.
+    // Se o site já possui essa opção,
+    // preserva a forma já cadastrada.
     const knownColor =
-      knownColorMap.get(normalizedValue);
+      knownColorMap.get(
+        normalizedValue
+      );
 
     const finalValue =
-      knownColor || value;
+      knownColor ||
+      value;
 
     if (
       finalValue &&
       !corValues.some(
         (existing) =>
-          normalize(existing) ===
-          normalize(finalValue)
+          normalize(
+            existing
+          ) ===
+          normalize(
+            finalValue
+          )
       )
     ) {
-      corValues.push(finalValue);
+      corValues.push(
+        finalValue
+      );
     }
   };
 
   /**
-   * Lê uma chave/valor da grade.
+   * Lê chave + valor da grade.
    */
   const inspect = (
     keyRaw: unknown,
     valueRaw: unknown
   ) => {
-    const key = normalize(str(keyRaw));
-    const value = str(valueRaw);
+    const key =
+      normalize(
+        str(keyRaw)
+      );
+
+    const value =
+      str(valueRaw);
 
     if (!value) {
       return;
     }
 
-    // =========================================================
+    // ==========================================================
     // TAMANHO
-    // =========================================================
+    // ==========================================================
     //
-    // Só reconhecemos como tamanho quando a chave da grade
-    // realmente indica tamanho.
-    //
-    // Tamanho
-    // Tam
-    // Size
-    //
-    // Todo o resto é tratado como variação/cor.
+    // Só essas chaves são tratadas como tamanho.
     //
     const isSizeKey =
-      key.includes("tamanho") ||
+      key.includes(
+        "tamanho"
+      ) ||
       key === "tam" ||
-      key.includes("size");
+      key.includes(
+        "size"
+      );
 
     if (isSizeKey) {
       tamanho = value;
+
       return;
     }
 
-    // =========================================================
-    // QUALQUER OUTRA VARIAÇÃO
-    // =========================================================
-    //
-    // Não importa o nome:
-    //
-    // Cor
-    // Modelo
-    // Estampa
-    // Tema
-    // Personagem
-    // Material
-    // Voltagem
-    // Coleção
-    // Versão
-    // etc.
-    //
-    // Tudo será armazenado no campo "cores".
-    //
+    // ==========================================================
+    // QUALQUER OUTRA CARACTERÍSTICA = COR
+    // ==========================================================
     addCor(value);
   };
 
-  // ===========================================================
+  // ============================================================
   // GRADE EM ARRAY
-  // ===========================================================
+  // ============================================================
   //
   // Exemplo:
   //
@@ -540,8 +596,12 @@ function parseGrade(
   //   { chave: "Modelo", valor: "CORAÇÃO" }
   // ]
   //
-  if (Array.isArray(grade)) {
-    for (const item of grade) {
+  if (
+    Array.isArray(grade)
+  ) {
+    for (
+      const item of grade
+    ) {
       inspect(
         item?.chave,
         item?.valor
@@ -549,9 +609,9 @@ function parseGrade(
     }
   }
 
-  // ===========================================================
+  // ============================================================
   // GRADE EM OBJETO
-  // ===========================================================
+  // ============================================================
   //
   // Exemplo:
   //
@@ -562,10 +622,14 @@ function parseGrade(
   //
   else if (
     grade &&
-    typeof grade === "object"
+    typeof grade ===
+      "object"
   ) {
     const gradeObj =
-      grade as Record<string, unknown>;
+      grade as Record<
+        string,
+        unknown
+      >;
 
     // Também aceita:
     //
@@ -575,8 +639,10 @@ function parseGrade(
     // }
     //
     if (
-      "chave" in gradeObj &&
-      "valor" in gradeObj
+      "chave" in
+        gradeObj &&
+      "valor" in
+        gradeObj
     ) {
       inspect(
         gradeObj.chave,
@@ -584,9 +650,12 @@ function parseGrade(
       );
     }
 
-    for (const [key, value] of Object.entries(
-      gradeObj
-    )) {
+    for (
+      const [key, value] of
+      Object.entries(
+        gradeObj
+      )
+    ) {
       if (
         key === "chave" ||
         key === "valor"
@@ -594,7 +663,7 @@ function parseGrade(
         continue;
       }
 
-      // Exemplo:
+      // Aceita estruturas aninhadas:
       //
       // {
       //   Tamanho: {
@@ -604,13 +673,22 @@ function parseGrade(
       //
       if (
         value &&
-        typeof value === "object" &&
-        !Array.isArray(value)
+        typeof value ===
+          "object" &&
+        !Array.isArray(
+          value
+        )
       ) {
         const nested =
-          value as Record<string, unknown>;
+          value as Record<
+            string,
+            unknown
+          >;
 
-        if ("valor" in nested) {
+        if (
+          "valor" in
+            nested
+        ) {
           inspect(
             key,
             nested.valor
@@ -620,16 +698,16 @@ function parseGrade(
         }
       }
 
-      inspect(key, value);
+      inspect(
+        key,
+        value
+      );
     }
   }
 
-  // ===========================================================
-  // FALLBACK PELA DESCRIÇÃO
-  // ===========================================================
-  //
-  // Caso a grade não tenha vindo estruturada,
-  // tentamos interpretar a descrição.
+  // ============================================================
+  // FALLBACK PELA DESCRIÇÃO DA VARIAÇÃO
+  // ============================================================
   //
   // Exemplos:
   //
@@ -641,23 +719,28 @@ function parseGrade(
     !tamanho ||
     corValues.length === 0
   ) {
-    const parts = descricao
-      .split(
-        /\s+-\s+|\s*\|\s*|\s+\/\s+/
-      )
-      .map((part) => part.trim())
-      .filter(Boolean);
+    const parts =
+      descricao
+        .split(
+          /\s+-\s+|\s*\|\s*|\s+\/\s+/
+        )
+        .map(
+          (part) =>
+            part.trim()
+        )
+        .filter(Boolean);
 
-    // ---------------------------------------------------------
-    // Tenta encontrar um tamanho conhecido.
-    // ---------------------------------------------------------
+    // ----------------------------------------------------------
+    // Procura tamanho
+    // ----------------------------------------------------------
     if (!tamanho) {
-      for (const part of parts) {
+      for (
+        const part of parts
+      ) {
         const normalizedPart =
           normalize(part);
 
-        // Primeiro verifica se o site já conhece
-        // esse tamanho.
+        // Primeiro tenta tamanhos já conhecidos.
         if (
           knownSizeMap.has(
             normalizedPart
@@ -671,22 +754,23 @@ function parseGrade(
           break;
         }
 
-        // Depois verifica os formatos de tamanho
-        // mais comuns.
+        // Depois tenta padrões comuns.
         if (
           /^(rn|pp|p|m|g|gg|xg|xxg|xgg|eg|egg|exg|\d{1,2})$/i.test(
             normalizedPart
           )
         ) {
-          tamanho = part;
+          tamanho =
+            part;
+
           break;
         }
       }
     }
 
-    // ---------------------------------------------------------
-    // Tudo que não for o tamanho vira "cor".
-    // ---------------------------------------------------------
+    // ----------------------------------------------------------
+    // Tudo que não for tamanho vira "cor".
+    // ----------------------------------------------------------
     if (
       corValues.length === 0 &&
       parts.length > 0
@@ -694,7 +778,9 @@ function parseGrade(
       const normalizedTamanho =
         normalize(tamanho);
 
-      for (const part of parts) {
+      for (
+        const part of parts
+      ) {
         if (
           tamanho &&
           normalize(part) ===
@@ -708,33 +794,42 @@ function parseGrade(
     }
   }
 
-  // ===========================================================
-  // ÚLTIMO FALLBACK
-  // ===========================================================
+  // ============================================================
+  // SEGUNDO FALLBACK
+  // ============================================================
   //
-  // Proteção para formatos como:
-  //
-  // Produto - 10 - CORAÇÃO
+  // Protege formatos como:
   //
   // Produto - CORAÇÃO - 10
+  // Produto - 10 - CORAÇÃO
   //
   if (
     (!tamanho ||
-      corValues.length === 0) &&
+      corValues.length ===
+        0) &&
     descricao
   ) {
-    const parts = descricao
-      .split(
-        /\s+-\s+|\s*\|\s*|\s+\/\s+/
-      )
-      .map((part) => part.trim())
-      .filter(Boolean);
+    const parts =
+      descricao
+        .split(
+          /\s+-\s+|\s*\|\s*|\s+\/\s+/
+        )
+        .map(
+          (part) =>
+            part.trim()
+        )
+        .filter(Boolean);
 
-    if (parts.length >= 2) {
+    if (
+      parts.length >= 2
+    ) {
       const candidates =
         [...parts].reverse();
 
-      for (const candidate of candidates) {
+      for (
+        const candidate of
+        candidates
+      ) {
         const normalizedCandidate =
           normalize(candidate);
 
@@ -746,22 +841,29 @@ function parseGrade(
             normalizedCandidate
           );
 
-        if (!tamanho && isSize) {
+        if (
+          !tamanho &&
+          isSize
+        ) {
           tamanho =
             knownSizeMap.get(
               normalizedCandidate
-            ) || candidate;
+            ) ||
+            candidate;
 
           continue;
         }
 
         if (!isSize) {
-          addCor(candidate);
+          addCor(
+            candidate
+          );
         }
 
         if (
           tamanho &&
-          corValues.length > 0
+          corValues.length >
+            0
         ) {
           break;
         }
@@ -769,47 +871,52 @@ function parseGrade(
     }
   }
 
-  // ===========================================================
-  // Resultado final
-  // ===========================================================
+  // ============================================================
+  // RESULTADO
+  // ============================================================
   //
-  // Se houver uma única variação:
+  // Exemplo:
   //
-  // CORAÇÃO
-  //
-  // retorna:
-  //
-  // cor = "CORAÇÃO"
-  //
-  // Se houver mais de uma:
-  //
-  // CORAÇÃO
-  // ROSA
+  // Modelo = CORAÇÃO
   //
   // retorna:
   //
-  // cor = "CORAÇÃO / ROSA"
+  // cor = CORAÇÃO
   //
-  const cor = [
-    ...new Set(
-      corValues
-        .map((value) => value.trim())
-        .filter(Boolean)
-    ),
-  ].join(" / ");
+  // Se houver mais de uma característica:
+  //
+  // Modelo = CORAÇÃO
+  // Estampa = ROSA
+  //
+  // retorna:
+  //
+  // cor = CORAÇÃO / ROSA
+  //
+  const cor =
+    [
+      ...new Set(
+        corValues
+          .map(
+            (value) =>
+              value.trim()
+          )
+          .filter(Boolean)
+      ),
+    ].join(" / ");
 
   return {
-    tamanho: tamanho.trim(),
-    cor,
+    tamanho:
+      tamanho.trim(),
+
+    cor:
+      cor.trim(),
   };
 }
 
 /**
- * Extrai somente as opções de variação
- * (tamanhos e "cores") de TODAS as variações
- * conhecidas do produto.
- *
- * Esta rotina é separada da lógica de estoque.
+ * =============================================================
+ * EXTRAI OPÇÕES DE TODAS AS VARIAÇÕES
+ * =============================================================
  */
 function extractVariationAttributes(
   detail: TinyDetail,
@@ -817,27 +924,103 @@ function extractVariationAttributes(
   knownSizes: string[] = [],
   knownColors: string[] = []
 ): VariationAttributes {
-  const sizes = new Set<string>();
-  const colors = new Set<string>();
+  const sizes =
+    new Set<string>();
 
+  const colors =
+    new Set<string>();
+
+  // ===========================================================
+  // NOME PRINCIPAL DO PRODUTO
+  // ===========================================================
+  //
+  // Usado para impedir que o próprio nome do produto
+  // seja salvo como "cor".
+  //
+  // Exemplo:
+  //
+  // Produto:
+  // CONJUNTO FEM VERÃO BIAWI
+  //
+  // Variação:
+  // CONJUNTO FEM VERÃO BIAWI
+  //
+  // Essa variação será ignorada.
+  //
+  const productName =
+    normalize(
+      str(
+        detail.descricao
+      )
+    );
+
+  /**
+   * Verifica se o valor da variação é igual ao nome
+   * do produto.
+   */
+  const shouldIgnoreColor = (
+    value: string
+  ): boolean => {
+    const normalizedValue =
+      normalize(value);
+
+    if (
+      !normalizedValue
+    ) {
+      return true;
+    }
+
+    // Se a variação é exatamente igual ao nome
+    // do produto, não é uma opção real.
+    if (
+      productName &&
+      normalizedValue ===
+        productName
+    ) {
+      return true;
+    }
+
+    return false;
+  };
+
+  /**
+   * Consome uma grade.
+   */
   const consume = (
     grade: TinyGrade,
     descricao: unknown
   ) => {
-    const parsed = parseGrade(
-      grade,
-      str(descricao),
-      knownSizes,
-      knownColors
-    );
+    const parsed =
+      parseGrade(
+        grade,
+        str(descricao),
+        knownSizes,
+        knownColors
+      );
 
-    if (parsed.tamanho) {
+    // =========================================================
+    // TAMANHO
+    // =========================================================
+    if (
+      parsed.tamanho
+    ) {
       sizes.add(
         parsed.tamanho.trim()
       );
     }
 
-    if (parsed.cor) {
+    // =========================================================
+    // COR / MODELO / QUALQUER OUTRA VARIAÇÃO
+    // =========================================================
+    //
+    // Só adiciona se não for igual ao nome do produto.
+    //
+    if (
+      parsed.cor &&
+      !shouldIgnoreColor(
+        parsed.cor
+      )
+    ) {
       colors.add(
         parsed.cor.trim()
       );
@@ -845,11 +1028,13 @@ function extractVariationAttributes(
   };
 
   // ===========================================================
-  // Variações retornadas dentro do detalhe do produto pai.
+  // Variações presentes dentro do detalhe do produto.
   // ===========================================================
   for (
     const rawVariation of
-    getRawVariationsFromDetail(detail)
+    getRawVariationsFromDetail(
+      detail
+    )
   ) {
     const variation =
       getVariationObject(
@@ -858,19 +1043,25 @@ function extractVariationAttributes(
 
     consume(
       variation?.grade,
+
       str(
         variation?.descricao
       ) ||
-        str(variation?.nome) ||
-        str(variation?.titulo)
+        str(
+          variation?.nome
+        ) ||
+        str(
+          variation?.titulo
+        )
     );
   }
 
   // ===========================================================
-  // Variações da listagem geral.
+  // Variações presentes na listagem geral.
   // ===========================================================
   for (
-    const rawVariation of variationHeaders
+    const rawVariation of
+    variationHeaders
   ) {
     const variation =
       getVariationObject(
@@ -879,31 +1070,39 @@ function extractVariationAttributes(
 
     consume(
       variation?.grade,
+
       str(
         variation?.descricao
       ) ||
-        str(variation?.nome) ||
-        str(variation?.titulo)
+        str(
+          variation?.nome
+        ) ||
+        str(
+          variation?.titulo
+        )
     );
   }
 
   return {
-    tamanhos: sortSizes([
-      ...sizes,
-    ]),
+    tamanhos:
+      sortSizes([
+        ...sizes,
+      ]),
 
-    cores: [
-      ...colors,
-    ].sort(
-      (a, b) =>
-        a.localeCompare(
-          b,
-          "pt-BR",
-          {
-            sensitivity: "base",
-          }
-        )
-    ),
+    cores:
+      [
+        ...colors,
+      ].sort(
+        (a, b) =>
+          a.localeCompare(
+            b,
+            "pt-BR",
+            {
+              sensitivity:
+                "base",
+            }
+          )
+      ),
   };
 }
 
@@ -919,7 +1118,9 @@ function buildVariationHeadersByParent(
       TinyListItem[]
     >();
 
-  for (const item of tinyHeaders) {
+  for (
+    const item of tinyHeaders
+  ) {
     const tipoVariacao =
       normalize(
         str(
@@ -927,13 +1128,17 @@ function buildVariationHeadersByParent(
         )
       );
 
-    if (tipoVariacao !== "v") {
+    if (
+      tipoVariacao !==
+      "v"
+    ) {
       continue;
     }
 
-    const parentId = str(
-      item.produtoPai?.id
-    );
+    const parentId =
+      str(
+        item.produtoPai?.id
+      );
 
     const variationId =
       canonicalId(item);
@@ -946,12 +1151,16 @@ function buildVariationHeadersByParent(
     }
 
     const current =
-      result.get(parentId) || [];
+      result.get(
+        parentId
+      ) || [];
 
     if (
       !current.some(
         (existing) =>
-          canonicalId(existing) ===
+          canonicalId(
+            existing
+          ) ===
           variationId
       )
     ) {
@@ -972,6 +1181,7 @@ function aggregateDetail(
   knownSizes: string[] = [],
   knownColors: string[] = []
 ): StockAggregate | null {
+  // Mantida a regra original do estoque.
   const variations =
     Array.isArray(
       detail.variacoes
@@ -982,13 +1192,19 @@ function aggregateDetail(
   // ===========================================================
   // PRODUTO SEM VARIAÇÕES
   // ===========================================================
-  if (variations.length === 0) {
+  if (
+    variations.length ===
+    0
+  ) {
     const qty =
       safeNonNegativeInt(
-        detail.estoque?.quantidade
+        detail.estoque
+          ?.quantidade
       );
 
-    if (qty == null) {
+    if (
+      qty == null
+    ) {
       return null;
     }
 
@@ -999,13 +1215,17 @@ function aggregateDetail(
 
       cores: [],
 
-      estoquePorTamanho: {},
+      estoquePorTamanho:
+        {},
 
-      estoquePorCor: {},
+      estoquePorCor:
+        {},
 
-      variationCount: 0,
+      variationCount:
+        0,
 
-      matrixComplete: true,
+      matrixComplete:
+        true,
     };
   }
 
@@ -1024,33 +1244,54 @@ function aggregateDetail(
     new Set<string>();
 
   const bySize =
-    new Map<string, number>();
+    new Map<
+      string,
+      number
+    >();
 
   const matrixByColor:
     Record<
       string,
-      Record<string, number>
+      Record<
+        string,
+        number
+      >
     > = {};
 
   const colorTotals =
-    new Map<string, number>();
+    new Map<
+      string,
+      number
+    >();
 
-  for (const variation of variations) {
+  for (
+    const variation of
+    variations
+  ) {
     const qty =
       safeNonNegativeInt(
         variation.estoque
           ?.quantidade
       );
 
-    if (qty == null) {
+    if (
+      qty == null
+    ) {
       todasQuantidadesValidas =
         false;
 
       continue;
     }
 
-    totalVariacoes += qty;
+    totalVariacoes +=
+      qty;
 
+    // =========================================================
+    // Agora o parse reconhece:
+    //
+    // Tamanho -> tamanho
+    // Qualquer outra característica -> cor
+    // =========================================================
     const grade =
       parseGrade(
         variation.grade,
@@ -1061,8 +1302,6 @@ function aggregateDetail(
         knownColors
       );
 
-    // Se não conseguiu reconhecer absolutamente
-    // nenhuma característica da grade.
     if (
       !grade.tamanho &&
       !grade.cor
@@ -1074,13 +1313,16 @@ function aggregateDetail(
     // =========================================================
     // TAMANHO
     // =========================================================
-    if (grade.tamanho) {
+    if (
+      grade.tamanho
+    ) {
       sizes.add(
         grade.tamanho
       );
 
       bySize.set(
         grade.tamanho,
+
         (
           bySize.get(
             grade.tamanho
@@ -1092,13 +1334,16 @@ function aggregateDetail(
     // =========================================================
     // QUALQUER OUTRA VARIAÇÃO = COR
     // =========================================================
-    if (grade.cor) {
+    if (
+      grade.cor
+    ) {
       colors.add(
         grade.cor
       );
 
       colorTotals.set(
         grade.cor,
+
         (
           colorTotals.get(
             grade.cor
@@ -1106,15 +1351,18 @@ function aggregateDetail(
         ) + qty
       );
 
-      if (grade.tamanho) {
+      if (
+        grade.tamanho
+      ) {
         matrixByColor[
           grade.cor
         ] ||= {};
 
         matrixByColor[
           grade.cor
-        ][grade.tamanho] =
-          qty;
+        ][
+          grade.tamanho
+        ] = qty;
       }
     }
   }
@@ -1127,7 +1375,8 @@ function aggregateDetail(
   //
   const parentQty =
     safeNonNegativeInt(
-      detail.estoque?.quantidade
+      detail.estoque
+        ?.quantidade
     );
 
   const estoqueTotal =
@@ -1138,7 +1387,9 @@ function aggregateDetail(
         ? totalVariacoes
         : parentQty;
 
-  if (estoqueTotal == null) {
+  if (
+    estoqueTotal == null
+  ) {
     return null;
   }
 
@@ -1159,7 +1410,10 @@ function aggregateDetail(
     );
 
   let estoquePorCor:
-    Record<string, any> = {};
+    Record<
+      string,
+      any
+    > = {};
 
   // ===========================================================
   // MATRIZ TAMANHO X COR
@@ -1168,10 +1422,15 @@ function aggregateDetail(
     cores.length > 0 &&
     tamanhos.length > 0
   ) {
-    for (const cor of cores) {
-      estoquePorCor[cor] =
-        matrixByColor[cor] ||
-        {
+    for (
+      const cor of cores
+    ) {
+      estoquePorCor[
+        cor
+      ] =
+        matrixByColor[
+          cor
+        ] || {
           total:
             colorTotals.get(
               cor
@@ -1181,30 +1440,27 @@ function aggregateDetail(
   } else {
     estoquePorCor =
       Object.fromEntries(
-        cores.map((cor) => [
-          cor,
-          colorTotals.get(
-            cor
-          ) || 0,
-        ])
+        cores.map(
+          (cor) => [
+            cor,
+            colorTotals.get(
+              cor
+            ) || 0,
+          ]
+        )
       );
   }
 
   // ===========================================================
-  // MATRIZ COMPLETA
+  // CONFIRMA SE A MATRIZ PODE SER ATUALIZADA
   // ===========================================================
-  //
-  // Só substitui a matriz quando:
-  //
-  // - todas as quantidades são válidas;
-  // - conseguimos reconhecer a grade.
-  //
   const matrixComplete =
     todasQuantidadesValidas &&
     todosGradesReconhecidos;
 
   return {
-    estoque: estoqueTotal,
+    estoque:
+      estoqueTotal,
 
     tamanhos,
 
@@ -1215,8 +1471,10 @@ function aggregateDetail(
         tamanhos.map(
           (size) => [
             size,
-            bySize.get(size) ||
-              0,
+
+            bySize.get(
+              size
+            ) || 0,
           ]
         )
       ),
@@ -1235,14 +1493,21 @@ function imageUrls(
 ): string[] {
   return [
     ...new Set(
-      (detail.anexos || [])
-        .map((item) =>
-          str(item?.url)
+      (
+        detail.anexos ||
+        []
+      )
+        .map(
+          (item) =>
+            str(
+              item?.url
+            )
         )
-        .filter((url) =>
-          /^https?:\/\//i.test(
-            url
-          )
+        .filter(
+          (url) =>
+            /^https?:\/\//i.test(
+              url
+            )
         )
     ),
   ];
@@ -1252,7 +1517,9 @@ function canonicalId(
   item: TinyListItem
 ): string | null {
   const id =
-    Number(item.id || 0);
+    Number(
+      item.id || 0
+    );
 
   if (
     !Number.isFinite(id) ||
@@ -1265,10 +1532,15 @@ function canonicalId(
 }
 
 async function listProducts(
-  params: Record<string, string>
+  params: Record<
+    string,
+    string
+  >
 ): Promise<TinyListResponse> {
   const query =
-    new URLSearchParams(params);
+    new URLSearchParams(
+      params
+    );
 
   return getOlistV3<TinyListResponse>(
     `/produtos?${query.toString()}`
@@ -1278,7 +1550,8 @@ async function listProducts(
 async function listAllProductHeaders(): Promise<
   TinyListItem[]
 > {
-  const all: TinyListItem[] = [];
+  const all: TinyListItem[] =
+    [];
 
   const limit = 100;
 
@@ -1287,33 +1560,42 @@ async function listAllProductHeaders(): Promise<
   for (;;) {
     const data =
       await listProducts({
-        limit: String(limit),
-        offset: String(offset),
+        limit:
+          String(limit),
+
+        offset:
+          String(offset),
       });
 
     const items =
-      Array.isArray(data.itens)
+      Array.isArray(
+        data.itens
+      )
         ? data.itens
         : [];
 
-    all.push(...items);
+    all.push(
+      ...items
+    );
 
     const total =
       Number(
-        data.paginacao?.total ||
-          0
+        data.paginacao
+          ?.total || 0
       );
 
     if (
       items.length === 0 ||
       items.length < limit ||
-      offset + items.length >=
+      offset +
+          items.length >=
         total
     ) {
       break;
     }
 
-    offset += items.length;
+    offset +=
+      items.length;
   }
 
   return all;
@@ -1322,7 +1604,8 @@ async function listAllProductHeaders(): Promise<
 async function listAllActiveProductHeaders(): Promise<
   TinyListItem[]
 > {
-  const all: TinyListItem[] = [];
+  const all: TinyListItem[] =
+    [];
 
   const limit = 100;
 
@@ -1331,34 +1614,45 @@ async function listAllActiveProductHeaders(): Promise<
   for (;;) {
     const data =
       await listProducts({
-        limit: String(limit),
-        offset: String(offset),
-        situacao: "A",
+        limit:
+          String(limit),
+
+        offset:
+          String(offset),
+
+        situacao:
+          "A",
       });
 
     const items =
-      Array.isArray(data.itens)
+      Array.isArray(
+        data.itens
+      )
         ? data.itens
         : [];
 
-    all.push(...items);
+    all.push(
+      ...items
+    );
 
     const total =
       Number(
-        data.paginacao?.total ||
-          0
+        data.paginacao
+          ?.total || 0
       );
 
     if (
       items.length === 0 ||
       items.length < limit ||
-      offset + items.length >=
+      offset +
+          items.length >=
         total
     ) {
       break;
     }
 
-    offset += items.length;
+    offset +=
+      items.length;
   }
 
   return all;
@@ -1371,9 +1665,12 @@ function uniqueCanonicalHeaders(
     new Set<string>();
 
   const result:
-    TinyListItem[] = [];
+    TinyListItem[] =
+    [];
 
-  for (const item of items) {
+  for (
+    const item of items
+  ) {
     const tipoVariacao =
       normalize(
         str(
@@ -1382,7 +1679,8 @@ function uniqueCanonicalHeaders(
       );
 
     if (
-      tipoVariacao === "v"
+      tipoVariacao ===
+      "v"
     ) {
       continue;
     }
@@ -1399,7 +1697,9 @@ function uniqueCanonicalHeaders(
 
     seen.add(id);
 
-    result.push(item);
+    result.push(
+      item
+    );
   }
 
   return result;
@@ -1411,7 +1711,9 @@ function sinceDateString(
   const d =
     new Date(timestamp);
 
-  const pad = (v: number) =>
+  const pad = (
+    v: number
+  ) =>
     String(v).padStart(
       2,
       "0"
@@ -1445,13 +1747,15 @@ async function getDetail(
 async function getConfirmedStock(
   id: string
 ): Promise<number> {
-  let lastError: unknown =
-    null;
+  let lastError:
+    unknown = null;
 
   for (
     let attempt = 0;
+
     attempt <=
-      STOCK_CONFIRM_MAX_RETRIES;
+    STOCK_CONFIRM_MAX_RETRIES;
+
     attempt++
   ) {
     try {
@@ -1467,15 +1771,20 @@ async function getConfirmedStock(
           data?.saldo
         );
 
-      if (saldo == null) {
+      if (
+        saldo == null
+      ) {
         throw new Error(
           `Olist/Tiny não retornou um saldo válido para ${id}.`
         );
       }
 
       return saldo;
-    } catch (error) {
-      lastError = error;
+    } catch (
+      error
+    ) {
+      lastError =
+        error;
 
       const message =
         error instanceof Error
@@ -1517,7 +1826,9 @@ async function mapWithConcurrency<
   R
 >(
   items: T[],
+
   concurrency: number,
+
   fn: (
     item: T,
     index: number
@@ -1554,15 +1865,19 @@ async function mapWithConcurrency<
   const workers =
     Array.from(
       {
-        length: Math.max(
-          1,
-          Math.min(
-            concurrency,
-            items.length
-          )
-        ),
+        length:
+          Math.max(
+            1,
+
+            Math.min(
+              concurrency,
+              items.length
+            )
+          ),
       },
-      () => worker()
+
+      () =>
+        worker()
     );
 
   await Promise.all(
@@ -1574,14 +1889,17 @@ async function mapWithConcurrency<
 
 async function updateExistingProduct(
   id: string,
+
   detail: TinyDetail,
+
   variationAttributes?: VariationAttributes
 ): Promise<{
   updated: boolean;
 
   changed: boolean;
 
-  siteStockBefore: number | null;
+  siteStockBefore:
+    number | null;
 
   tinyStock: number;
 
@@ -1599,7 +1917,9 @@ async function updateExistingProduct(
   const existing =
     await prisma.produto.findUnique(
       {
-        where: { id },
+        where: {
+          id,
+        },
 
         select: {
           id: true,
@@ -1610,9 +1930,11 @@ async function updateExistingProduct(
 
           cores: true,
 
-          estoquePorTamanho: true,
+          estoquePorTamanho:
+            true,
 
-          estoquePorCor: true,
+          estoquePorCor:
+            true,
         },
       }
     );
@@ -1623,25 +1945,30 @@ async function updateExistingProduct(
 
       changed: false,
 
-      siteStockBefore: null,
+      siteStockBefore:
+        null,
 
       tinyStock: 0,
 
       variationCount: 0,
 
-      stockSource: "product",
+      stockSource:
+        "product",
 
       confirmed: false,
 
-      matrixComplete: false,
+      matrixComplete:
+        false,
     };
   }
 
   const aggregate =
     aggregateDetail(
       detail,
+
       existing.tamanhos ||
         [],
+
       existing.cores ||
         []
     );
@@ -1680,19 +2007,22 @@ async function updateExistingProduct(
         )
       : "product";
 
-  let confirmed = false;
+  let confirmed =
+    false;
 
-  // ===========================================================
+  // ==========================================================
   // REGRA DE ESTOQUE
-  // ===========================================================
+  // ==========================================================
   //
-  // Mantida exatamente como estava.
+  // Mantida.
   //
   if (
     !hasVariations &&
     tinyStock === 0 &&
-    Number(existing.estoque || 0) >
-      0
+    Number(
+      existing.estoque ||
+        0
+    ) > 0
   ) {
     tinyStock =
       await getConfirmedStock(
@@ -1702,7 +2032,8 @@ async function updateExistingProduct(
     stockSource =
       "confirmed-stock";
 
-    confirmed = true;
+    confirmed =
+      true;
   }
 
   const data:
@@ -1710,41 +2041,39 @@ async function updateExistingProduct(
       string,
       unknown
     > = {
-      estoque: tinyStock,
-    };
+    estoque:
+      tinyStock,
+  };
 
-  // ===========================================================
-  // ATUALIZA AS OPÇÕES DE VARIAÇÃO
-  // ===========================================================
-  //
-  // Tamanhos continuam em "tamanhos".
-  //
-  // Qualquer outra variação vai para "cores".
-  //
-  if (variationAttributes) {
-    if (
-      variationAttributes
-        .tamanhos.length > 0
-    ) {
-      data.tamanhos =
-        variationAttributes.tamanhos;
-    }
-
-    if (
-      variationAttributes
-        .cores.length > 0
-    ) {
-      data.cores =
-        variationAttributes.cores;
-    }
+  // ==========================================================
+  // ATUALIZA TAMANHOS
+  // ==========================================================
+  if (
+    variationAttributes &&
+    variationAttributes
+      .tamanhos
+      .length > 0
+  ) {
+    data.tamanhos =
+      variationAttributes.tamanhos;
   }
 
-  // ===========================================================
-  // ESTOQUE POR VARIAÇÃO
-  // ===========================================================
-  //
-  // Mantém a lógica existente.
-  //
+  // ==========================================================
+  // ATUALIZA CORES / MODELOS / ESTAMPAS / ETC.
+  // ==========================================================
+  if (
+    variationAttributes &&
+    variationAttributes
+      .cores
+      .length > 0
+  ) {
+    data.cores =
+      variationAttributes.cores;
+  }
+
+  // ==========================================================
+  // MATRIZES DE ESTOQUE
+  // ==========================================================
   if (
     aggregate.matrixComplete
   ) {
@@ -1757,14 +2086,17 @@ async function updateExistingProduct(
 
   await prisma.produto.update(
     {
-      where: { id },
+      where: {
+        id,
+      },
 
       data,
     }
   );
 
   return {
-    updated: true,
+    updated:
+      true,
 
     changed:
       existing.estoque !==
@@ -1789,16 +2121,21 @@ async function updateExistingProduct(
 
 async function createNewProduct(
   id: string,
+
   detail: TinyDetail,
+
   variationAttributes?: VariationAttributes
 ): Promise<{
   created: boolean;
+
   variationCount: number;
 }> {
   const existing =
     await prisma.produto.findUnique(
       {
-        where: { id },
+        where: {
+          id,
+        },
 
         select: {
           id: true,
@@ -1815,7 +2152,9 @@ async function createNewProduct(
   }
 
   const aggregate =
-    aggregateDetail(detail);
+    aggregateDetail(
+      detail
+    );
 
   if (!aggregate) {
     throw new Error(
@@ -1827,19 +2166,26 @@ async function createNewProduct(
     str(
       detail.descricaoComplementar
     ) ||
-    str(detail.descricao) ||
+    str(
+      detail.descricao
+    ) ||
     `Produto ${id}`;
 
   const nome =
-    str(detail.descricao) ||
+    str(
+      detail.descricao
+    ) ||
     `Produto ${id}`;
 
   const imagens =
-    imageUrls(detail);
+    imageUrls(
+      detail
+    );
 
   const preco =
     num(
-      detail.precos?.preco
+      detail.precos
+        ?.preco
     ) ?? 0;
 
   const promocional =
@@ -1874,32 +2220,30 @@ async function createNewProduct(
         estoque:
           aggregate.estoque,
 
-        // Estoque continua vindo
-        // do aggregate atual.
         estoquePorTamanho:
           aggregate.estoquePorTamanho,
 
         estoquePorCor:
           aggregate.estoquePorCor,
 
-        // =====================================================
-        // VARIAÇÕES
-        // =====================================================
-        //
-        // Tamanho -> tamanhos
-        //
-        // Qualquer outra característica
-        // -> cores
-        //
+        // ======================================================
+        // TAMANHOS
+        // ======================================================
         tamanhos:
           variationAttributes
-            ?.tamanhos?.length
+            ?.tamanhos
+            ?.length
             ? variationAttributes.tamanhos
             : aggregate.tamanhos,
 
+        // ======================================================
+        // QUALQUER OUTRA VARIAÇÃO
+        // -> CORES
+        // ======================================================
         cores:
           variationAttributes
-            ?.cores?.length
+            ?.cores
+            ?.length
             ? variationAttributes.cores
             : aggregate.cores,
 
@@ -1967,7 +2311,8 @@ async function withSyncLock<T>(
 async function buildTinyCanonicalMap() {
   const cached =
     await redisGetJson<{
-      tinyHeaders: TinyListItem[];
+      tinyHeaders:
+        TinyListItem[];
 
       cachedAt?: number;
     }>(
@@ -1981,8 +2326,8 @@ async function buildTinyCanonicalMap() {
     Array.isArray(
       cached.tinyHeaders
     ) &&
-    cached.tinyHeaders.length >
-      0
+    cached.tinyHeaders
+      .length > 0
   ) {
     const canonical =
       uniqueCanonicalHeaders(
@@ -1991,6 +2336,7 @@ async function buildTinyCanonicalMap() {
 
     return buildCanonicalMaps(
       cached.tinyHeaders,
+
       canonical
     );
   }
@@ -2005,6 +2351,7 @@ async function buildTinyCanonicalMap() {
 
   await redisSetJson(
     TINY_CATALOG_CACHE_KEY,
+
     {
       tinyHeaders,
 
@@ -2024,12 +2371,14 @@ async function buildTinyCanonicalMap() {
 
   return buildCanonicalMaps(
     tinyHeaders,
+
     canonical
   );
 }
 
 function buildCanonicalMaps(
   tinyHeaders: TinyListItem[],
+
   canonical: TinyListItem[]
 ) {
   const byId =
@@ -2044,7 +2393,9 @@ function buildCanonicalMaps(
       TinyListItem[]
     >();
 
-  for (const item of canonical) {
+  for (
+    const item of canonical
+  ) {
     const id =
       canonicalId(item);
 
@@ -2069,10 +2420,13 @@ function buildCanonicalMaps(
     }
 
     const arr =
-      byName.get(name) ||
-      [];
+      byName.get(
+        name
+      ) || [];
 
-    arr.push(item);
+    arr.push(
+      item
+    );
 
     byName.set(
       name,
@@ -2113,15 +2467,17 @@ async function matchSiteProduct(
     | "nome"
     | "similaridade";
 } | null> {
-  // ===========================================================
-  // Primeiro tenta associação salva.
-  // ===========================================================
+  // ==========================================================
+  // Redis
+  // ==========================================================
   const storedTinyId =
     await getStoredTinyId(
       site.id
     );
 
-  if (storedTinyId) {
+  if (
+    storedTinyId
+  ) {
     const storedItem =
       maps.byId.get(
         storedTinyId
@@ -2129,18 +2485,21 @@ async function matchSiteProduct(
 
     if (storedItem) {
       return {
-        tinyId: storedTinyId,
+        tinyId:
+          storedTinyId,
 
-        tinyItem: storedItem,
+        tinyItem:
+          storedItem,
 
-        method: "redis",
+        method:
+          "redis",
       };
     }
   }
 
-  // ===========================================================
-  // Depois tenta pelo próprio ID.
-  // ===========================================================
+  // ==========================================================
+  // ID
+  // ==========================================================
   const direct =
     maps.byId.get(
       site.id
@@ -2152,21 +2511,24 @@ async function matchSiteProduct(
 
     await setStoredTinyId(
       site.id,
+
       tinyId
     );
 
     return {
       tinyId,
 
-      tinyItem: direct,
+      tinyItem:
+        direct,
 
-      method: "id",
+      method:
+        "id",
     };
   }
 
-  // ===========================================================
-  // Depois tenta nome exato.
-  // ===========================================================
+  // ==========================================================
+  // NOME EXATO
+  // ==========================================================
   const name =
     normalize(
       site.nome
@@ -2193,6 +2555,7 @@ async function matchSiteProduct(
     if (tinyId) {
       await setStoredTinyId(
         site.id,
+
         tinyId
       );
 
@@ -2202,14 +2565,15 @@ async function matchSiteProduct(
         tinyItem:
           exactCandidates[0],
 
-        method: "nome",
+        method:
+          "nome",
       };
     }
   }
 
-  // ===========================================================
-  // Fallback por similaridade.
-  // ===========================================================
+  // ==========================================================
+  // SIMILARIDADE
+  // ==========================================================
   let best:
     TinyListItem | null =
     null;
@@ -2227,13 +2591,16 @@ async function matchSiteProduct(
         candidate.descricao
       );
 
-    if (!candidateName) {
+    if (
+      !candidateName
+    ) {
       continue;
     }
 
     const score =
       nameSimilarity(
         site.nome,
+
         candidateName
       );
 
@@ -2262,21 +2629,26 @@ async function matchSiteProduct(
     best &&
     bestScore >= 0.72 &&
     bestScore -
-      secondScore >= 0.08
+      secondScore >=
+      0.08
   ) {
     const tinyId =
-      canonicalId(best);
+      canonicalId(
+        best
+      );
 
     if (tinyId) {
       await setStoredTinyId(
         site.id,
+
         tinyId
       );
 
       return {
         tinyId,
 
-        tinyItem: best,
+        tinyItem:
+          best,
 
         method:
           "similaridade",
@@ -2289,9 +2661,9 @@ async function matchSiteProduct(
 
 async function findNewTinyProducts(
   siteTinyIds: Set<string>
-): Promise<SiteSyncEntry[]> {
-  // Produtos novos são descobertos
-  // através de uma janela recente.
+): Promise<
+  SiteSyncEntry[]
+> {
   const since =
     new Date(
       Date.now() -
@@ -2300,16 +2672,19 @@ async function findNewTinyProducts(
 
   const data =
     await listProducts({
-      limit: "100",
+      limit:
+        "100",
 
-      offset: "0",
+      offset:
+        "0",
 
       dataCriacao:
         sinceDateString(
           since.getTime()
         ),
 
-      situacao: "A",
+      situacao:
+        "A",
     });
 
   const headers =
@@ -2322,7 +2697,8 @@ async function findNewTinyProducts(
     );
 
   const result:
-    SiteSyncEntry[] = [];
+    SiteSyncEntry[] =
+    [];
 
   for (
     const item of headers
@@ -2340,7 +2716,8 @@ async function findNewTinyProducts(
     }
 
     result.push({
-      siteId: null,
+      siteId:
+        null,
 
       tinyId,
 
@@ -2349,9 +2726,11 @@ async function findNewTinyProducts(
           item.descricao
         ),
 
-      isNew: true,
+      isNew:
+        true,
 
-      matchMethod: "novo",
+      matchMethod:
+        "novo",
     });
   }
 
@@ -2374,17 +2753,21 @@ async function prepareQuick() {
     await buildTinyCanonicalMap();
 
   const entries:
-    SiteSyncEntry[] = [];
+    SiteSyncEntry[] =
+    [];
 
   const matchedTinyIds =
     new Set<string>();
 
-  let unmatchedExisting = 0;
+  let unmatchedExisting =
+    0;
 
-  let ambiguousExisting = 0;
+  let ambiguousExisting =
+    0;
 
   for (
-    const site of siteProducts
+    const site of
+    siteProducts
   ) {
     const match =
       await matchSiteProduct(
@@ -2394,7 +2777,8 @@ async function prepareQuick() {
           ),
 
           nome: String(
-            site.nome || ""
+            site.nome ||
+              ""
           ),
         },
 
@@ -2434,16 +2818,18 @@ async function prepareQuick() {
     );
 
     entries.push({
-      siteId: String(
-        site.id
-      ),
+      siteId:
+        String(
+          site.id
+        ),
 
       tinyId:
         match.tinyId,
 
       nomeSite:
         String(
-          site.nome || ""
+          site.nome ||
+            ""
         ),
 
       nomeTiny:
@@ -2452,7 +2838,8 @@ async function prepareQuick() {
             .descricao
         ),
 
-      isNew: false,
+      isNew:
+        false,
 
       matchMethod:
         match.method,
@@ -2473,7 +2860,8 @@ async function prepareQuick() {
     );
 
   for (
-    const entry of newEntries
+    const entry of
+    newEntries
   ) {
     if (
       seen.has(
@@ -2493,7 +2881,8 @@ async function prepareQuick() {
   }
 
   return {
-    success: true,
+    success:
+      true,
 
     mode:
       "prepare-quick",
@@ -2523,7 +2912,8 @@ async function prepareQuick() {
       API_READ_BATCH_SIZE,
 
     catalogoConsultado:
-      maps.tinyHeaders.length,
+      maps.tinyHeaders
+        .length,
 
     variacoesDetectadasNoCatalogo:
       maps.tinyHeaders.filter(
@@ -2549,6 +2939,7 @@ async function stockBatch(
       )
       .slice(
         0,
+
         API_READ_BATCH_SIZE
       );
 
@@ -2557,39 +2948,51 @@ async function stockBatch(
     0
   ) {
     return {
-      success: true,
+      success:
+        true,
 
       mode:
         "stock-batch",
 
-      criados: 0,
+      criados:
+        0,
 
-      atualizados: 0,
+      atualizados:
+        0,
 
-      ignorados: 0,
+      ignorados:
+        0,
 
-      falhas: 0,
+      falhas:
+        0,
 
-      variacoesProcessadas: 0,
+      variacoesProcessadas:
+        0,
 
-      processados: 0,
+      processados:
+        0,
     };
   }
 
   return withSyncLock(
     async () => {
-      let criados = 0;
+      let criados =
+        0;
 
-      let atualizados = 0;
+      let atualizados =
+        0;
 
-      let ignorados = 0;
+      let ignorados =
+        0;
 
-      let falhas = 0;
+      let falhas =
+        0;
 
       let variacoesProcessadas =
         0;
 
-      let estoqueAlterado = 0;
+      let estoqueAlterado =
+        0;
 
       let produtosComVariacoesSincronizadas =
         0;
@@ -2605,17 +3008,17 @@ async function stockBatch(
           >
         > = [];
 
-      // =======================================================
-      // Catálogo
-      // =======================================================
+      // ========================================================
+      // Catálogo completo
+      // ========================================================
       const maps =
         await buildTinyCanonicalMap();
 
-      // =======================================================
+      // ========================================================
       // Índice:
       //
-      // produto pai -> todas as variações V
-      // =======================================================
+      // produto pai -> variações V
+      // ========================================================
       const variationHeadersByParent =
         buildVariationHeadersByParent(
           maps.tinyHeaders
@@ -2628,41 +3031,52 @@ async function stockBatch(
           | "ignored"
           | "failed";
 
-        variationCount: number;
+        variationCount:
+          number;
 
-        changed?: boolean;
+        changed?:
+          boolean;
 
         siteStockBefore?:
           number | null;
 
-        tinyStock?: number;
+        tinyStock?:
+          number;
 
-        siteId?: string | null;
+        siteId?:
+          string | null;
 
-        tinyId?: string;
+        tinyId?:
+          string;
 
-        nomeSite?: string;
+        nomeSite?:
+          string;
 
-        nomeTiny?: string;
+        nomeTiny?:
+          string;
 
         matchMethod?:
           SiteSyncEntry["matchMethod"];
 
-        error?: string;
+        error?:
+          string;
 
-        rateLimited?: boolean;
+        rateLimited?:
+          boolean;
 
         stockSource?:
           | "product"
           | "variations"
           | "confirmed-stock";
 
-        confirmed?: boolean;
+        confirmed?:
+          boolean;
 
         variationOptions?:
           VariationAttributes;
 
-        variationHeadersCount?: number;
+        variationHeadersCount?:
+          number;
       };
 
       const results =
@@ -2679,7 +3093,7 @@ async function stockBatch(
           ): Promise<BatchResult> => {
             try {
               // =================================================
-              // Busca detalhe completo do produto pai.
+              // Busca detalhe do produto pai.
               // =================================================
               const detail =
                 await getDetail(
@@ -2687,8 +3101,7 @@ async function stockBatch(
                 );
 
               // =================================================
-              // Busca TODAS as variações V da listagem
-              // pertencentes ao produto pai.
+              // Busca todas as V do produto pai.
               // =================================================
               const variationHeaders =
                 variationHeadersByParent.get(
@@ -2696,16 +3109,19 @@ async function stockBatch(
                 ) || [];
 
               let knownSizes:
-                string[] = [];
+                string[] =
+                [];
 
               let knownColors:
-                string[] = [];
+                string[] =
+                [];
 
               // =================================================
-              // Pega os valores já existentes no site.
-              // Isso ajuda a preservar a grafia dos valores.
+              // Busca dados já existentes no site.
               // =================================================
-              if (entry.siteId) {
+              if (
+                entry.siteId
+              ) {
                 const existingForVariation =
                   await prisma.produto.findUnique(
                     {
@@ -2735,11 +3151,11 @@ async function stockBatch(
               }
 
               // =================================================
-              // Extrai as variações.
+              // NOVA LEITURA DAS VARIAÇÕES
               //
-              // TAMANHO -> tamanhos
-              //
-              // TODO O RESTO -> cores
+              // tamanho -> tamanhos
+              // resto -> cores
+              // nome do produto -> ignorado
               // =================================================
               const variationOptions =
                 extractVariationAttributes(
@@ -2755,10 +3171,12 @@ async function stockBatch(
               if (
                 variationOptions
                   .tamanhos
-                  .length > 0 ||
+                  .length >
+                  0 ||
                 variationOptions
                   .cores
-                  .length > 0
+                  .length >
+                  0
               ) {
                 produtosComVariacoesSincronizadas +=
                   1;
@@ -2768,9 +3186,11 @@ async function stockBatch(
                 variationHeaders.length;
 
               // =================================================
-              // PRODUTO JÁ ASSOCIADO AO SITE
+              // PRODUTO JÁ EXISTENTE
               // =================================================
-              if (entry.siteId) {
+              if (
+                entry.siteId
+              ) {
                 const existing =
                   await prisma.produto.findUnique(
                     {
@@ -2785,7 +3205,7 @@ async function stockBatch(
                   );
 
                 // -----------------------------------------------
-                // Associação existe, mas o produto do site sumiu.
+                // Produto não existe mais no site.
                 // -----------------------------------------------
                 if (!existing) {
                   const result =
@@ -2833,7 +3253,7 @@ async function stockBatch(
                 }
 
                 // -----------------------------------------------
-                // Atualiza o produto existente.
+                // Atualiza produto existente.
                 // -----------------------------------------------
                 const result =
                   await updateExistingProduct(
@@ -2965,7 +3385,9 @@ async function stockBatch(
               const errorMessage =
                 error instanceof Error
                   ? error.message
-                  : String(error);
+                  : String(
+                      error
+                    );
 
               const rateLimited =
                 /API 429|HTTP 429|rate limit/i.test(
@@ -3011,7 +3433,9 @@ async function stockBatch(
       // =========================================================
       // Consolida resultados
       // =========================================================
-      for (const result of results) {
+      for (
+        const result of results
+      ) {
         if (
           result.kind ===
           "created"
@@ -3040,7 +3464,9 @@ async function stockBatch(
             1;
         }
 
-        if (result.tinyId) {
+        if (
+          result.tinyId
+        ) {
           diagnosticos.push(
             {
               siteId:
@@ -3105,7 +3531,7 @@ async function stockBatch(
       }
 
       // =========================================================
-      // Produtos que falharam
+      // Falhas
       // =========================================================
       const failedEntries =
         results
@@ -3154,7 +3580,8 @@ async function stockBatch(
         );
 
       return {
-        success: true,
+        success:
+          true,
 
         mode:
           "stock-batch",
@@ -3214,7 +3641,8 @@ async function prepareFull() {
     await buildTinyCanonicalMap();
 
   const entries:
-    SiteSyncEntry[] = [];
+    SiteSyncEntry[] =
+    [];
 
   for (
     const site of siteProducts
@@ -3227,7 +3655,8 @@ async function prepareFull() {
           ),
 
           nome: String(
-            site.nome || ""
+            site.nome ||
+              ""
           ),
         },
 
@@ -3239,16 +3668,18 @@ async function prepareFull() {
     }
 
     entries.push({
-      siteId: String(
-        site.id
-      ),
+      siteId:
+        String(
+          site.id
+        ),
 
       tinyId:
         match.tinyId,
 
       nomeSite:
         String(
-          site.nome || ""
+          site.nome ||
+            ""
         ),
 
       nomeTiny:
@@ -3257,7 +3688,8 @@ async function prepareFull() {
             .descricao
         ),
 
-      isNew: false,
+      isNew:
+        false,
 
       matchMethod:
         match.method,
@@ -3265,7 +3697,8 @@ async function prepareFull() {
   }
 
   return {
-    success: true,
+    success:
+      true,
 
     mode:
       "prepare-full",
@@ -3301,7 +3734,8 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        success: true,
+        success:
+          true,
 
         conectado:
           Boolean(
@@ -3313,10 +3747,13 @@ export async function GET() {
           null,
       }
     );
-  } catch (error) {
+  } catch (
+    error
+  ) {
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
 
         error:
           error instanceof Error
@@ -3325,7 +3762,8 @@ export async function GET() {
       },
 
       {
-        status: 500,
+        status:
+          500,
       }
     );
   }
@@ -3336,9 +3774,11 @@ export async function POST(
 ) {
   try {
     const body =
-      (await request.json().catch(
-        () => ({})
-      )) as AnyRecord;
+      (await request
+        .json()
+        .catch(
+          () => ({})
+        )) as AnyRecord;
 
     const mode =
       str(
@@ -3348,7 +3788,7 @@ export async function POST(
       ).toLowerCase();
 
     // =========================================================
-    // PREPARA SINCRONIZAÇÃO RÁPIDA
+    // PREPARE QUICK
     // =========================================================
     if (
       mode ===
@@ -3362,10 +3802,11 @@ export async function POST(
     }
 
     // =========================================================
-    // BATCH DE ESTOQUE
+    // STOCK BATCH
     // =========================================================
     if (
-      mode === "stock-batch" ||
+      mode ===
+        "stock-batch" ||
       mode === "quick" ||
       mode === "sync"
     ) {
@@ -3416,15 +3857,15 @@ export async function POST(
 
                   matchMethod:
                     entry.matchMethod ===
-                      "redis" ||
+                        "redis" ||
                     entry.matchMethod ===
-                      "id" ||
+                        "id" ||
                     entry.matchMethod ===
-                      "nome" ||
+                        "nome" ||
                     entry.matchMethod ===
-                      "similaridade" ||
+                        "similaridade" ||
                     entry.matchMethod ===
-                      "novo"
+                        "novo"
                       ? entry.matchMethod
                       : undefined,
                 })
@@ -3443,14 +3884,16 @@ export async function POST(
       ) {
         return NextResponse.json(
           {
-            success: false,
+            success:
+              false,
 
             error:
               "Nenhuma associação entre produto do site e produto Tiny foi enviada para sincronização.",
           },
 
           {
-            status: 400,
+            status:
+              400,
           }
         );
       }
@@ -3463,7 +3906,7 @@ export async function POST(
     }
 
     // =========================================================
-    // PREPARA SINCRONIZAÇÃO COMPLETA
+    // PREPARE FULL
     // =========================================================
     if (
       mode ===
@@ -3477,7 +3920,7 @@ export async function POST(
     }
 
     // =========================================================
-    // BATCH COMPLETO
+    // FULL BATCH
     // =========================================================
     if (
       mode ===
@@ -3530,15 +3973,15 @@ export async function POST(
 
                   matchMethod:
                     entry.matchMethod ===
-                      "redis" ||
+                        "redis" ||
                     entry.matchMethod ===
-                      "id" ||
+                        "id" ||
                     entry.matchMethod ===
-                      "nome" ||
+                        "nome" ||
                     entry.matchMethod ===
-                      "similaridade" ||
+                        "similaridade" ||
                     entry.matchMethod ===
-                      "novo"
+                        "novo"
                       ? entry.matchMethod
                       : undefined,
                 })
@@ -3557,14 +4000,16 @@ export async function POST(
       ) {
         return NextResponse.json(
           {
-            success: false,
+            success:
+              false,
 
             error:
               "Nenhuma associação de produto foi enviada para a reconciliação completa.",
           },
 
           {
-            status: 400,
+            status:
+              400,
           }
         );
       }
@@ -3581,24 +4026,28 @@ export async function POST(
     // =========================================================
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
 
         error:
           `Modo de sincronização inválido: ${mode}`,
       },
 
       {
-        status: 400,
+        status:
+          400,
       }
     );
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===",
       error
     );
 
     // =========================================================
-    // ERRO DE OAUTH
+    // OAUTH
     // =========================================================
     if (
       error instanceof
@@ -3606,7 +4055,8 @@ export async function POST(
     ) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
 
           error:
             error.message,
@@ -3630,7 +4080,8 @@ export async function POST(
     // =========================================================
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
 
         error:
           error instanceof Error
@@ -3639,7 +4090,8 @@ export async function POST(
       },
 
       {
-        status: 500,
+        status:
+          500,
       }
     );
   }
