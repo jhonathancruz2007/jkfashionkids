@@ -15,13 +15,19 @@ export const maxDuration = 45;
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 
-// v21 = cache atualizado para a nova regra de variações.
+// v22:
+// - nova interpretação das grades
+// - qualquer grade diferente de tamanho => cor
+// - nome do próprio produto não entra como cor
+// - grava também os IDs reais das variações em tinyVariacoes
 const TINY_CATALOG_CACHE_KEY =
-  "jkfashion:olist:v3:catalog:canonical:v21";
+  "jkfashion:olist:v3:catalog:canonical:v22";
 
-const TINY_CATALOG_CACHE_TTL = 6 * 60 * 60;
+const TINY_CATALOG_CACHE_TTL =
+  6 * 60 * 60;
 
-const SITE_TINY_MAP_PREFIX = "jkfashion:olist:v3:site-tiny:";
+const SITE_TINY_MAP_PREFIX =
+  "jkfashion:olist:v3:site-tiny:";
 
 // Janela usada apenas para descobrir produtos novos no modo rápido.
 // Não controla a atualização de estoque dos produtos já cadastrados.
@@ -34,25 +40,32 @@ const STOCK_CONFIRM_MAX_RETRIES = 1;
 const FULL_BATCH_SIZE = 28;
 const PLACEHOLDER_IMAGE = "";
 
-type AnyRecord = Record<string, any>;
+type AnyRecord =
+  Record<string, any>;
 
 type TinyListItem = {
-  id?: number;
+  id?: number | string;
+
   sku?: string | null;
+
   codigo?: string | null;
+
   descricao?: string | null;
+
   tipo?: string | null;
+
   situacao?: string | null;
+
   dataCriacao?: string | null;
+
   dataAlteracao?: string | null;
+
   tipoVariacao?: string | null;
 
   produtoPai?: {
-    id?: number | null;
+    id?: number | string | null;
   } | null;
 
-  // Em algumas respostas da API a grade também pode vir
-  // no item da listagem.
   grade?: TinyGrade;
 };
 
@@ -66,10 +79,17 @@ type TinyGrade =
   | undefined;
 
 type TinyVariation = {
-  id?: number;
+  id?: number | string;
+
   descricao?: string | null;
+
   sku?: string | null;
+
   gtin?: string | null;
+
+  nome?: string | null;
+
+  titulo?: string | null;
 
   estoque?: {
     quantidade?: number | null;
@@ -79,11 +99,16 @@ type TinyVariation = {
 };
 
 type TinyDetail = {
-  id?: number | null;
+  id?: number | string | null;
+
   sku?: string | null;
+
   descricao?: string | null;
+
   tipo?: string | null;
+
   descricaoComplementar?: string | null;
+
   situacao?: string | null;
 
   categoria?: {
@@ -108,6 +133,7 @@ type TinyDetail = {
   }> | null;
 
   variacoes?: any[] | null;
+
   variations?: any[] | null;
 
   produto?: {
@@ -135,10 +161,15 @@ type TinyListResponse = {
 
 type TinyStockResponse = {
   id?: number | null;
+
   nome?: string | null;
+
   codigo?: string | null;
+
   saldo?: number | null;
+
   reservado?: number | null;
+
   disponivel?: number | null;
 
   depositos?: Array<{
@@ -155,9 +186,11 @@ type StockAggregate = {
 
   cores: string[];
 
-  estoquePorTamanho: Record<string, number>;
+  estoquePorTamanho:
+    Record<string, number>;
 
-  estoquePorCor: Record<string, any>;
+  estoquePorCor:
+    Record<string, any>;
 
   variationCount: number;
 
@@ -168,6 +201,43 @@ type VariationAttributes = {
   tamanhos: string[];
 
   cores: string[];
+};
+
+/**
+ * =============================================================
+ * ESTRUTURA SALVA NO PRODUTO EM "tinyVariacoes"
+ * =============================================================
+ *
+ * Essa estrutura será usada pelo código que processa a venda.
+ *
+ * Exemplo:
+ *
+ * [
+ *   {
+ *     id: "123456",
+ *     sku: "ABC-10-COR",
+ *     gtin: null,
+ *     tamanho: "10",
+ *     cor: "CORAÇÃO",
+ *     descricao: "10 | CORAÇÃO",
+ *     estoque: 2
+ *   }
+ * ]
+ */
+type StoredTinyVariation = {
+  id: string;
+
+  sku: string | null;
+
+  gtin: string | null;
+
+  tamanho: string | null;
+
+  cor: string | null;
+
+  descricao: string | null;
+
+  estoque: number | null;
 };
 
 type SiteSyncEntry = {
@@ -189,13 +259,17 @@ type SiteSyncEntry = {
     | "novo";
 };
 
-function str(value: unknown): string {
+function str(
+  value: unknown
+): string {
   return value == null
     ? ""
     : String(value).trim();
 }
 
-function num(value: unknown): number | null {
+function num(
+  value: unknown
+): number | null {
   if (
     typeof value === "number" &&
     Number.isFinite(value)
@@ -211,7 +285,10 @@ function num(value: unknown): number | null {
   }
 
   const parsed = Number(
-    String(value).replace(",", ".")
+    String(value).replace(
+      ",",
+      "."
+    )
   );
 
   return Number.isFinite(parsed)
@@ -234,10 +311,15 @@ function safeNonNegativeInt(
   return Math.round(n);
 }
 
-function normalize(value: string): string {
+function normalize(
+  value: string
+): string {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    )
     .toLowerCase()
     .trim();
 }
@@ -246,7 +328,10 @@ function tokenizeName(
   value: string
 ): string[] {
   return normalize(value)
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(
+      /[^a-z0-9]+/g,
+      " "
+    )
     .split(" ")
     .filter(
       (token) =>
@@ -258,13 +343,15 @@ function nameSimilarity(
   a: string,
   b: string
 ): number {
-  const aa = new Set(
-    tokenizeName(a)
-  );
+  const aa =
+    new Set(
+      tokenizeName(a)
+    );
 
-  const bb = new Set(
-    tokenizeName(b)
-  );
+  const bb =
+    new Set(
+      tokenizeName(b)
+    );
 
   if (
     aa.size === 0 ||
@@ -275,7 +362,9 @@ function nameSimilarity(
 
   let intersection = 0;
 
-  for (const token of aa) {
+  for (
+    const token of aa
+  ) {
     if (
       bb.has(token)
     ) {
@@ -291,11 +380,15 @@ function nameSimilarity(
 
   const jaccard =
     union
-      ? intersection / union
+      ? intersection /
+        union
       : 0;
 
-  const na = normalize(a);
-  const nb = normalize(b);
+  const na =
+    normalize(a);
+
+  const nb =
+    normalize(b);
 
   const containsBonus =
     na.includes(nb) ||
@@ -350,8 +443,11 @@ function sortSizes(
   return [
     ...new Set(values),
   ].sort((a, b) => {
-    const na = Number(a);
-    const nb = Number(b);
+    const na =
+      Number(a);
+
+    const nb =
+      Number(b);
 
     if (
       Number.isFinite(na) &&
@@ -440,14 +536,44 @@ function getRawVariationsFromDetail(
 
 /**
  * =============================================================
- * PARSE DA GRADE
+ * EXTRAI ID DE UMA VARIAÇÃO
+ * =============================================================
+ */
+function getVariationId(
+  rawVariation: any
+): string | null {
+  const variation =
+    getVariationObject(
+      rawVariation
+    );
+
+  const possibleId =
+    variation?.id ??
+    rawVariation?.id;
+
+  const id =
+    Number(possibleId || 0);
+
+  if (
+    !Number.isFinite(id) ||
+    id <= 0
+  ) {
+    return null;
+  }
+
+  return String(id);
+}
+
+/**
+ * =============================================================
+ * INTERPRETA A GRADE
  * =============================================================
  *
  * REGRA:
  *
- * SOMENTE grades de tamanho são consideradas "tamanho".
+ * SOMENTE "Tamanho" é tamanho.
  *
- * Qualquer outra grade será considerada "cor".
+ * QUALQUER outra grade é "cor".
  *
  * Exemplos:
  *
@@ -457,9 +583,9 @@ function getRawVariationsFromDetail(
  * Tamanho + Tema
  * Tamanho + Cor
  * Tamanho + Material
- * Tamanho + qualquer outro campo
+ * Tamanho + qualquer outra coisa
  *
- * Tudo que não for tamanho será tratado como "cor".
+ * Tudo que não for tamanho vai para "cor".
  */
 function parseGrade(
   grade: TinyGrade,
@@ -472,7 +598,8 @@ function parseGrade(
 } {
   let tamanho = "";
 
-  const corValues: string[] = [];
+  const corValues: string[] =
+    [];
 
   const knownSizeMap =
     new Map(
@@ -494,9 +621,6 @@ function parseGrade(
       )
     );
 
-  /**
-   * Adiciona uma opção no campo "cor".
-   */
   const addCor = (
     valueRaw: unknown
   ) => {
@@ -510,8 +634,6 @@ function parseGrade(
     const normalizedValue =
       normalize(value);
 
-    // Se o site já possui essa opção,
-    // preserva a forma já cadastrada.
     const knownColor =
       knownColorMap.get(
         normalizedValue
@@ -539,9 +661,6 @@ function parseGrade(
     }
   };
 
-  /**
-   * Lê chave + valor da grade.
-   */
   const inspect = (
     keyRaw: unknown,
     valueRaw: unknown
@@ -559,11 +678,8 @@ function parseGrade(
     }
 
     // ==========================================================
-    // TAMANHO
+    // SOMENTE TAMANHO
     // ==========================================================
-    //
-    // Só essas chaves são tratadas como tamanho.
-    //
     const isSizeKey =
       key.includes(
         "tamanho"
@@ -574,30 +690,25 @@ function parseGrade(
       );
 
     if (isSizeKey) {
-      tamanho = value;
+      tamanho =
+        value;
 
       return;
     }
 
     // ==========================================================
-    // QUALQUER OUTRA CARACTERÍSTICA = COR
+    // TODO O RESTO = COR
     // ==========================================================
     addCor(value);
   };
 
   // ============================================================
-  // GRADE EM ARRAY
+  // ARRAY
   // ============================================================
-  //
-  // Exemplo:
-  //
-  // [
-  //   { chave: "Tamanho", valor: "10" },
-  //   { chave: "Modelo", valor: "CORAÇÃO" }
-  // ]
-  //
   if (
-    Array.isArray(grade)
+    Array.isArray(
+      grade
+    )
   ) {
     for (
       const item of grade
@@ -610,16 +721,8 @@ function parseGrade(
   }
 
   // ============================================================
-  // GRADE EM OBJETO
+  // OBJETO
   // ============================================================
-  //
-  // Exemplo:
-  //
-  // {
-  //   Tamanho: "10",
-  //   Modelo: "CORAÇÃO"
-  // }
-  //
   else if (
     grade &&
     typeof grade ===
@@ -631,13 +734,6 @@ function parseGrade(
         unknown
       >;
 
-    // Também aceita:
-    //
-    // {
-    //   chave: "Tamanho",
-    //   valor: "10"
-    // }
-    //
     if (
       "chave" in
         gradeObj &&
@@ -663,14 +759,6 @@ function parseGrade(
         continue;
       }
 
-      // Aceita estruturas aninhadas:
-      //
-      // {
-      //   Tamanho: {
-      //     valor: "10"
-      //   }
-      // }
-      //
       if (
         value &&
         typeof value ===
@@ -706,18 +794,12 @@ function parseGrade(
   }
 
   // ============================================================
-  // FALLBACK PELA DESCRIÇÃO DA VARIAÇÃO
+  // FALLBACK PELA DESCRIÇÃO
   // ============================================================
-  //
-  // Exemplos:
-  //
-  // "10 | CORAÇÃO"
-  // "10 | PRETTY"
-  // "Produto - 10 - CORAÇÃO"
-  //
   if (
     !tamanho ||
-    corValues.length === 0
+    corValues.length ===
+      0
   ) {
     const parts =
       descricao
@@ -730,9 +812,6 @@ function parseGrade(
         )
         .filter(Boolean);
 
-    // ----------------------------------------------------------
-    // Procura tamanho
-    // ----------------------------------------------------------
     if (!tamanho) {
       for (
         const part of parts
@@ -740,7 +819,6 @@ function parseGrade(
         const normalizedPart =
           normalize(part);
 
-        // Primeiro tenta tamanhos já conhecidos.
         if (
           knownSizeMap.has(
             normalizedPart
@@ -754,9 +832,8 @@ function parseGrade(
           break;
         }
 
-        // Depois tenta padrões comuns.
         if (
-          /^(rn|pp|p|m|g|gg|xg|xxg|xgg|eg|egg|exg|\d{1,2})$/i.test(
+          /^(rn|pp|p|m|g|gg|xg|xxg|eg|egg|exg|\d{1,2})$/i.test(
             normalizedPart
           )
         ) {
@@ -768,15 +845,15 @@ function parseGrade(
       }
     }
 
-    // ----------------------------------------------------------
-    // Tudo que não for tamanho vira "cor".
-    // ----------------------------------------------------------
     if (
-      corValues.length === 0 &&
+      corValues.length ===
+        0 &&
       parts.length > 0
     ) {
       const normalizedTamanho =
-        normalize(tamanho);
+        normalize(
+          tamanho
+        );
 
       for (
         const part of parts
@@ -795,14 +872,8 @@ function parseGrade(
   }
 
   // ============================================================
-  // SEGUNDO FALLBACK
+  // ÚLTIMO FALLBACK
   // ============================================================
-  //
-  // Protege formatos como:
-  //
-  // Produto - CORAÇÃO - 10
-  // Produto - 10 - CORAÇÃO
-  //
   if (
     (!tamanho ||
       corValues.length ===
@@ -824,20 +895,24 @@ function parseGrade(
       parts.length >= 2
     ) {
       const candidates =
-        [...parts].reverse();
+        [
+          ...parts,
+        ].reverse();
 
       for (
         const candidate of
         candidates
       ) {
         const normalizedCandidate =
-          normalize(candidate);
+          normalize(
+            candidate
+          );
 
         const isSize =
           knownSizeMap.has(
             normalizedCandidate
           ) ||
-          /^(rn|pp|p|m|g|gg|xg|xxg|xgg|eg|egg|exg|\d{1,2})$/i.test(
+          /^(rn|pp|p|m|g|gg|xg|xxg|eg|egg|exg|\d{1,2})$/i.test(
             normalizedCandidate
           );
 
@@ -871,27 +946,6 @@ function parseGrade(
     }
   }
 
-  // ============================================================
-  // RESULTADO
-  // ============================================================
-  //
-  // Exemplo:
-  //
-  // Modelo = CORAÇÃO
-  //
-  // retorna:
-  //
-  // cor = CORAÇÃO
-  //
-  // Se houver mais de uma característica:
-  //
-  // Modelo = CORAÇÃO
-  // Estampa = ROSA
-  //
-  // retorna:
-  //
-  // cor = CORAÇÃO / ROSA
-  //
   const cor =
     [
       ...new Set(
@@ -902,7 +956,9 @@ function parseGrade(
           )
           .filter(Boolean)
       ),
-    ].join(" / ");
+    ].join(
+      " / "
+    );
 
   return {
     tamanho:
@@ -915,8 +971,13 @@ function parseGrade(
 
 /**
  * =============================================================
- * EXTRAI OPÇÕES DE TODAS AS VARIAÇÕES
+ * EXTRAI ATRIBUTOS VISÍVEIS DO PRODUTO
  * =============================================================
+ *
+ * Tamanho -> tamanhos
+ * Qualquer outra grade -> cores
+ *
+ * O nome do próprio produto nunca entra em cores.
  */
 function extractVariationAttributes(
   detail: TinyDetail,
@@ -930,23 +991,6 @@ function extractVariationAttributes(
   const colors =
     new Set<string>();
 
-  // ===========================================================
-  // NOME PRINCIPAL DO PRODUTO
-  // ===========================================================
-  //
-  // Usado para impedir que o próprio nome do produto
-  // seja salvo como "cor".
-  //
-  // Exemplo:
-  //
-  // Produto:
-  // CONJUNTO FEM VERÃO BIAWI
-  //
-  // Variação:
-  // CONJUNTO FEM VERÃO BIAWI
-  //
-  // Essa variação será ignorada.
-  //
   const productName =
     normalize(
       str(
@@ -954,38 +998,31 @@ function extractVariationAttributes(
       )
     );
 
-  /**
-   * Verifica se o valor da variação é igual ao nome
-   * do produto.
-   */
-  const shouldIgnoreColor = (
-    value: string
-  ): boolean => {
-    const normalizedValue =
-      normalize(value);
+  const shouldIgnoreColor =
+    (value: string): boolean => {
+      const normalizedValue =
+        normalize(value);
 
-    if (
-      !normalizedValue
-    ) {
-      return true;
-    }
+      if (
+        !normalizedValue
+      ) {
+        return true;
+      }
 
-    // Se a variação é exatamente igual ao nome
-    // do produto, não é uma opção real.
-    if (
-      productName &&
-      normalizedValue ===
-        productName
-    ) {
-      return true;
-    }
+      // ========================================================
+      // A própria descrição do produto não é uma variação.
+      // ========================================================
+      if (
+        productName &&
+        normalizedValue ===
+          productName
+      ) {
+        return true;
+      }
 
-    return false;
-  };
+      return false;
+    };
 
-  /**
-   * Consome uma grade.
-   */
   const consume = (
     grade: TinyGrade,
     descricao: unknown
@@ -998,23 +1035,14 @@ function extractVariationAttributes(
         knownColors
       );
 
-    // =========================================================
-    // TAMANHO
-    // =========================================================
     if (
       parsed.tamanho
     ) {
       sizes.add(
-        parsed.tamanho.trim()
+        parsed.tamanho
       );
     }
 
-    // =========================================================
-    // COR / MODELO / QUALQUER OUTRA VARIAÇÃO
-    // =========================================================
-    //
-    // Só adiciona se não for igual ao nome do produto.
-    //
     if (
       parsed.cor &&
       !shouldIgnoreColor(
@@ -1022,14 +1050,14 @@ function extractVariationAttributes(
       )
     ) {
       colors.add(
-        parsed.cor.trim()
+        parsed.cor
       );
     }
   };
 
-  // ===========================================================
-  // Variações presentes dentro do detalhe do produto.
-  // ===========================================================
+  // ==========================================================
+  // Variações do detalhe
+  // ==========================================================
   for (
     const rawVariation of
     getRawVariationsFromDetail(
@@ -1056,9 +1084,9 @@ function extractVariationAttributes(
     );
   }
 
-  // ===========================================================
-  // Variações presentes na listagem geral.
-  // ===========================================================
+  // ==========================================================
+  // Variações da listagem
+  // ==========================================================
   for (
     const rawVariation of
     variationHeaders
@@ -1106,6 +1134,268 @@ function extractVariationAttributes(
   };
 }
 
+/**
+ * =============================================================
+ * MONTA tinyVariacoes
+ * =============================================================
+ *
+ * Esta é a parte nova mais importante.
+ *
+ * Para cada variação do Tiny salvamos:
+ *
+ * - id real da variação
+ * - SKU
+ * - GTIN
+ * - tamanho
+ * - cor/modelo/estampa/etc.
+ * - descrição
+ * - estoque
+ *
+ * O código da venda poderá então encontrar exatamente
+ * qual ID deve sofrer a baixa no Tiny.
+ */
+function extractTinyVariations(
+  detail: TinyDetail,
+  variationHeaders: TinyListItem[] = [],
+  knownSizes: string[] = [],
+  knownColors: string[] = []
+): StoredTinyVariation[] {
+  const result =
+    new Map<
+      string,
+      StoredTinyVariation
+    >();
+
+  const productName =
+    normalize(
+      str(
+        detail.descricao
+      )
+    );
+
+  const shouldIgnoreColor =
+    (value: string): boolean => {
+      const normalizedValue =
+        normalize(value);
+
+      return Boolean(
+        productName &&
+          normalizedValue ===
+            productName
+      );
+    };
+
+  const consume =
+    (rawVariation: any) => {
+      const variation =
+        getVariationObject(
+          rawVariation
+        );
+
+      const id =
+        getVariationId(
+          rawVariation
+        );
+
+      if (!id) {
+        return;
+      }
+
+      const descricao =
+        str(
+          variation?.descricao
+        ) ||
+        str(
+          variation?.nome
+        ) ||
+        str(
+          variation?.titulo
+        );
+
+      const parsed =
+        parseGrade(
+          variation?.grade,
+
+          descricao,
+
+          knownSizes,
+
+          knownColors
+        );
+
+      let cor =
+        parsed.cor
+          ? parsed.cor.trim()
+          : "";
+
+      // ========================================================
+      // Não salva o próprio nome do produto como cor.
+      // ========================================================
+      if (
+        cor &&
+        shouldIgnoreColor(cor)
+      ) {
+        cor = "";
+      }
+
+      const item:
+        StoredTinyVariation =
+        {
+          id,
+
+          sku:
+            str(
+              variation?.sku
+            ) || null,
+
+          gtin:
+            str(
+              variation?.gtin
+            ) || null,
+
+          tamanho:
+            parsed.tamanho
+              ? parsed.tamanho
+              : null,
+
+          cor:
+            cor || null,
+
+          descricao:
+            descricao || null,
+
+          estoque:
+            safeNonNegativeInt(
+              variation
+                ?.estoque
+                ?.quantidade
+            ),
+        };
+
+      // ========================================================
+      // Se já existe pelo mesmo ID, fazemos merge.
+      //
+      // Isso é útil quando o detalhe e a listagem trazem
+      // a mesma variação, mas uma das respostas contém
+      // mais informações que a outra.
+      // ========================================================
+      const existing =
+        result.get(id);
+
+      if (!existing) {
+        result.set(
+          id,
+          item
+        );
+
+        return;
+      }
+
+      result.set(
+        id,
+        {
+          id,
+
+          sku:
+            item.sku ||
+            existing.sku,
+
+          gtin:
+            item.gtin ||
+            existing.gtin,
+
+          tamanho:
+            item.tamanho ||
+            existing.tamanho,
+
+          cor:
+            item.cor ||
+            existing.cor,
+
+          descricao:
+            item.descricao ||
+            existing.descricao,
+
+          estoque:
+            item.estoque ??
+            existing.estoque,
+        }
+      );
+    };
+
+  // ==========================================================
+  // Primeiro detalhe
+  // ==========================================================
+  for (
+    const rawVariation of
+    getRawVariationsFromDetail(
+      detail
+    )
+  ) {
+    consume(
+      rawVariation
+    );
+  }
+
+  // ==========================================================
+  // Depois listagem geral
+  // ==========================================================
+  for (
+    const rawVariation of
+    variationHeaders
+  ) {
+    consume(
+      rawVariation
+    );
+  }
+
+  return [
+    ...result.values(),
+  ].sort(
+    (a, b) => {
+      const sa =
+        normalize(
+          a.tamanho || ""
+        );
+
+      const sb =
+        normalize(
+          b.tamanho || ""
+        );
+
+      const sizeCompare =
+        sortSizes([
+          sa,
+          sb,
+        ]);
+
+      if (
+        sizeCompare[0] ===
+        sizeCompare[1]
+      ) {
+        return (
+          normalize(
+            a.cor || ""
+          ).localeCompare(
+            normalize(
+              b.cor || ""
+            ),
+            "pt-BR"
+          )
+        );
+      }
+
+      return (
+        sortSizes([
+          sa,
+        ])[0] === sa
+          ? -1
+          : 1
+      );
+    }
+  );
+}
+
 function buildVariationHeadersByParent(
   tinyHeaders: TinyListItem[]
 ): Map<
@@ -1119,7 +1409,8 @@ function buildVariationHeadersByParent(
     >();
 
   for (
-    const item of tinyHeaders
+    const item of
+    tinyHeaders
   ) {
     const tipoVariacao =
       normalize(
@@ -1164,7 +1455,9 @@ function buildVariationHeadersByParent(
           variationId
       )
     ) {
-      current.push(item);
+      current.push(
+        item
+      );
     }
 
     result.set(
@@ -1181,7 +1474,6 @@ function aggregateDetail(
   knownSizes: string[] = [],
   knownColors: string[] = []
 ): StockAggregate | null {
-  // Mantida a regra original do estoque.
   const variations =
     Array.isArray(
       detail.variacoes
@@ -1190,7 +1482,7 @@ function aggregateDetail(
       : [];
 
   // ===========================================================
-  // PRODUTO SEM VARIAÇÕES
+  // PRODUTO SEM VARIAÇÕES NO DETALHE
   // ===========================================================
   if (
     variations.length ===
@@ -1209,11 +1501,14 @@ function aggregateDetail(
     }
 
     return {
-      estoque: qty,
+      estoque:
+        qty,
 
-      tamanhos: [],
+      tamanhos:
+        [],
 
-      cores: [],
+      cores:
+        [],
 
       estoquePorTamanho:
         {},
@@ -1229,7 +1524,8 @@ function aggregateDetail(
     };
   }
 
-  let totalVariacoes = 0;
+  let totalVariacoes =
+    0;
 
   let todasQuantidadesValidas =
     true;
@@ -1270,7 +1566,8 @@ function aggregateDetail(
   ) {
     const qty =
       safeNonNegativeInt(
-        variation.estoque
+        variation
+          ?.estoque
           ?.quantidade
       );
 
@@ -1286,19 +1583,16 @@ function aggregateDetail(
     totalVariacoes +=
       qty;
 
-    // =========================================================
-    // Agora o parse reconhece:
-    //
-    // Tamanho -> tamanho
-    // Qualquer outra característica -> cor
-    // =========================================================
     const grade =
       parseGrade(
-        variation.grade,
+        variation?.grade,
+
         str(
-          variation.descricao
+          variation?.descricao
         ),
+
         knownSizes,
+
         knownColors
       );
 
@@ -1310,9 +1604,6 @@ function aggregateDetail(
         false;
     }
 
-    // =========================================================
-    // TAMANHO
-    // =========================================================
     if (
       grade.tamanho
     ) {
@@ -1331,48 +1622,58 @@ function aggregateDetail(
       );
     }
 
-    // =========================================================
-    // QUALQUER OUTRA VARIAÇÃO = COR
-    // =========================================================
     if (
       grade.cor
     ) {
-      colors.add(
-        grade.cor
-      );
-
-      colorTotals.set(
-        grade.cor,
-
-        (
-          colorTotals.get(
-            grade.cor
-          ) || 0
-        ) + qty
-      );
+      // Não deixa o nome do produto virar cor.
+      const productName =
+        normalize(
+          str(
+            detail.descricao
+          )
+        );
 
       if (
-        grade.tamanho
+        !productName ||
+        normalize(
+          grade.cor
+        ) !==
+          productName
       ) {
-        matrixByColor[
+        colors.add(
           grade.cor
-        ] ||= {};
+        );
 
-        matrixByColor[
-          grade.cor
-        ][
+        colorTotals.set(
+          grade.cor,
+
+          (
+            colorTotals.get(
+              grade.cor
+            ) || 0
+          ) + qty
+        );
+
+        if (
           grade.tamanho
-        ] = qty;
+        ) {
+          matrixByColor[
+            grade.cor
+          ] ||= {};
+
+          matrixByColor[
+            grade.cor
+          ][
+            grade.tamanho
+          ] = qty;
+        }
       }
     }
   }
 
   // ===========================================================
-  // ESTOQUE DO PRODUTO PAI
+  // ESTOQUE DO PAI
   // ===========================================================
-  //
-  // Mantida a lógica existente.
-  //
   const parentQty =
     safeNonNegativeInt(
       detail.estoque
@@ -1415,15 +1716,13 @@ function aggregateDetail(
       any
     > = {};
 
-  // ===========================================================
-  // MATRIZ TAMANHO X COR
-  // ===========================================================
   if (
     cores.length > 0 &&
     tamanhos.length > 0
   ) {
     for (
-      const cor of cores
+      const cor of
+      cores
     ) {
       estoquePorCor[
         cor
@@ -1451,9 +1750,6 @@ function aggregateDetail(
       );
   }
 
-  // ===========================================================
-  // CONFIRMA SE A MATRIZ PODE SER ATUALIZADA
-  // ===========================================================
   const matrixComplete =
     todasQuantidadesValidas &&
     todosGradesReconhecidos;
@@ -1550,7 +1846,8 @@ async function listProducts(
 async function listAllProductHeaders(): Promise<
   TinyListItem[]
 > {
-  const all: TinyListItem[] =
+  const all:
+    TinyListItem[] =
     [];
 
   const limit = 100;
@@ -1581,7 +1878,8 @@ async function listAllProductHeaders(): Promise<
     const total =
       Number(
         data.paginacao
-          ?.total || 0
+          ?.total ||
+          0
       );
 
     if (
@@ -1604,7 +1902,8 @@ async function listAllProductHeaders(): Promise<
 async function listAllActiveProductHeaders(): Promise<
   TinyListItem[]
 > {
-  const all: TinyListItem[] =
+  const all:
+    TinyListItem[] =
     [];
 
   const limit = 100;
@@ -1638,7 +1937,8 @@ async function listAllActiveProductHeaders(): Promise<
     const total =
       Number(
         data.paginacao
-          ?.total || 0
+          ?.total ||
+          0
       );
 
     if (
@@ -1669,7 +1969,8 @@ function uniqueCanonicalHeaders(
     [];
 
   for (
-    const item of items
+    const item of
+    items
   ) {
     const tipoVariacao =
       normalize(
@@ -1709,7 +2010,9 @@ function sinceDateString(
   timestamp: number
 ): string {
   const d =
-    new Date(timestamp);
+    new Date(
+      timestamp
+    );
 
   const pad = (
     v: number
@@ -1868,7 +2171,6 @@ async function mapWithConcurrency<
         length:
           Math.max(
             1,
-
             Math.min(
               concurrency,
               items.length
@@ -1892,7 +2194,11 @@ async function updateExistingProduct(
 
   detail: TinyDetail,
 
-  variationAttributes?: VariationAttributes
+  variationAttributes?:
+    VariationAttributes,
+
+  tinyVariacoes:
+    StoredTinyVariation[] = []
 ): Promise<{
   updated: boolean;
 
@@ -1941,21 +2247,26 @@ async function updateExistingProduct(
 
   if (!existing) {
     return {
-      updated: false,
+      updated:
+        false,
 
-      changed: false,
+      changed:
+        false,
 
       siteStockBefore:
         null,
 
-      tinyStock: 0,
+      tinyStock:
+        0,
 
-      variationCount: 0,
+      variationCount:
+        0,
 
       stockSource:
         "product",
 
-      confirmed: false,
+      confirmed:
+        false,
 
       matrixComplete:
         false,
@@ -2011,11 +2322,8 @@ async function updateExistingProduct(
     false;
 
   // ==========================================================
-  // REGRA DE ESTOQUE
+  // REGRA DE ESTOQUE ORIGINAL
   // ==========================================================
-  //
-  // Mantida.
-  //
   if (
     !hasVariations &&
     tinyStock === 0 &&
@@ -2046,7 +2354,7 @@ async function updateExistingProduct(
   };
 
   // ==========================================================
-  // ATUALIZA TAMANHOS
+  // TAMANHOS
   // ==========================================================
   if (
     variationAttributes &&
@@ -2059,7 +2367,7 @@ async function updateExistingProduct(
   }
 
   // ==========================================================
-  // ATUALIZA CORES / MODELOS / ESTAMPAS / ETC.
+  // CORES / MODELOS / ESTAMPAS
   // ==========================================================
   if (
     variationAttributes &&
@@ -2070,6 +2378,19 @@ async function updateExistingProduct(
     data.cores =
       variationAttributes.cores;
   }
+
+  // ==========================================================
+  // tinyVariacoes
+  // ==========================================================
+  //
+  // SEMPRE atualizamos este campo quando o produto foi
+  // consultado no Tiny.
+  //
+  // Isso elimina IDs antigos e garante que a venda use
+  // os IDs mais recentes das variações.
+  //
+  data.tinyVariacoes =
+    tinyVariacoes;
 
   // ==========================================================
   // MATRIZES DE ESTOQUE
@@ -2108,7 +2429,11 @@ async function updateExistingProduct(
     tinyStock,
 
     variationCount:
-      aggregate.variationCount,
+      Math.max(
+        aggregate.variationCount,
+
+        tinyVariacoes.length
+      ),
 
     stockSource,
 
@@ -2124,7 +2449,11 @@ async function createNewProduct(
 
   detail: TinyDetail,
 
-  variationAttributes?: VariationAttributes
+  variationAttributes?:
+    VariationAttributes,
+
+  tinyVariacoes:
+    StoredTinyVariation[] = []
 ): Promise<{
   created: boolean;
 
@@ -2145,9 +2474,11 @@ async function createNewProduct(
 
   if (existing) {
     return {
-      created: false,
+      created:
+        false,
 
-      variationCount: 0,
+      variationCount:
+        tinyVariacoes.length,
     };
   }
 
@@ -2184,8 +2515,7 @@ async function createNewProduct(
 
   const preco =
     num(
-      detail.precos
-        ?.preco
+      detail.precos?.preco
     ) ?? 0;
 
   const promocional =
@@ -2237,8 +2567,7 @@ async function createNewProduct(
             : aggregate.tamanhos,
 
         // ======================================================
-        // QUALQUER OUTRA VARIAÇÃO
-        // -> CORES
+        // CORES / MODELOS / ESTAMPAS
         // ======================================================
         cores:
           variationAttributes
@@ -2246,6 +2575,17 @@ async function createNewProduct(
             ?.length
             ? variationAttributes.cores
             : aggregate.cores,
+
+        // ======================================================
+        // IDS DAS VARIAÇÕES DO TINY
+        // ======================================================
+        //
+        // É este campo que será usado posteriormente
+        // para dar baixa na variação correta.
+        //
+        tinyVariacoes:
+
+          tinyVariacoes,
 
         coresDetalhes:
           undefined,
@@ -2269,14 +2609,21 @@ async function createNewProduct(
   );
 
   return {
-    created: true,
+    created:
+      true,
 
     variationCount:
-      aggregate.variationCount,
+      Math.max(
+        aggregate.variationCount,
+
+        tinyVariacoes.length
+      ),
   };
 }
 
-async function withSyncLock<T>(
+async function withSyncLock<
+  T
+>(
   fn: () => Promise<T>
 ): Promise<T> {
   const owner =
@@ -2287,7 +2634,9 @@ async function withSyncLock<T>(
   const locked =
     await redisSetNx(
       SYNC_LOCK_KEY,
+
       owner,
+
       120
     );
 
@@ -2394,7 +2743,8 @@ function buildCanonicalMaps(
     >();
 
   for (
-    const item of canonical
+    const item of
+    canonical
   ) {
     const id =
       canonicalId(item);
@@ -2405,6 +2755,7 @@ function buildCanonicalMaps(
 
     byId.set(
       id,
+
       item
     );
 
@@ -2430,6 +2781,7 @@ function buildCanonicalMaps(
 
     byName.set(
       name,
+
       arr
     );
   }
@@ -2448,6 +2800,7 @@ function buildCanonicalMaps(
 async function matchSiteProduct(
   site: {
     id: string;
+
     nome: string;
   },
 
@@ -2467,9 +2820,6 @@ async function matchSiteProduct(
     | "nome"
     | "similaridade";
 } | null> {
-  // ==========================================================
-  // Redis
-  // ==========================================================
   const storedTinyId =
     await getStoredTinyId(
       site.id
@@ -2497,9 +2847,6 @@ async function matchSiteProduct(
     }
   }
 
-  // ==========================================================
-  // ID
-  // ==========================================================
   const direct =
     maps.byId.get(
       site.id
@@ -2507,7 +2854,9 @@ async function matchSiteProduct(
 
   if (direct) {
     const tinyId =
-      String(site.id);
+      String(
+        site.id
+      );
 
     await setStoredTinyId(
       site.id,
@@ -2526,9 +2875,6 @@ async function matchSiteProduct(
     };
   }
 
-  // ==========================================================
-  // NOME EXATO
-  // ==========================================================
   const name =
     normalize(
       site.nome
@@ -2571,9 +2917,6 @@ async function matchSiteProduct(
     }
   }
 
-  // ==========================================================
-  // SIMILARIDADE
-  // ==========================================================
   let best:
     TinyListItem | null =
     null;
@@ -2591,9 +2934,7 @@ async function matchSiteProduct(
         candidate.descricao
       );
 
-    if (
-      !candidateName
-    ) {
+    if (!candidateName) {
       continue;
     }
 
@@ -2627,7 +2968,8 @@ async function matchSiteProduct(
 
   if (
     best &&
-    bestScore >= 0.72 &&
+    bestScore >=
+      0.72 &&
     bestScore -
       secondScore >=
       0.08
@@ -2701,7 +3043,8 @@ async function findNewTinyProducts(
     [];
 
   for (
-    const item of headers
+    const item of
+    headers
   ) {
     const tinyId =
       canonicalId(item);
@@ -2776,10 +3119,11 @@ async function prepareQuick() {
             site.id
           ),
 
-          nome: String(
-            site.nome ||
-              ""
-          ),
+          nome:
+            String(
+              site.nome ||
+                ""
+            ),
         },
 
         maps
@@ -3008,17 +3352,9 @@ async function stockBatch(
           >
         > = [];
 
-      // ========================================================
-      // Catálogo completo
-      // ========================================================
       const maps =
         await buildTinyCanonicalMap();
 
-      // ========================================================
-      // Índice:
-      //
-      // produto pai -> variações V
-      // ========================================================
       const variationHeadersByParent =
         buildVariationHeadersByParent(
           maps.tinyHeaders
@@ -3077,6 +3413,9 @@ async function stockBatch(
 
         variationHeadersCount?:
           number;
+
+        tinyVariacoesCount?:
+          number;
       };
 
       const results =
@@ -3093,7 +3432,7 @@ async function stockBatch(
           ): Promise<BatchResult> => {
             try {
               // =================================================
-              // Busca detalhe do produto pai.
+              // DETALHE
               // =================================================
               const detail =
                 await getDetail(
@@ -3101,7 +3440,7 @@ async function stockBatch(
                 );
 
               // =================================================
-              // Busca todas as V do produto pai.
+              // VARIAÇÕES V DO CATÁLOGO
               // =================================================
               const variationHeaders =
                 variationHeadersByParent.get(
@@ -3117,7 +3456,7 @@ async function stockBatch(
                 [];
 
               // =================================================
-              // Busca dados já existentes no site.
+              // VALORES EXISTENTES NO SITE
               // =================================================
               if (
                 entry.siteId
@@ -3126,7 +3465,8 @@ async function stockBatch(
                   await prisma.produto.findUnique(
                     {
                       where: {
-                        id: entry.siteId,
+                        id:
+                          entry.siteId,
                       },
 
                       select: {
@@ -3151,14 +3491,24 @@ async function stockBatch(
               }
 
               // =================================================
-              // NOVA LEITURA DAS VARIAÇÕES
-              //
-              // tamanho -> tamanhos
-              // resto -> cores
-              // nome do produto -> ignorado
+              // OPÇÕES VISÍVEIS
               // =================================================
               const variationOptions =
                 extractVariationAttributes(
+                  detail,
+
+                  variationHeaders,
+
+                  knownSizes,
+
+                  knownColors
+                );
+
+              // =================================================
+              // IDS REAIS DAS VARIAÇÕES
+              // =================================================
+              const tinyVariacoes =
+                extractTinyVariations(
                   detail,
 
                   variationHeaders,
@@ -3176,6 +3526,9 @@ async function stockBatch(
                 variationOptions
                   .cores
                   .length >
+                  0 ||
+                tinyVariacoes
+                  .length >
                   0
               ) {
                 produtosComVariacoesSincronizadas +=
@@ -3186,7 +3539,7 @@ async function stockBatch(
                 variationHeaders.length;
 
               // =================================================
-              // PRODUTO JÁ EXISTENTE
+              // PRODUTO EXISTENTE
               // =================================================
               if (
                 entry.siteId
@@ -3195,7 +3548,8 @@ async function stockBatch(
                   await prisma.produto.findUnique(
                     {
                       where: {
-                        id: entry.siteId,
+                        id:
+                          entry.siteId,
                       },
 
                       select: {
@@ -3205,7 +3559,7 @@ async function stockBatch(
                   );
 
                 // -----------------------------------------------
-                // Produto não existe mais no site.
+                // Produto não encontrado
                 // -----------------------------------------------
                 if (!existing) {
                   const result =
@@ -3214,7 +3568,9 @@ async function stockBatch(
 
                       detail,
 
-                      variationOptions
+                      variationOptions,
+
+                      tinyVariacoes
                     );
 
                   return {
@@ -3249,11 +3605,14 @@ async function stockBatch(
 
                     variationHeadersCount:
                       variationHeaders.length,
+
+                    tinyVariacoesCount:
+                      tinyVariacoes.length,
                   };
                 }
 
                 // -----------------------------------------------
-                // Atualiza produto existente.
+                // Atualiza
                 // -----------------------------------------------
                 const result =
                   await updateExistingProduct(
@@ -3261,7 +3620,9 @@ async function stockBatch(
 
                     detail,
 
-                    variationOptions
+                    variationOptions,
+
+                    tinyVariacoes
                   );
 
                 return {
@@ -3311,6 +3672,9 @@ async function stockBatch(
 
                   variationHeadersCount:
                     variationHeaders.length,
+
+                  tinyVariacoesCount:
+                    tinyVariacoes.length,
                 };
               }
 
@@ -3329,7 +3693,9 @@ async function stockBatch(
 
                     detail,
 
-                    variationOptions
+                    variationOptions,
+
+                    tinyVariacoes
                   );
 
                 return {
@@ -3364,6 +3730,9 @@ async function stockBatch(
 
                   variationHeadersCount:
                     variationHeaders.length,
+
+                  tinyVariacoesCount:
+                    tinyVariacoes.length,
                 };
               }
 
@@ -3372,12 +3741,19 @@ async function stockBatch(
                   "ignored",
 
                 variationCount:
-                  variationHeaders.length,
+                  Math.max(
+                    variationHeaders.length,
+
+                    tinyVariacoes.length
+                  ),
 
                 variationOptions,
 
                 variationHeadersCount:
                   variationHeaders.length,
+
+                tinyVariacoesCount:
+                  tinyVariacoes.length,
               };
             } catch (
               error
@@ -3431,28 +3807,33 @@ async function stockBatch(
         );
 
       // =========================================================
-      // Consolida resultados
+      // CONSOLIDA
       // =========================================================
       for (
-        const result of results
+        const result of
+        results
       ) {
         if (
           result.kind ===
           "created"
         ) {
-          criados += 1;
+          criados +=
+            1;
         } else if (
           result.kind ===
           "updated"
         ) {
-          atualizados += 1;
+          atualizados +=
+            1;
         } else if (
           result.kind ===
           "ignored"
         ) {
-          ignorados += 1;
+          ignorados +=
+            1;
         } else {
-          falhas += 1;
+          falhas +=
+            1;
         }
 
         if (
@@ -3504,7 +3885,13 @@ async function stockBatch(
                 ),
 
               variacoesDaListagem:
-                result.variationHeadersCount ||
+                result
+                  .variationHeadersCount ||
+                0,
+
+              tinyVariacoesGravadas:
+                result
+                  .tinyVariacoesCount ||
                 0,
 
               tamanhosSincronizados:
@@ -3530,9 +3917,6 @@ async function stockBatch(
           0;
       }
 
-      // =========================================================
-      // Falhas
-      // =========================================================
       const failedEntries =
         results
           .filter(
@@ -3645,7 +4029,8 @@ async function prepareFull() {
     [];
 
   for (
-    const site of siteProducts
+    const site of
+    siteProducts
   ) {
     const match =
       await matchSiteProduct(
@@ -3654,10 +4039,11 @@ async function prepareFull() {
             site.id
           ),
 
-          nome: String(
-            site.nome ||
-              ""
-          ),
+          nome:
+            String(
+              site.nome ||
+                ""
+            ),
         },
 
         maps
@@ -3807,8 +4193,10 @@ export async function POST(
     if (
       mode ===
         "stock-batch" ||
-      mode === "quick" ||
-      mode === "sync"
+      mode ===
+        "quick" ||
+      mode ===
+        "sync"
     ) {
       const entries:
         SiteSyncEntry[] =
@@ -4046,9 +4434,6 @@ export async function POST(
       error
     );
 
-    // =========================================================
-    // OAUTH
-    // =========================================================
     if (
       error instanceof
       OlistOAuthError
@@ -4075,9 +4460,6 @@ export async function POST(
       );
     }
 
-    // =========================================================
-    // ERRO GERAL
-    // =========================================================
     return NextResponse.json(
       {
         success:
