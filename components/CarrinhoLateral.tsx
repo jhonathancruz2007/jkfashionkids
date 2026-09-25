@@ -86,16 +86,18 @@ export default function CarrinhoLateral() {
   };
 
   // Função para Incrementar Quantidade com Validação de Estoque
+  // Considera a combinação COR + TAMANHO quando o produto possui variações.
   const handleAumentarQuantidade = async (item: any) => {
     const itemProdId = String(item.produtoId || item.id || item._id || "");
     const itemTamanho = String(item.tamanho || "").trim().toUpperCase();
+    const itemCor = String(item.cor || "").trim().toUpperCase();
     const novaQtdDesejada = item.quantidade + 1;
-    const itemChaveUnica = `${itemProdId}-${itemTamanho}`;
+    const itemChaveUnica = `${itemProdId}-${itemTamanho}-${itemCor}`;
 
     setVerificandoId(itemChaveUnica);
 
     try {
-      // Busca dados atualizados do produto para conferir estoque
+      // Busca dados atualizados do produto para conferir estoque.
       const res = await fetch(`/api/produtos/${itemProdId}`).catch(() => null);
       let produto = null;
 
@@ -104,46 +106,122 @@ export default function CarrinhoLateral() {
         produto = data.produto || data;
       }
 
+      const normalizar = (valor: unknown) =>
+        String(valor ?? "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .trim()
+          .toUpperCase();
+
+      const encontrarChaveNormalizada = (
+        obj: Record<string, any>,
+        valor: string
+      ) => Object.keys(obj).find((chave) => normalizar(chave) === normalizar(valor));
+
+      const converterObjeto = (valor: any): Record<string, any> => {
+        if (typeof valor === "string") {
+          try {
+            const parsed = JSON.parse(valor);
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? parsed
+              : {};
+          } catch {
+            return {};
+          }
+        }
+
+        return valor && typeof valor === "object" && !Array.isArray(valor)
+          ? valor
+          : {};
+      };
+
       let estoqueMaximo = 0;
 
       if (produto) {
-        let bruto = produto.estoquePorTamanho ?? produto.tamanhosEstoque ?? produto.estoqueTamanhos;
+        const estoquePorCor = converterObjeto(produto.estoquePorCor);
+        const estoquePorTamanho = converterObjeto(
+          produto.estoquePorTamanho ?? produto.tamanhosEstoque ?? produto.estoqueTamanhos
+        );
 
-        if (typeof bruto === "string") {
-          try { bruto = JSON.parse(bruto); } catch { bruto = null; }
+        // 1. Primeiro tenta COR + TAMANHO.
+        if (itemCor && Object.keys(estoquePorCor).length > 0) {
+          const chaveCor = encontrarChaveNormalizada(estoquePorCor, itemCor);
+
+          if (chaveCor) {
+            const estoqueDaCor = estoquePorCor[chaveCor];
+
+            if (
+              estoqueDaCor &&
+              typeof estoqueDaCor === "object" &&
+              !Array.isArray(estoqueDaCor)
+            ) {
+              const chaveTamanhoCor = encontrarChaveNormalizada(
+                estoqueDaCor,
+                itemTamanho
+              );
+
+              if (chaveTamanhoCor) {
+                estoqueMaximo = Number(estoqueDaCor[chaveTamanhoCor] || 0);
+              } else {
+                estoqueMaximo = 0;
+              }
+            } else {
+              // Produto controlado somente por cor.
+              estoqueMaximo = Number(estoqueDaCor || 0);
+            }
+          }
         }
 
-        if (Array.isArray(bruto)) {
-          const itemEstoque = bruto.find((i: any) => {
-            const tam = String(i?.tamanho || i?.tam || i?.name || i?.label || "").trim().toUpperCase();
-            return tam === itemTamanho;
-          });
-          estoqueMaximo = Number(itemEstoque?.quantidade ?? itemEstoque?.qtd ?? itemEstoque?.estoque ?? 0);
-        } else if (bruto && typeof bruto === "object") {
-          const subValor = bruto[itemTamanho];
-          if (subValor && typeof subValor === "object") {
-            estoqueMaximo = Number(subValor.quantidade ?? subValor.qtd ?? subValor.estoque ?? 0);
-          } else {
-            estoqueMaximo = Number(subValor || 0);
+        // 2. Sem cor ou sem registro por cor: usa estoque por tamanho.
+        if (estoqueMaximo <= 0 && itemTamanho && Object.keys(estoquePorTamanho).length > 0) {
+          const chaveTamanho = encontrarChaveNormalizada(estoquePorTamanho, itemTamanho);
+
+          if (chaveTamanho) {
+            const valorTamanho = estoquePorTamanho[chaveTamanho];
+
+            if (valorTamanho && typeof valorTamanho === "object") {
+              estoqueMaximo = Number(
+                valorTamanho.quantidade ??
+                  valorTamanho.qtd ??
+                  valorTamanho.estoque ??
+                  valorTamanho.stock ??
+                  0
+              );
+            } else {
+              estoqueMaximo = Number(valorTamanho || 0);
+            }
           }
-        } else {
-          estoqueMaximo = Number(produto.estoque ?? produto.quantidade ?? produto.qtd ?? 0);
+        }
+
+        // 3. Fallback para estoque geral.
+        if (estoqueMaximo <= 0) {
+          estoqueMaximo = Number(
+            produto.estoque ?? produto.quantidade ?? produto.qtd ?? 0
+          );
         }
       } else {
-        // Fallback caso a rota específica não exista: lê o limite que veio no próprio item se houver
         estoqueMaximo = Number(item.estoqueMaximo || item.estoque || 99);
       }
 
       if (novaQtdDesejada > estoqueMaximo) {
         if (estoqueMaximo === 1) {
-          mostrarNotificacao("Limite de estoque atingido! Restam apenas está única unidade no estoque.");
+          mostrarNotificacao(
+            "Limite de estoque atingido! Resta apenas 1 unidade no estoque."
+          );
         } else {
-          mostrarNotificacao(`Limite de estoque atingido! Restam apenas ${estoqueMaximo} unidades no estoque.`);
+          mostrarNotificacao(
+            `Limite de estoque atingido! Restam apenas ${estoqueMaximo} unidades no estoque.`
+          );
         }
         return;
       }
 
-      await atualizarQuantidade(item.id || item.produtoId, item.tamanho, novaQtdDesejada);
+      await atualizarQuantidade(
+        item.id || item.produtoId,
+        item.tamanho,
+        novaQtdDesejada,
+        item.cor || null
+      );
     } catch (error) {
       console.error("Erro ao verificar estoque:", error);
       mostrarNotificacao("Não foi possível verificar o estoque no momento.");
@@ -262,12 +340,13 @@ export default function CarrinhoLateral() {
                 item.precoOriginal && item.precoOriginal > item.preco;
               const prodId = String(item.produtoId || item.id || item._id || "");
               const tam = String(item.tamanho || "").trim().toUpperCase();
-              const chaveUnica = `${prodId}-${tam}`;
+              const cor = String(item.cor || "").trim();
+              const chaveUnica = `${prodId}-${tam}-${cor.trim().toUpperCase()}`;
               const carregandoEsteItem = verificandoId === chaveUnica;
 
               return (
                 <div
-                  key={`${item.id || item.slug}-${item.tamanho}`}
+                  key={`${item.id || item.slug}-${item.tamanho}-${item.cor || ""}`}
                   className="flex items-center gap-3.5 rounded-2xl border border-slate-200 bg-slate-50/50 p-3 transition-all hover:border-slate-300 hover:bg-slate-50"
                 >
                   <div className="relative h-18 w-18 overflow-hidden rounded-xl bg-white border border-slate-200 flex-shrink-0">
@@ -283,10 +362,15 @@ export default function CarrinhoLateral() {
                     <h4 className="text-xs font-extrabold text-slate-900 truncate">
                       {item.nome}
                     </h4>
-                    <div className="mt-1 flex items-center gap-2">
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className="inline-flex items-center rounded-lg bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
                         Tam: {item.tamanho}
                       </span>
+                      {item.cor && String(item.cor).trim() && (
+                        <span className="inline-flex items-center rounded-lg bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 border border-rose-200">
+                          Cor: {item.cor}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-1.5 flex items-baseline gap-1.5">
@@ -303,7 +387,13 @@ export default function CarrinhoLateral() {
 
                   <div className="flex flex-col items-end justify-between gap-3 self-stretch">
                     <button
-                      onClick={() => removerDoCarrinho(item.id || item.produtoId, item.tamanho)}
+                      onClick={() =>
+                        removerDoCarrinho(
+                          item.id || item.produtoId,
+                          item.tamanho,
+                          item.cor || null
+                        )
+                      }
                       aria-label="Remover item"
                       className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded-lg hover:bg-red-50"
                     >
@@ -316,7 +406,8 @@ export default function CarrinhoLateral() {
                           atualizarQuantidade(
                             item.id || item.produtoId,
                             item.tamanho,
-                            item.quantidade - 1
+                            item.quantidade - 1,
+                            item.cor || null
                           )
                         }
                         disabled={carregandoEsteItem || item.quantidade <= 1}
