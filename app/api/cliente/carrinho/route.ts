@@ -21,6 +21,23 @@ function calcularPrecoComDesconto(produto: any): number {
   return Number(produto.preco || 0)
 }
 
+function normalizarTexto(valor: unknown): string {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+}
+
+function normalizarTamanho(valor: unknown): string {
+  return String(valor ?? "").trim()
+}
+
+function normalizarCor(valor: unknown): string | null {
+  const cor = String(valor ?? "").trim()
+  return cor ? cor : null
+}
+
 // Auxiliar para extrair o cliente autenticado a partir do JWT
 async function getClienteLogado() {
   const cookieStore = await cookies()
@@ -44,29 +61,109 @@ async function getClienteLogado() {
   }
 }
 
-// Auxiliar para obter o estoque correto considerando estoque por tamanho
-function obterEstoqueDisponivel(produto: any, tamanhoSelecionado?: string): number {
+// Auxiliar para obter o estoque correto considerando tamanho e cor.
+// Aceita:
+// 1) estoquePorTamanho = { P: 2, M: 3 }
+// 2) estoquePorCor = { Azul: 5 }
+// 3) estoquePorCor = { Azul: { P: 2, M: 3 } }
+function obterEstoqueDisponivel(
+  produto: any,
+  tamanhoSelecionado?: string,
+  corSelecionada?: string | null
+): number {
   if (!produto) return 0
 
-  if (tamanhoSelecionado && produto.estoquePorTamanho) {
-    let mapaEstoque: Record<string, number> = {}
+  let mapaEstoquePorTamanho: Record<string, any> = {}
+  let mapaEstoquePorCor: Record<string, any> = {}
 
+  if (produto.estoquePorTamanho) {
     if (typeof produto.estoquePorTamanho === "string") {
       try {
-        mapaEstoque = JSON.parse(produto.estoquePorTamanho)
-      } catch (e) {
-        mapaEstoque = {}
+        mapaEstoquePorTamanho = JSON.parse(produto.estoquePorTamanho) || {}
+      } catch {
+        mapaEstoquePorTamanho = {}
       }
-    } else if (typeof produto.estoquePorTamanho === "object") {
-      mapaEstoque = produto.estoquePorTamanho
-    }
-
-    if (tamanhoSelecionado in mapaEstoque) {
-      return Number(mapaEstoque[tamanhoSelecionado]) || 0
+    } else if (
+      typeof produto.estoquePorTamanho === "object" &&
+      !Array.isArray(produto.estoquePorTamanho)
+    ) {
+      mapaEstoquePorTamanho = produto.estoquePorTamanho
     }
   }
 
-  return Number(produto.estoque || 0)
+  if (produto.estoquePorCor) {
+    if (typeof produto.estoquePorCor === "string") {
+      try {
+        mapaEstoquePorCor = JSON.parse(produto.estoquePorCor) || {}
+      } catch {
+        mapaEstoquePorCor = {}
+      }
+    } else if (
+      typeof produto.estoquePorCor === "object" &&
+      !Array.isArray(produto.estoquePorCor)
+    ) {
+      mapaEstoquePorCor = produto.estoquePorCor
+    }
+  }
+
+  const tamanho = normalizarTamanho(tamanhoSelecionado)
+  const tamanhoNorm = normalizarTexto(tamanho)
+  const cor = normalizarCor(corSelecionada)
+  const corNorm = normalizarTexto(cor)
+
+  // Primeiro: COR + TAMANHO (matriz)
+  if (corNorm) {
+    const chaveCor = Object.keys(mapaEstoquePorCor).find(
+      (chave) => normalizarTexto(chave) === corNorm
+    )
+
+    if (chaveCor) {
+      const estoqueDaCor = mapaEstoquePorCor[chaveCor]
+
+      // Cor com estoque numérico
+      if (typeof estoqueDaCor === "number") {
+        return Math.max(0, Number(estoqueDaCor) || 0)
+      }
+
+      // Cor com matriz por tamanho
+      if (
+        estoqueDaCor &&
+        typeof estoqueDaCor === "object" &&
+        !Array.isArray(estoqueDaCor)
+      ) {
+        const chaveTamanho = Object.keys(estoqueDaCor).find(
+          (chave) => normalizarTexto(chave) === tamanhoNorm
+        )
+
+        if (chaveTamanho) {
+          return Math.max(0, Number(estoqueDaCor[chaveTamanho]) || 0)
+        }
+
+        // Se foi escolhida uma cor e ela possui matriz, mas o tamanho
+        // informado não existe, não usa o estoque geral dessa cor.
+        if (tamanhoNorm) return 0
+      }
+    }
+  }
+
+  // Segundo: TAMANHO
+  if (tamanhoNorm && Object.keys(mapaEstoquePorTamanho).length > 0) {
+    const chaveTamanho = Object.keys(mapaEstoquePorTamanho).find(
+      (chave) => normalizarTexto(chave) === tamanhoNorm
+    )
+
+    if (chaveTamanho) {
+      return Math.max(
+        0,
+        Number(mapaEstoquePorTamanho[chaveTamanho]) || 0
+      )
+    }
+
+    return 0
+  }
+
+  // Terceiro: estoque geral
+  return Math.max(0, Number(produto.estoque || 0))
 }
 
 // 🟢 GET: Busca o carrinho atual do banco
@@ -92,22 +189,33 @@ export async function GET() {
       return {
         id: item.produtoId,
         itemId: item.id,
+        produtoId: item.produtoId,
         nome: item.produto.nome,
         preco: precoCalculado,
         precoOriginal: Number(item.produto.preco || 0),
         imagemUrl: item.produto.imagemUrl,
         tamanho: item.tamanho,
+        cor: item.cor || null,
         quantidade: item.quantidade,
       }
     })
 
-    return NextResponse.json({ itens: itensFormatados })
+    return NextResponse.json(
+      { itens: itensFormatados },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    )
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-// 🟢 POST: Adiciona item ao carrinho com aviso de estoque (Sem quebrar/estourar erro)
+// 🟢 POST: Adiciona item ao carrinho preservando TAMANHO + COR
 export async function POST(req: Request) {
   try {
     const cliente = await getClienteLogado()
@@ -115,8 +223,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
     }
 
-    const { produtoId, tamanho, quantidade } = await req.json()
-    const qtdDesejada = Number(quantidade) || 1
+    const body = await req.json()
+    const produtoId = String(body?.produtoId || "").trim()
+    const tamanho = normalizarTamanho(body?.tamanho)
+    const cor = normalizarCor(body?.cor)
+    const qtdDesejada = Number(body?.quantidade) || 1
+
+    if (!produtoId) {
+      return NextResponse.json(
+        { sucesso: false, mensagem: "Produto não informado." },
+        { status: 400 }
+      )
+    }
 
     const produto = await prisma.produto.findUnique({
       where: { id: produtoId },
@@ -125,6 +243,7 @@ export async function POST(req: Request) {
         nome: true,
         estoque: true,
         estoquePorTamanho: true,
+        estoquePorCor: true,
       },
     })
 
@@ -135,7 +254,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const estoqueMaximo = obterEstoqueDisponivel(produto, tamanho)
+    const estoqueMaximo = obterEstoqueDisponivel(produto, tamanho, cor)
 
     let carrinho = await prisma.carrinho.findUnique({
       where: { clienteId: cliente.id },
@@ -147,14 +266,20 @@ export async function POST(req: Request) {
       })
     }
 
+    // IMPORTANTE: o item agora é identificado por PRODUTO + TAMANHO + COR.
+    // Isso permite ter, por exemplo, M Azul e M Rosa no mesmo carrinho.
     const itemExistente = await prisma.itemCarrinho.findFirst({
-      where: { carrinhoId: carrinho.id, produtoId, tamanho: tamanho || "" },
+      where: {
+        carrinhoId: carrinho.id,
+        produtoId,
+        tamanho,
+        cor,
+      },
     })
 
     const qtdAtualNoCarrinho = itemExistente ? itemExistente.quantidade : 0
     const qtdTotalAposAdicionar = qtdAtualNoCarrinho + qtdDesejada
 
-    // Validação de estoque sem disparar erro HTTP
     if (qtdTotalAposAdicionar > estoqueMaximo) {
       const disponivelParaAdicionar = estoqueMaximo - qtdAtualNoCarrinho
 
@@ -162,7 +287,9 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             sucesso: false,
-            mensagem: `Você já possui todas as ${estoqueMaximo} unidade(s) do tamanho (${tamanho || "padrão"}) no seu carrinho.`,
+            mensagem: cor
+              ? `Você já possui todas as ${estoqueMaximo} unidade(s) disponíveis da cor ${cor}${tamanho ? ` no tamanho ${tamanho}` : ""} no seu carrinho.`
+              : `Você já possui todas as ${estoqueMaximo} unidade(s) do tamanho (${tamanho || "padrão"}) no seu carrinho.`,
           },
           { status: 200 }
         )
@@ -171,7 +298,9 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           sucesso: false,
-          mensagem: `Restam apenas ${estoqueMaximo} unidade(s) em estoque. Você já possui ${qtdAtualNoCarrinho} no carrinho e só pode adicionar mais ${disponivelParaAdicionar}.`,
+          mensagem: cor
+            ? `Restam apenas ${estoqueMaximo} unidade(s) disponíveis da cor ${cor}${tamanho ? ` no tamanho ${tamanho}` : ""}. Você já possui ${qtdAtualNoCarrinho} no carrinho e só pode adicionar mais ${disponivelParaAdicionar}.`
+            : `Restam apenas ${estoqueMaximo} unidade(s) em estoque. Você já possui ${qtdAtualNoCarrinho} no carrinho e só pode adicionar mais ${disponivelParaAdicionar}.`,
         },
         { status: 200 }
       )
@@ -187,19 +316,29 @@ export async function POST(req: Request) {
         data: {
           carrinhoId: carrinho.id,
           produtoId,
-          tamanho: tamanho || "",
+          tamanho,
+          cor,
           quantidade: qtdDesejada,
         },
       })
     }
 
-    return NextResponse.json({ sucesso: true })
+    return NextResponse.json({
+      sucesso: true,
+      item: {
+        produtoId,
+        tamanho,
+        cor,
+        quantidade: itemExistente ? qtdTotalAposAdicionar : qtdDesejada,
+      },
+    })
   } catch (error: any) {
+    console.error("Erro ao adicionar item ao carrinho:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-// 🟢 PATCH: Atualiza quantidade sem disparar erro HTTP
+// 🟢 PATCH: Atualiza quantidade preservando PRODUTO + TAMANHO + COR
 export async function PATCH(req: Request) {
   try {
     const cliente = await getClienteLogado()
@@ -207,55 +346,72 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
     }
 
-    const { produtoId, tamanho, quantidade } = await req.json()
-    const novaQtd = Number(quantidade)
+    const body = await req.json()
+    const produtoId = String(body?.produtoId || "").trim()
+    const tamanho = normalizarTamanho(body?.tamanho)
+    const cor = normalizarCor(body?.cor)
+    const novaQtd = Number(body?.quantidade)
 
     const carrinho = await prisma.carrinho.findUnique({
       where: { clienteId: cliente.id },
     })
     if (!carrinho) return NextResponse.json({ sucesso: true })
 
+    const item = await prisma.itemCarrinho.findFirst({
+      where: {
+        carrinhoId: carrinho.id,
+        produtoId,
+        tamanho,
+        cor,
+      },
+    })
+
     if (novaQtd <= 0) {
-      await prisma.itemCarrinho.deleteMany({
-        where: { carrinhoId: carrinho.id, produtoId, tamanho: tamanho || "" },
-      })
-    } else {
-      const produto = await prisma.produto.findUnique({
-        where: { id: produtoId },
-        select: { estoque: true, estoquePorTamanho: true },
-      })
-
-      const estoqueMaximo = obterEstoqueDisponivel(produto, tamanho)
-
-      if (novaQtd > estoqueMaximo) {
-        return NextResponse.json(
-          {
-            sucesso: false,
-            mensagem: `Limite atingido. Máximo disponível em estoque: ${estoqueMaximo}`,
-          },
-          { status: 200 }
-        )
-      }
-
-      const item = await prisma.itemCarrinho.findFirst({
-        where: { carrinhoId: carrinho.id, produtoId, tamanho: tamanho || "" },
-      })
-
       if (item) {
-        await prisma.itemCarrinho.update({
-          where: { id: item.id },
-          data: { quantidade: novaQtd },
-        })
+        await prisma.itemCarrinho.delete({ where: { id: item.id } })
       }
+
+      return NextResponse.json({ sucesso: true })
+    }
+
+    const produto = await prisma.produto.findUnique({
+      where: { id: produtoId },
+      select: {
+        estoque: true,
+        estoquePorTamanho: true,
+        estoquePorCor: true,
+      },
+    })
+
+    const estoqueMaximo = obterEstoqueDisponivel(produto, tamanho, cor)
+
+    if (novaQtd > estoqueMaximo) {
+      return NextResponse.json(
+        {
+          sucesso: false,
+          mensagem: cor
+            ? `Limite atingido para ${cor}${tamanho ? ` / ${tamanho}` : ""}. Máximo disponível em estoque: ${estoqueMaximo}`
+            : `Limite atingido. Máximo disponível em estoque: ${estoqueMaximo}`,
+        },
+        { status: 200 }
+      )
+    }
+
+    if (item) {
+      await prisma.itemCarrinho.update({
+        where: { id: item.id },
+        data: { quantidade: novaQtd },
+      })
     }
 
     return NextResponse.json({ sucesso: true })
   } catch (error: any) {
+    console.error("Erro ao atualizar item do carrinho:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-// 🟢 DELETE: Remove item do carrinho
+// 🟢 DELETE: Remove item preservando PRODUTO + TAMANHO + COR
 export async function DELETE(req: Request) {
   try {
     const cliente = await getClienteLogado()
@@ -264,7 +420,10 @@ export async function DELETE(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { produtoId, tamanho, limparTudo } = body
+    const produtoId = String(body?.produtoId || "").trim()
+    const tamanho = body?.tamanho !== undefined ? normalizarTamanho(body.tamanho) : ""
+    const cor = normalizarCor(body?.cor)
+    const limparTudo = Boolean(body?.limparTudo)
 
     const carrinho = await prisma.carrinho.findUnique({
       where: { clienteId: cliente.id },
@@ -275,14 +434,20 @@ export async function DELETE(req: Request) {
       await prisma.itemCarrinho.deleteMany({
         where: { carrinhoId: carrinho.id },
       })
-    } else if (produtoId && tamanho !== undefined) {
+    } else if (produtoId && body?.tamanho !== undefined) {
       await prisma.itemCarrinho.deleteMany({
-        where: { carrinhoId: carrinho.id, produtoId, tamanho },
+        where: {
+          carrinhoId: carrinho.id,
+          produtoId,
+          tamanho,
+          cor,
+        },
       })
     }
 
     return NextResponse.json({ sucesso: true })
   } catch (error: any) {
+    console.error("Erro ao remover item do carrinho:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
