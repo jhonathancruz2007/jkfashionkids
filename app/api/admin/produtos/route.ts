@@ -58,33 +58,113 @@ export async function POST(req: Request) {
       );
     }
 
+    // =========================================================
+    // CATEGORIA
+    // =========================================================
+    // No schema atual, Categoria usa "nome" como identificador.
+    // Não acessamos cat.id.toLowerCase(), pois esse campo pode
+    // não existir e era a origem do erro 500 no cadastro.
+    // =========================================================
+
     let categoriaNome: string | undefined = undefined;
 
     const categoriaInformada = String(
-      categoriaId || categoria || ""
+      categoriaId ?? categoria ?? ""
     ).trim();
 
     if (categoriaInformada) {
       const categorias = await prisma.categoria.findMany();
 
-      const normalizar = (texto: string) =>
-        texto
+      const normalizar = (texto: unknown): string =>
+        String(texto ?? "")
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
           .toLowerCase()
           .trim();
 
+      const categoriaNorm = normalizar(categoriaInformada);
+
       const categoriaEncontrada = categorias.find((cat) => {
-        return (
-          cat.id.toLowerCase() === categoriaInformada.toLowerCase() ||
-          normalizar(cat.nome) === normalizar(categoriaInformada)
-        );
+        return normalizar(cat?.nome) === categoriaNorm;
       });
 
-      if (categoriaEncontrada) {
+      if (categoriaEncontrada?.nome) {
         categoriaNome = categoriaEncontrada.nome;
       }
     }
+
+    // =========================================================
+    // NORMALIZAÇÃO DOS DADOS DO PRODUTO
+    // =========================================================
+
+    const precoNumerico = Number(preco);
+
+    if (!Number.isFinite(precoNumerico)) {
+      return NextResponse.json(
+        {
+          error: "O preço informado é inválido.",
+        },
+        { status: 400 }
+      );
+    }
+
+    let precoPromocionalFinal: number | null = null;
+
+    if (
+      precoPromocional !== null &&
+      precoPromocional !== undefined &&
+      precoPromocional !== ""
+    ) {
+      const promocionalNumerico = Number(precoPromocional);
+
+      if (!Number.isFinite(promocionalNumerico)) {
+        return NextResponse.json(
+          {
+            error: "O preço promocional informado é inválido.",
+          },
+          { status: 400 }
+        );
+      }
+
+      precoPromocionalFinal = promocionalNumerico;
+    }
+
+    const estoqueFinal =
+      estoque !== undefined && estoque !== null
+        ? Number.parseInt(String(estoque), 10) || 0
+        : 0;
+
+    const tamanhosFinal = Array.isArray(tamanhos)
+      ? tamanhos.filter(
+          (item: unknown): item is string =>
+            typeof item === "string"
+        )
+      : [];
+
+    const coresFinal = Array.isArray(cores)
+      ? cores.filter(
+          (item: unknown): item is string =>
+            typeof item === "string"
+        )
+      : [];
+
+    const imagensFinal = Array.isArray(imagens)
+      ? imagens.filter(
+          (item: unknown): item is string =>
+            typeof item === "string"
+        )
+      : [];
+
+    const coresDetalhesFinal =
+      coresDetalhes &&
+      typeof coresDetalhes === "object" &&
+      !Array.isArray(coresDetalhes)
+        ? coresDetalhes
+        : {};
+
+    // =========================================================
+    // CRIAÇÃO
+    // =========================================================
 
     const produto = await prisma.produto.create({
       data: {
@@ -93,34 +173,24 @@ export async function POST(req: Request) {
         nome: String(nome),
         descricao: String(descricao),
 
-        preco: Number(preco) || 0,
+        preco: precoNumerico,
 
-        precoPromocional:
-          precoPromocional === null ||
-          precoPromocional === undefined ||
-          precoPromocional === ""
-            ? null
-            : Number(precoPromocional),
+        precoPromocional: precoPromocionalFinal,
 
         imagemUrl: String(imagemUrl || ""),
 
-        imagens: Array.isArray(imagens)
-          ? imagens.filter((item: unknown) => typeof item === "string")
-          : [],
+        imagens: imagensFinal,
 
-        estoque:
-          estoque !== undefined && estoque !== null
-            ? Number.parseInt(String(estoque), 10) || 0
-            : 0,
+        estoque: estoqueFinal,
 
-        tamanhos: Array.isArray(tamanhos) ? tamanhos : [],
+        tamanhos: tamanhosFinal,
 
         estoquePorTamanho:
           estoquePorTamanho !== undefined
             ? estoquePorTamanho
             : null,
 
-        cores: Array.isArray(cores) ? cores : [],
+        cores: coresFinal,
 
         estoquePorCor:
           estoquePorCor !== undefined
@@ -128,14 +198,11 @@ export async function POST(req: Request) {
             : null,
 
         // FOTO ESPECÍFICA DE CADA COR
-        coresDetalhes:
-          coresDetalhes &&
-          typeof coresDetalhes === "object" &&
-          !Array.isArray(coresDetalhes)
-            ? coresDetalhes
-            : {},
+        coresDetalhes: coresDetalhesFinal,
 
-        genero: genero ? String(genero) : "masculino",
+        genero: genero
+          ? String(genero)
+          : "masculino",
 
         faixaEtaria: faixaEtaria
           ? String(faixaEtaria)
