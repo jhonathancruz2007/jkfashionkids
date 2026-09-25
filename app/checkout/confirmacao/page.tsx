@@ -381,7 +381,7 @@ export default function PaginaConfirmacao() {
               const temDesconto = item.precoOriginal && item.precoOriginal > item.preco;
 
               return (
-                <li key={`${item.id || item.slug || index}-${item.tamanho}`} className="flex gap-4 py-3">
+                <li key={`${item.id || item.slug || index}-${item.tamanho}-${item.cor || "sem-cor"}`} className="flex gap-4 py-3">
                   <div className="relative h-16 w-14 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
                     <Image
                       src={item.imagemUrl || item.imagem || "/placeholder.png"}
@@ -394,7 +394,9 @@ export default function PaginaConfirmacao() {
                     <div>
                       <h3 className="font-display text-sm font-semibold text-slate-900">{item.nome}</h3>
                       <p className="text-xs text-slate-500">
-                        Tamanho: <span className="font-bold text-violet-600">{item.tamanho}</span> | Qtd: {item.quantidade}
+                        Tamanho: <span className="font-bold text-violet-600">{item.tamanho}</span>
+                        {item.cor ? <> | Cor: <span className="font-bold text-rose-600">{item.cor}</span></> : ""}
+                        {" "}| Qtd: {item.quantidade}
                       </p>
                     </div>
                     <div className="text-right">
