@@ -71,44 +71,6 @@ export async function POST(req: Request) {
     });
 
     // =========================================================
-    // B. BUSCA OS PRODUTOS NO BANCO PARA RECUPERAR AS IMAGENS
-    // =========================================================
-    //
-    // A imagem não deve depender do frontend. Usamos o produtoId
-    // recebido no carrinho e buscamos a imagem real cadastrada em
-    // Produto.imagemUrl.
-    // =========================================================
-
-    const produtoIds = [
-      ...new Set(
-        itemsRecebidos
-          .map((item: any) => String(item?.produtoId || "").trim())
-          .filter(Boolean)
-      ),
-    ];
-
-    const produtosBanco =
-      produtoIds.length > 0
-        ? await prisma.produto.findMany({
-            where: {
-              id: {
-                in: produtoIds,
-              },
-            },
-            select: {
-              id: true,
-              nome: true,
-              imagemUrl: true,
-              imagens: true,
-            },
-          })
-        : [];
-
-    const mapaProdutos = new Map(
-      produtosBanco.map((produto) => [String(produto.id), produto])
-    );
-
-    // =========================================================
     // C. SALVA O PEDIDO INICIAL COMO PENDENTE
     // =========================================================
 
@@ -134,35 +96,14 @@ export async function POST(req: Request) {
     // =========================================================
     // D. MONTA OS ITENS PARA A INFINITEPAY
     // =========================================================
-    //
-    // A propriedade image_url é enviada junto de cada item usando
-    // a imagem real armazenada no produto. A API pública atual da
-    // InfinitePay documenta quantity, price e description em items;
-    // portanto, image_url é uma tentativa adicional para preencher
-    // a área visual que o checkout apresenta. Caso sua conta/API
-    // ignore esse campo, o pagamento continua usando os demais dados.
-    // =========================================================
+    // A API documentada do Checkout aceita, em cada item,
+    // quantity, price e description.
+    // Não enviamos image_url porque esse campo não faz parte
+    // do payload documentado e estava causando erro na criação
+    // do checkout.
 
     const itemsFormatados = itemsRecebidos.map((item: any) => {
-      const produto = mapaProdutos.get(String(item.produtoId));
-
-      const imagemPrincipal =
-        typeof produto?.imagemUrl === "string"
-          ? produto.imagemUrl.trim()
-          : "";
-
-      const primeiraImagem =
-        Array.isArray(produto?.imagens) &&
-        typeof produto.imagens[0] === "string"
-          ? String(produto.imagens[0]).trim()
-          : "";
-
-      const imagemReal = imagemPrincipal || primeiraImagem || undefined;
-
-      const nomeProduto =
-        produto?.nome || item.nome || "Produto";
-
-      const partesDescricao = [nomeProduto];
+      const partesDescricao = [item.nome || "Produto"];
 
       if (item.tamanho) {
         partesDescricao.push(`Tam: ${item.tamanho}`);
@@ -176,7 +117,6 @@ export async function POST(req: Request) {
         quantity: Number(item.quantidade) || 1,
         price: Math.round((Number(item.preco) || 0) * 100),
         description: partesDescricao.join(" - "),
-        ...(imagemReal ? { image_url: imagemReal } : {}),
       };
     });
 
