@@ -595,6 +595,101 @@ export async function DELETE(
             }
           }
 
+          // -----------------------------------------------
+          // Devolve também o estoque por COR.
+          // Aceita os dois formatos usados pelo site:
+          // - cor -> número
+          // - cor -> { tamanho -> quantidade }
+          // -----------------------------------------------
+          let estoquePorCorObj: Record<string, any> = {}
+
+          const brutoCores =
+            (produto as any).estoquePorCor
+
+          if (
+            brutoCores &&
+            typeof brutoCores === 'object' &&
+            !Array.isArray(brutoCores)
+          ) {
+            estoquePorCorObj =
+              JSON.parse(
+                JSON.stringify(brutoCores)
+              )
+          }
+
+          const corEscolhida =
+            (item as any).cor
+              ? String((item as any).cor)
+                  .trim()
+                  .toUpperCase()
+              : null
+
+          let encontrouCor = false
+
+          if (
+            corEscolhida &&
+            Object.keys(estoquePorCorObj).length > 0
+          ) {
+            const chaveCor =
+              Object.keys(
+                estoquePorCorObj
+              ).find(
+                (k) =>
+                  k
+                    .trim()
+                    .toUpperCase() ===
+                  corEscolhida
+              )
+
+            if (chaveCor) {
+              const estoqueDaCor =
+                estoquePorCorObj[chaveCor]
+
+              if (
+                tamanhoEscolhido &&
+                estoqueDaCor &&
+                typeof estoqueDaCor === 'object' &&
+                !Array.isArray(estoqueDaCor)
+              ) {
+                const chaveTamanhoCor =
+                  Object.keys(
+                    estoqueDaCor
+                  ).find(
+                    (k) =>
+                      k
+                        .trim()
+                        .toUpperCase() ===
+                      tamanhoEscolhido
+                  )
+
+                if (chaveTamanhoCor) {
+                  estoqueDaCor[
+                    chaveTamanhoCor
+                  ] =
+                    Number(
+                      estoqueDaCor[
+                        chaveTamanhoCor
+                      ] || 0
+                    ) +
+                    quantidadeDevolvida
+
+                  encontrouCor = true
+                }
+              } else if (
+                typeof estoqueDaCor === 'number' ||
+                typeof estoqueDaCor === 'string'
+              ) {
+                estoquePorCorObj[chaveCor] =
+                  Number(
+                    estoqueDaCor || 0
+                  ) +
+                  quantidadeDevolvida
+
+                encontrouCor = true
+              }
+            }
+          }
+
           const updateData: any = {}
 
           // -----------------------------------------------
@@ -633,6 +728,11 @@ export async function DELETE(
             updateData.estoque =
               estoqueAtualGeral +
               quantidadeDevolvida
+          }
+
+          if (encontrouCor) {
+            updateData.estoquePorCor =
+              estoquePorCorObj
           }
 
           await tx.produto.update({
