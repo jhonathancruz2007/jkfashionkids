@@ -11,7 +11,23 @@ const EMAIL_FROM =
   process.env.RESEND_FROM_EMAIL?.trim() ||
   "JK Fashion Kids <contato@jkfashionkids.com.br>";
 
+const INFINITEPAY_CHECK_URL =
+  "https://api.checkout.infinitepay.io/payment_check";
+
 const TINY_BASE_URL = "https://api.tiny.com.br/api2";
+
+type ResultadoBaixaItem = {
+  itemId: string;
+  produtoId: string;
+  produtoNome: string;
+  quantidade: number;
+  estoqueAntes: number;
+  estoqueDepois: number;
+  tamanho: string | null;
+  cor: string | null;
+  tamanhoAtualizado: boolean;
+  corAtualizada: boolean;
+};
 
 type TinyVariacao = {
   id?: string | number;
@@ -100,7 +116,6 @@ function encontrarVariacaoTiny(
   cor: string | null
 ): TinyVariacao | null {
   const variacoes = obterVariacoesTiny(produto);
-
   if (variacoes.length === 0) return null;
 
   const tamanhoNorm = normalizar(tamanho);
@@ -143,6 +158,72 @@ function encontrarVariacaoTiny(
   return null;
 }
 
+async function verificarPagamentoInfinitePay(args: {
+  orderNsu: string;
+  transactionNsu: string | null;
+  slug: string | null;
+}) {
+  const handle = process.env.INFINITEPAY_HANDLE?.trim();
+
+  if (!handle) {
+    throw new Error("INFINITEPAY_HANDLE não configurado.");
+  }
+
+  if (!args.transactionNsu) {
+    throw new Error(
+      "A InfinitePay não enviou o transaction_nsu necessário para confirmar o pagamento."
+    );
+  }
+
+  if (!args.slug) {
+    throw new Error(
+      "A InfinitePay não enviou o slug necessário para confirmar o pagamento."
+    );
+  }
+
+  const response = await fetch(INFINITEPAY_CHECK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      handle,
+      order_nsu: args.orderNsu,
+      transaction_nsu: args.transactionNsu,
+      slug: args.slug,
+    }),
+    cache: "no-store",
+  });
+
+  const text = await response.text();
+  let data: any = {};
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      `Resposta inválida da InfinitePay ao verificar o pagamento. HTTP ${response.status}`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.message ||
+        data?.error ||
+        `InfinitePay retornou HTTP ${response.status} ao verificar o pagamento.`
+    );
+  }
+
+  if (data?.success !== true || data?.paid !== true) {
+    throw new Error(
+      "A InfinitePay não confirmou o pagamento desta transação."
+    );
+  }
+
+  return data;
+}
+
 async function lancarSaidaTiny(
   tinyIdProduto: string,
   quantidade: number,
@@ -155,7 +236,6 @@ async function lancarSaidaTiny(
   }
 
   const quantidadeFinal = Number(quantidade);
-
   if (!Number.isFinite(quantidadeFinal) || quantidadeFinal <= 0) {
     throw new Error("Quantidade inválida para saída de estoque no Tiny.");
   }
@@ -183,7 +263,6 @@ async function lancarSaidaTiny(
   );
 
   const text = await response.text();
-
   let data: any = {};
 
   try {
@@ -208,8 +287,7 @@ async function lancarSaidaTiny(
       data?.retorno?.erros
         ?.map((e: any) => e?.erro)
         .filter(Boolean)
-        .join(" | ") ||
-        "Tiny recusou a atualização de estoque."
+        .join(" | ") || "Tiny recusou a atualização de estoque."
     );
   }
 
@@ -225,7 +303,6 @@ async function sincronizarItemComTiny(item: any): Promise<ResultadoTiny> {
   }
 
   const produto = item.produto as any;
-
   let tinyId = produto?.tinyId ? String(produto.tinyId) : "";
   const possuiVariacoes = obterVariacoesTiny(produto).length > 0;
 
@@ -283,16 +360,8 @@ async function enviarEmailsPedidoPago(
   const apiKey = process.env.RESEND_API_KEY?.trim();
 
   const resultadoEmail: ResultadoEmail = {
-    loja: {
-      sucesso: false,
-      id: null,
-      erro: null,
-    },
-    cliente: {
-      sucesso: false,
-      id: null,
-      erro: null,
-    },
+    loja: { sucesso: false, id: null, erro: null },
+    cliente: { sucesso: false, id: null, erro: null },
   };
 
   if (!apiKey) {
@@ -347,11 +416,11 @@ async function enviarEmailsPedidoPago(
     .join("");
 
   const linhasEndereco = escaparHtml(endereco);
-  const linhasCliente = {
-    nome: escaparHtml(cliente?.nome || "Não informado"),
-    email: escaparHtml(cliente?.email || "Não informado"),
-    telefone: escaparHtml(cliente?.telefone || "Não informado"),
-  };
+  const clienteNome = escaparHtml(cliente?.nome || "Não informado");
+  const clienteEmail = escaparHtml(cliente?.email || "Não informado");
+  const clienteTelefone = escaparHtml(
+    cliente?.telefone || "Não informado"
+  );
   const transactionHtml = transactionId
     ? `<p style="margin:6px 0;"><strong>ID da transação:</strong> ${escaparHtml(transactionId)}</p>`
     : `<p style="margin:6px 0;"><strong>ID da transação:</strong> Não informado</p>`;
@@ -364,45 +433,36 @@ async function enviarEmailsPedidoPago(
         subject: `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`,
         html: `
           <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
-            <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
-              <div style="padding:24px;background:#111827;color:#ffffff;">
-                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;opacity:.75;">JK Fashion Kids</div>
-                <h1 style="margin:6px 0 0;font-size:24px;">Novo pedido pago 📦</h1>
-                <p style="margin:8px 0 0;font-size:14px;opacity:.85;">Pedido #${escaparHtml(idCurto)} confirmado pelo sistema.</p>
+            <div style="max-width:700px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
+              <h1 style="margin:0 0 8px;font-size:24px;">Novo pedido aprovado! 📦</h1>
+              <p style="margin:0 0 18px;">O pedido <strong>#${escaparHtml(idCurto)}</strong> foi confirmado e a baixa de estoque foi processada.</p>
+              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Cliente</h2>
+                <p style="margin:6px 0;"><strong>Nome:</strong> ${clienteNome}</p>
+                <p style="margin:6px 0;"><strong>E-mail:</strong> ${clienteEmail}</p>
+                <p style="margin:6px 0;"><strong>Telefone:</strong> ${clienteTelefone}</p>
+                <p style="margin:6px 0;"><strong>Endereço:</strong> ${linhasEndereco}</p>
               </div>
-              <div style="padding:24px;">
-                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
-                  <h2 style="margin:0 0 10px;font-size:16px;">Dados do cliente</h2>
-                  <p style="margin:6px 0;"><strong>Nome:</strong> ${linhasCliente.nome}</p>
-                  <p style="margin:6px 0;"><strong>E-mail:</strong> ${linhasCliente.email}</p>
-                  <p style="margin:6px 0;"><strong>Telefone:</strong> ${linhasCliente.telefone}</p>
-                  <p style="margin:6px 0;"><strong>Endereço:</strong> ${linhasEndereco}</p>
-                </div>
-                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
-                  <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
-                  <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
-                  <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
-                  ${transactionHtml}
-                  <p style="margin:6px 0;"><strong>Total do pedido:</strong> <span style="font-size:18px;font-weight:700;">${formatarMoeda(total)}</span></p>
-                </div>
-                <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
-                  <h2 style="margin:0 0 10px;font-size:16px;">Produtos comprados</h2>
-                  <table style="width:100%;border-collapse:collapse;"><tbody>${linhasItens || '<tr><td style="padding:10px 8px;">Nenhum item encontrado.</td></tr>'}</tbody></table>
-                </div>
-                <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">Este e-mail foi enviado automaticamente após a confirmação do pagamento.</div>
+              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
+                <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
+                <p style="margin:6px 0;"><strong>Forma:</strong> ${escaparHtml(metodoPagamento)}</p>
+                ${transactionHtml}
+                <p style="margin:6px 0;"><strong>Total:</strong> ${formatarMoeda(total)}</p>
+              </div>
+              <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                <h2 style="margin:0 0 10px;font-size:16px;">Produtos</h2>
+                <table style="width:100%;border-collapse:collapse;"><tbody>${linhasItens || '<tr><td>Nenhum item encontrado.</td></tr>'}</tbody></table>
               </div>
             </div>
           </div>
         `,
       },
-      {
-        idempotencyKey: `pedido-email-loja-${idPedido}`,
-      }
+      { idempotencyKey: `pedido-email-loja-${idPedido}` }
     );
 
     if (error) {
       resultadoEmail.loja.erro = error.message || "Erro retornado pelo Resend.";
-      console.error("❌ [RESEND][LOJA]", error);
     } else {
       resultadoEmail.loja.sucesso = true;
       resultadoEmail.loja.id = data?.id || null;
@@ -410,7 +470,6 @@ async function enviarEmailsPedidoPago(
   } catch (error: any) {
     resultadoEmail.loja.erro =
       error?.message || "Erro desconhecido ao enviar e-mail para a loja.";
-    console.error("❌ [RESEND][LOJA]", error);
   }
 
   if (cliente?.email) {
@@ -422,12 +481,12 @@ async function enviarEmailsPedidoPago(
           subject: `Pagamento confirmado! Pedido #${idCurto}`,
           html: `
             <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
-              <div style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
+              <div style="max-width:700px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
                 <h1 style="margin:0 0 8px;font-size:24px;">Olá, ${escaparHtml(primeiroNome)}! 🎉</h1>
                 <p style="margin:0 0 18px;">Seu pagamento foi confirmado para o pedido <strong>#${escaparHtml(idCurto)}</strong>.</p>
                 <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
                   <h2 style="margin:0 0 10px;font-size:16px;">Resumo da compra</h2>
-                  <table style="width:100%;border-collapse:collapse;"><tbody>${linhasItens || '<tr><td style="padding:10px 0;">Nenhum item encontrado.</td></tr>'}</tbody></table>
+                  <table style="width:100%;border-collapse:collapse;"><tbody>${linhasItens || '<tr><td>Nenhum item encontrado.</td></tr>'}</tbody></table>
                 </div>
                 <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
                 <p style="margin:6px 0 16px;"><strong>Total:</strong> ${formatarMoeda(total)}</p>
@@ -440,15 +499,12 @@ async function enviarEmailsPedidoPago(
             </div>
           `,
         },
-        {
-          idempotencyKey: `pedido-email-cliente-${idPedido}`,
-        }
+        { idempotencyKey: `pedido-email-cliente-${idPedido}` }
       );
 
       if (error) {
         resultadoEmail.cliente.erro =
           error.message || "Erro retornado pelo Resend.";
-        console.error("❌ [RESEND][CLIENTE]", error);
       } else {
         resultadoEmail.cliente.sucesso = true;
         resultadoEmail.cliente.id = data?.id || null;
@@ -457,7 +513,6 @@ async function enviarEmailsPedidoPago(
       resultadoEmail.cliente.erro =
         error?.message ||
         "Erro desconhecido ao enviar e-mail para o cliente.";
-      console.error("❌ [RESEND][CLIENTE]", error);
     }
   } else {
     resultadoEmail.cliente.erro =
@@ -467,8 +522,13 @@ async function enviarEmailsPedidoPago(
   return resultadoEmail;
 }
 
-async function baixarEstoqueLocal(pedido: any): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+async function baixarEstoqueLocal(pedido: any): Promise<{
+  executado: boolean;
+  itens: ResultadoBaixaItem[];
+}> {
+  return prisma.$transaction(async (tx) => {
+    // A troca para PAGO funciona como trava/idempotência.
+    // Apenas uma chamada consegue obter count=1.
     const atualizacao = await tx.pedido.updateMany({
       where: {
         id: String(pedido.id),
@@ -482,26 +542,33 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
     });
 
     if (atualizacao.count === 0) {
-      return;
+      return { executado: false, itens: [] };
     }
 
+    const resultados: ResultadoBaixaItem[] = [];
+
     for (const item of pedido.itens) {
+      const quantidade = Math.max(0, Number(item.quantidade || 0));
+
+      if (quantidade <= 0) {
+        throw new Error(
+          `Quantidade inválida no item ${item.id} do pedido ${pedido.id}.`
+        );
+      }
+
       const produto = await tx.produto.findUnique({
         where: { id: item.produtoId },
       });
 
       if (!produto) {
-        console.error(
-          `❌ Produto ${item.produtoId} não encontrado para baixa do pedido ${pedido.id}.`
+        // Fazemos rollback em vez de marcar o pedido como PAGO sem baixa.
+        throw new Error(
+          `Produto ${item.produtoId} não encontrado para o pedido ${pedido.id}.`
         );
-        continue;
       }
 
-      const quantidade = Math.max(0, Number(item.quantidade || 0));
-      if (quantidade <= 0) continue;
-
-      const estoqueAtual = Number(produto.estoque || 0);
-      const novoEstoque = Math.max(0, estoqueAtual - quantidade);
+      const estoqueAntes = Number(produto.estoque || 0);
+      const estoqueDepois = Math.max(0, estoqueAntes - quantidade);
 
       const estoquePorTamanho =
         produto.estoquePorTamanho &&
@@ -525,6 +592,8 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
 
       const tamanho = String(item.tamanho || "").trim();
       const cor = String(item.cor || "").trim();
+      let tamanhoAtualizado = false;
+      let corAtualizada = false;
 
       if (tamanho) {
         const chaveTamanho = Object.keys(estoquePorTamanho).find(
@@ -536,6 +605,7 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
             0,
             Number(estoquePorTamanho[chaveTamanho] || 0) - quantidade
           );
+          tamanhoAtualizado = true;
         }
       }
 
@@ -548,10 +618,10 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
           const estoqueDaCor = estoquePorCor[chaveCor];
 
           if (
+            tamanho &&
             estoqueDaCor &&
             typeof estoqueDaCor === "object" &&
-            !Array.isArray(estoqueDaCor) &&
-            tamanho
+            !Array.isArray(estoqueDaCor)
           ) {
             const chaveTamanhoCor = Object.keys(estoqueDaCor).find(
               (chave) => normalizar(chave) === normalizar(tamanho)
@@ -562,12 +632,17 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
                 0,
                 Number(estoqueDaCor[chaveTamanhoCor] || 0) - quantidade
               );
+              corAtualizada = true;
             }
-          } else {
+          } else if (
+            typeof estoqueDaCor === "number" ||
+            typeof estoqueDaCor === "string"
+          ) {
             estoquePorCor[chaveCor] = Math.max(
               0,
               Number(estoqueDaCor || 0) - quantidade
             );
+            corAtualizada = true;
           }
         }
       }
@@ -575,7 +650,7 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
       await tx.produto.update({
         where: { id: produto.id },
         data: {
-          estoque: novoEstoque,
+          estoque: estoqueDepois,
           ...(Object.keys(estoquePorTamanho).length > 0
             ? { estoquePorTamanho }
             : {}),
@@ -584,7 +659,22 @@ async function baixarEstoqueLocal(pedido: any): Promise<void> {
             : {}),
         },
       });
+
+      resultados.push({
+        itemId: String(item.id),
+        produtoId: String(item.produtoId),
+        produtoNome: String(produto.nome || "Produto"),
+        quantidade,
+        estoqueAntes,
+        estoqueDepois,
+        tamanho: tamanho || null,
+        cor: cor || null,
+        tamanhoAtualizado,
+        corAtualizada,
+      });
     }
+
+    return { executado: true, itens: resultados };
   });
 }
 
@@ -594,13 +684,25 @@ export async function POST(req: Request) {
 
     const orderId = body?.orderId
       ? String(body.orderId).trim()
-      : "";
+      : body?.order_nsu
+        ? String(body.order_nsu).trim()
+        : "";
 
     const transactionId = body?.transactionId
       ? String(body.transactionId).trim()
       : body?.transaction_nsu
         ? String(body.transaction_nsu).trim()
         : null;
+
+    const slug = body?.slug ? String(body.slug).trim() : null;
+
+    const receiptUrl = body?.receipt_url
+      ? String(body.receipt_url).trim()
+      : null;
+
+    const captureMethod = body?.capture_method
+      ? String(body.capture_method).trim()
+      : null;
 
     if (!orderId) {
       return NextResponse.json(
@@ -630,8 +732,39 @@ export async function POST(req: Request) {
 
     const estavaPago = pedido.status === StatusPedido.PAGO;
 
+    // Se ainda não estiver pago, validamos a transação diretamente na InfinitePay
+    // antes de mudar o pedido e antes de baixar o estoque.
+    let pagamentoVerificado: any = null;
+
     if (!estavaPago) {
-      await baixarEstoqueLocal(pedido);
+      pagamentoVerificado = await verificarPagamentoInfinitePay({
+        orderNsu: orderId,
+        transactionNsu: transactionId,
+        slug,
+      });
+
+      const resultadoBaixa = await baixarEstoqueLocal(pedido);
+
+      if (!resultadoBaixa.executado) {
+        return NextResponse.json({
+          success: true,
+          orderId,
+          alreadyPaid: true,
+          baixaEstoque: {
+            executada: false,
+            itens: [],
+            motivo: "Outra requisição confirmou o pedido primeiro.",
+          },
+          pagamento: {
+            verificado: true,
+            paid: pagamentoVerificado?.paid === true,
+            amount: pagamentoVerificado?.amount ?? null,
+            paidAmount: pagamentoVerificado?.paid_amount ?? null,
+            captureMethod:
+              pagamentoVerificado?.capture_method || captureMethod || null,
+          },
+        });
+      }
 
       pedido = await prisma.pedido.findUnique({
         where: { id: orderId },
@@ -647,63 +780,99 @@ export async function POST(req: Request) {
 
       if (!pedido) {
         return NextResponse.json(
-          { success: false, error: "Pedido não encontrado após confirmação." },
+          {
+            success: false,
+            error: "Pedido não encontrado após baixa do estoque.",
+          },
           { status: 404 }
         );
       }
-    }
 
-    let resultadosTiny: Array<{
-      itemId: string;
-      sucesso: boolean;
-      mensagem: string;
-    }> = [];
+      let resultadosTiny: Array<{
+        itemId: string;
+        sucesso: boolean;
+        mensagem: string;
+      }> = [];
 
-    /*
-     * A baixa local acontece uma única vez: no momento em que o pedido
-     * realmente muda para PAGO. Isso também evita baixar o Tiny novamente
-     * quando o cliente atualiza/recarrega a página de sucesso.
-     *
-     * O schema atual de ItemPedido NÃO possui campos de controle de Tiny,
-     * então não usamos tinyEstoqueLancadoEm/tinyEstoqueErro aqui.
-     */
-    if (!estavaPago) {
       for (const item of pedido.itens) {
         const resultado = await sincronizarItemComTiny(item);
-
         resultadosTiny.push({
           itemId: item.id,
           sucesso: resultado.sucesso,
           mensagem: resultado.mensagem,
         });
       }
-    } else {
-      resultadosTiny = pedido.itens.map((item: any) => ({
-        itemId: item.id,
-        sucesso: true,
-        mensagem: "Pedido já estava pago; nenhuma nova baixa foi lançada no Tiny.",
-      }));
+
+      const emails = await enviarEmailsPedidoPago(pedido, transactionId);
+      const falhasTiny = resultadosTiny.filter(
+        (resultado) => !resultado.sucesso
+      );
+
+      return NextResponse.json({
+        success: true,
+        orderId,
+        alreadyPaid: false,
+        pagamento: {
+          verificado: true,
+          paid: pagamentoVerificado?.paid === true,
+          amount: pagamentoVerificado?.amount ?? null,
+          paidAmount: pagamentoVerificado?.paid_amount ?? null,
+          captureMethod:
+            pagamentoVerificado?.capture_method || captureMethod || null,
+          transactionNsu:
+            pagamentoVerificado?.transaction_nsu || transactionId || null,
+          slug,
+          receiptUrl,
+        },
+        baixaEstoque: {
+          executada: true,
+          itens: resultadoBaixa.itens,
+        },
+        tiny: {
+          sucesso: falhasTiny.length === 0,
+          itens: resultadosTiny,
+        },
+        emails,
+        message:
+          falhasTiny.length === 0
+            ? "Pagamento verificado e estoque processado com sucesso."
+            : "Pagamento verificado e estoque local baixado. Algumas baixas no Tiny ficaram pendentes.",
+      });
     }
 
-    const falhasTiny = resultadosTiny.filter(
-      (resultado) => !resultado.sucesso
-    );
-
+    // Pedido já estava PAGO: não baixamos novamente o estoque local.
+    // Também não repetimos a saída do Tiny, pois o schema atual não possui
+    // marcador persistente de lançamento no Tiny.
     const emails = await enviarEmailsPedidoPago(pedido, transactionId);
 
     return NextResponse.json({
       success: true,
       orderId,
-      alreadyPaid: estavaPago,
-      message:
-        falhasTiny.length === 0
-          ? "Pedido confirmado e estoque processado com sucesso."
-          : "Pedido confirmado e estoque local baixado. Algumas baixas no Tiny ficaram pendentes.",
+      alreadyPaid: true,
+      pagamento: {
+        verificado: false,
+        motivo: "Pedido já estava PAGO; nenhuma nova baixa foi executada.",
+        transactionNsu: transactionId,
+        slug,
+        receiptUrl,
+        captureMethod,
+      },
+      baixaEstoque: {
+        executada: false,
+        itens: [],
+        motivo: "Pedido já estava PAGO.",
+      },
       tiny: {
-        sucesso: falhasTiny.length === 0,
-        itens: resultadosTiny,
+        sucesso: true,
+        itens: pedido.itens.map((item: any) => ({
+          itemId: item.id,
+          sucesso: true,
+          mensagem:
+            "Pedido já estava pago; nenhuma nova baixa foi lançada no Tiny.",
+        })),
       },
       emails,
+      message: "Pedido já estava confirmado anteriormente.",
     });
   } catch (error: any) {
     console.error("❌ Erro ao confirmar o pedido:", error);
