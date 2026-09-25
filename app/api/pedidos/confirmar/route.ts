@@ -630,21 +630,77 @@ export async function POST(req: Request) {
                 }
               : {};
 
+          // estoquePorCor aceita dois formatos no seu projeto:
+          // 1) Cor -> número, para produtos sem tamanho;
+          // 2) Cor -> { Tamanho -> quantidade }, para produtos com cor + tamanho.
+          const estoquePorCor =
+            produto.estoquePorCor &&
+            typeof produto.estoquePorCor === "object" &&
+            !Array.isArray(produto.estoquePorCor)
+              ? JSON.parse(JSON.stringify(produto.estoquePorCor)) as Record<string, any>
+              : {};
+
           const tamanho =
             item.tamanho?.trim() || "";
+          const cor =
+            item.cor?.trim() || "";
 
-          if (
-            tamanho &&
-            Object.prototype.hasOwnProperty.call(
-              estoquePorTamanho,
-              tamanho
-            )
-          ) {
-            estoquePorTamanho[tamanho] = Math.max(
-              0,
-              Number(estoquePorTamanho[tamanho] || 0) -
-                quantidade
+          // -------------------------------------------------
+          // BAIXA POR TAMANHO
+          // -------------------------------------------------
+          if (tamanho) {
+            const chaveTamanho = Object.keys(estoquePorTamanho).find(
+              (chave) => normalizar(chave) === normalizar(tamanho)
             );
+
+            if (chaveTamanho) {
+              estoquePorTamanho[chaveTamanho] = Math.max(
+                0,
+                Number(estoquePorTamanho[chaveTamanho] || 0) -
+                  quantidade
+              );
+            }
+          }
+
+          // -------------------------------------------------
+          // BAIXA POR COR
+          // -------------------------------------------------
+          if (cor) {
+            const chaveCor = Object.keys(estoquePorCor).find(
+              (chave) => normalizar(chave) === normalizar(cor)
+            );
+
+            if (chaveCor) {
+              const estoqueDaCor = estoquePorCor[chaveCor];
+
+              // Produto com COR + TAMANHO:
+              // estoquePorCor[cor] = { tamanho: quantidade }
+              if (
+                tamanho &&
+                estoqueDaCor &&
+                typeof estoqueDaCor === "object" &&
+                !Array.isArray(estoqueDaCor)
+              ) {
+                const chaveTamanhoCor = Object.keys(estoqueDaCor).find(
+                  (chave) => normalizar(chave) === normalizar(tamanho)
+                );
+
+                if (chaveTamanhoCor) {
+                  estoqueDaCor[chaveTamanhoCor] = Math.max(
+                    0,
+                    Number(estoqueDaCor[chaveTamanhoCor] || 0) -
+                      quantidade
+                  );
+                }
+              } else {
+                // Produto controlado somente por COR:
+                // estoquePorCor[cor] = número
+                estoquePorCor[chaveCor] = Math.max(
+                  0,
+                  Number(estoqueDaCor || 0) - quantidade
+                );
+              }
+            }
           }
 
           await tx.produto.update({
@@ -655,6 +711,12 @@ export async function POST(req: Request) {
                 ? {
                     estoquePorTamanho:
                       estoquePorTamanho,
+                  }
+                : {}),
+              ...(Object.keys(estoquePorCor).length > 0
+                ? {
+                    estoquePorCor:
+                      estoquePorCor,
                   }
                 : {}),
             },
