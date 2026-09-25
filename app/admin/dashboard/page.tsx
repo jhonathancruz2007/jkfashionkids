@@ -1430,10 +1430,20 @@ export default function PaginaDashboardAdmin() {
   const carregarProdutos = async () => {
     setCarregandoProdutos(true)
     try {
-      const res = await fetch("/api/admin/produtos")
+      // Sempre consulta o estoque atual no banco.
+      // O timestamp evita respostas antigas do navegador/CDN.
+      const res = await fetch(`/api/admin/produtos?ts=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      })
+
       if (res.ok) {
         const data: Produto[] = await res.json()
         setProdutos(data)
+      } else {
+        console.error("Erro ao carregar produtos. HTTP", res.status)
       }
     } catch (err) {
       console.error("Erro ao carregar produtos:", err)
