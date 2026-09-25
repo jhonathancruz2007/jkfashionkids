@@ -3,9 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { StatusPedido } from "@prisma/client";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const EMAIL_LOJA = "contato@jkfashionkids.com.br";
-const EMAIL_FROM = "JK Fashion Kids <contato@jkfashionkids.com.br>";
+const EMAIL_FROM =
+  process.env.RESEND_FROM_EMAIL?.trim() ||
+  "JK Fashion Kids <contato@jkfashionkids.com.br>";
 
 const TINY_BASE_URL = "https://api.tiny.com.br/api2";
 
@@ -60,8 +61,19 @@ async function enviarEmailsPedidoPago(
   pedido: any,
   transactionId: string | null = null
 ) {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error(
+      "RESEND_API_KEY não configurada nas variáveis de ambiente."
+    );
+  }
+
+  const resend = new Resend(apiKey);
+
   const cliente = pedido?.cliente;
-  const idCurto = String(pedido?.id || "").slice(0, 8) || "------";
+  const idPedido = String(pedido?.id || "").trim();
+  const idCurto = idPedido.slice(0, 8) || "------";
   const primeiroNome =
     cliente?.nome?.trim()?.split(/\s+/)?.[0] || "Cliente";
 
@@ -113,100 +125,151 @@ async function enviarEmailsPedidoPago(
     ? `<p style="margin:6px 0;"><strong>ID da transação:</strong> ${escaparHtml(transactionId)}</p>`
     : `<p style="margin:6px 0;"><strong>ID da transação:</strong> Não informado</p>`;
 
+  const resultadoEmail = {
+    loja: {
+      sucesso: false,
+      id: null as string | null,
+      erro: null as string | null,
+    },
+    cliente: {
+      sucesso: false,
+      id: null as string | null,
+      erro: null as string | null,
+    },
+  };
+
   const assuntoLoja = `🔔 NOVO PEDIDO PAGO #${idCurto} - Separar Estoque`;
 
   try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: [EMAIL_LOJA],
-      subject: assuntoLoja,
-      html: `
-        <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
-          <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
-            <div style="padding:24px;background:#111827;color:#ffffff;">
-              <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;opacity:.75;">JK Fashion Kids</div>
-              <h1 style="margin:6px 0 0;font-size:24px;">Novo pedido pago 📦</h1>
-              <p style="margin:8px 0 0;font-size:14px;opacity:.85;">Pedido #${escaparHtml(idCurto)} confirmado pelo sistema.</p>
-            </div>
-
-            <div style="padding:24px;">
-              <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
-                <h2 style="margin:0 0 10px;font-size:16px;">Dados do cliente</h2>
-                <p style="margin:6px 0;"><strong>Nome:</strong> ${linhasCliente.nome}</p>
-                <p style="margin:6px 0;"><strong>E-mail:</strong> ${linhasCliente.email}</p>
-                <p style="margin:6px 0;"><strong>Telefone:</strong> ${linhasCliente.telefone}</p>
-                <p style="margin:6px 0;"><strong>Endereço:</strong> ${linhasEndereco}</p>
+    const { data, error } = await resend.emails.send(
+      {
+        from: EMAIL_FROM,
+        to: [EMAIL_LOJA],
+        subject: assuntoLoja,
+        html: `
+          <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+            <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+              <div style="padding:24px;background:#111827;color:#ffffff;">
+                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;opacity:.75;">JK Fashion Kids</div>
+                <h1 style="margin:6px 0 0;font-size:24px;">Novo pedido pago 📦</h1>
+                <p style="margin:8px 0 0;font-size:14px;opacity:.85;">Pedido #${escaparHtml(idCurto)} confirmado pelo sistema.</p>
               </div>
 
-              <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
-                <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
-                <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
-                <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
-                ${transactionHtml}
-                <p style="margin:6px 0;"><strong>Total do pedido:</strong> <span style="font-size:18px;font-weight:700;">${formatarMoeda(total)}</span></p>
-              </div>
+              <div style="padding:24px;">
+                <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                  <h2 style="margin:0 0 10px;font-size:16px;">Dados do cliente</h2>
+                  <p style="margin:6px 0;"><strong>Nome:</strong> ${linhasCliente.nome}</p>
+                  <p style="margin:6px 0;"><strong>E-mail:</strong> ${linhasCliente.email}</p>
+                  <p style="margin:6px 0;"><strong>Telefone:</strong> ${linhasCliente.telefone}</p>
+                  <p style="margin:6px 0;"><strong>Endereço:</strong> ${linhasEndereco}</p>
+                </div>
 
-              <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
-                <h2 style="margin:0 0 10px;font-size:16px;">Produtos comprados</h2>
-                <table style="width:100%;border-collapse:collapse;">
-                  <tbody>
-                    ${linhasItens || '<tr><td style="padding:10px 8px;">Nenhum item encontrado.</td></tr>'}
-                  </tbody>
-                </table>
-              </div>
+                <div style="display:block;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                  <h2 style="margin:0 0 10px;font-size:16px;">Pagamento</h2>
+                  <p style="margin:6px 0;"><strong>Status:</strong> PAGO</p>
+                  <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+                  ${transactionHtml}
+                  <p style="margin:6px 0;"><strong>Total do pedido:</strong> <span style="font-size:18px;font-weight:700;">${formatarMoeda(total)}</span></p>
+                </div>
 
-              <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
-                Este e-mail foi enviado automaticamente após a confirmação do pagamento. A baixa do estoque local e a baixa correspondente no Tiny são processadas pelo fluxo de confirmação do pedido.
+                <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                  <h2 style="margin:0 0 10px;font-size:16px;">Produtos comprados</h2>
+                  <table style="width:100%;border-collapse:collapse;">
+                    <tbody>
+                      ${linhasItens || '<tr><td style="padding:10px 8px;">Nenhum item encontrado.</td></tr>'}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
+                  Este e-mail foi enviado automaticamente após a confirmação do pagamento. A baixa do estoque local e a baixa correspondente no Tiny são processadas pelo fluxo de confirmação do pedido.
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      `,
-    });
+        `,
+      },
+      {
+        idempotencyKey: `pedido-email-loja-${idPedido}`,
+      }
+    );
 
-    console.log(`✅ [E-MAIL LOJA ENVIADO] Pedido #${idCurto}`);
+    if (error) {
+      resultadoEmail.loja.erro = error.message || "Erro retornado pelo Resend.";
+      console.error("❌ [RESEND][LOJA]", error);
+    } else {
+      resultadoEmail.loja.sucesso = true;
+      resultadoEmail.loja.id = data?.id || null;
+      console.log("✅ [RESEND][LOJA] E-mail aceito pelo Resend:", data);
+    }
   } catch (error: any) {
-    console.error("❌ Erro ao enviar e-mail interno da loja:", error);
+    resultadoEmail.loja.erro =
+      error?.message || "Erro desconhecido ao enviar e-mail para a loja.";
+    console.error("❌ [RESEND][LOJA] Exceção ao enviar e-mail:", error);
   }
 
   if (cliente?.email) {
     try {
-      await resend.emails.send({
-        from: EMAIL_FROM,
-        to: [cliente.email],
-        subject: `Pagamento confirmado! Pedido #${idCurto}`,
-        html: `
-          <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
-            <div style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
-              <h1 style="margin:0 0 8px;font-size:24px;">Olá, ${escaparHtml(primeiroNome)}! 🎉</h1>
-              <p style="margin:0 0 18px;">Seu pagamento foi confirmado para o pedido <strong>#${escaparHtml(idCurto)}</strong>.</p>
+      const { data, error } = await resend.emails.send(
+        {
+          from: EMAIL_FROM,
+          to: [cliente.email],
+          subject: `Pagamento confirmado! Pedido #${idCurto}`,
+          html: `
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f8fafc;padding:24px;">
+              <div style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;">
+                <h1 style="margin:0 0 8px;font-size:24px;">Olá, ${escaparHtml(primeiroNome)}! 🎉</h1>
+                <p style="margin:0 0 18px;">Seu pagamento foi confirmado para o pedido <strong>#${escaparHtml(idCurto)}</strong>.</p>
 
-              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
-                <h2 style="margin:0 0 10px;font-size:16px;">Resumo da compra</h2>
-                <table style="width:100%;border-collapse:collapse;">
-                  <tbody>${linhasItens || '<tr><td style="padding:10px 0;">Nenhum item encontrado.</td></tr>'}</tbody>
-                </table>
+                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">
+                  <h2 style="margin:0 0 10px;font-size:16px;">Resumo da compra</h2>
+                  <table style="width:100%;border-collapse:collapse;">
+                    <tbody>${linhasItens || '<tr><td style="padding:10px 0;">Nenhum item encontrado.</td></tr>'}</tbody>
+                  </table>
+                </div>
+
+                <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
+                <p style="margin:6px 0 16px;"><strong>Total:</strong> ${formatarMoeda(total)}</p>
+
+                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                  <p style="margin:0 0 6px;"><strong>Endereço:</strong></p>
+                  <p style="margin:0;color:#475569;line-height:1.6;">${linhasEndereco}</p>
+                </div>
+
+                <p style="margin:20px 0 0;color:#475569;">Já estamos preparando seu pedido. Obrigado por comprar com a <strong>JK Fashion Kids</strong>!</p>
               </div>
-
-              <p style="margin:6px 0;"><strong>Forma de pagamento:</strong> ${escaparHtml(metodoPagamento)}</p>
-              <p style="margin:6px 0 16px;"><strong>Total:</strong> ${formatarMoeda(total)}</p>
-
-              <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
-                <p style="margin:0 0 6px;"><strong>Endereço:</strong></p>
-                <p style="margin:0;color:#475569;line-height:1.6;">${linhasEndereco}</p>
-              </div>
-
-              <p style="margin:20px 0 0;color:#475569;">Já estamos preparando seu pedido. Obrigado por comprar com a <strong>JK Fashion Kids</strong>!</p>
             </div>
-          </div>
-        `,
-      });
+          `,
+        },
+        {
+          idempotencyKey: `pedido-email-cliente-${idPedido}`,
+        }
+      );
 
-      console.log(`✅ [E-MAIL CLIENTE ENVIADO] Para: ${cliente.email}`);
+      if (error) {
+        resultadoEmail.cliente.erro =
+          error.message || "Erro retornado pelo Resend.";
+        console.error("❌ [RESEND][CLIENTE]", error);
+      } else {
+        resultadoEmail.cliente.sucesso = true;
+        resultadoEmail.cliente.id = data?.id || null;
+        console.log(
+          `✅ [RESEND][CLIENTE] E-mail aceito pelo Resend para ${cliente.email}:`,
+          data
+        );
+      }
     } catch (error: any) {
-      console.error("❌ Erro ao enviar e-mail para o cliente:", error);
+      resultadoEmail.cliente.erro =
+        error?.message || "Erro desconhecido ao enviar e-mail para o cliente.";
+      console.error("❌ [RESEND][CLIENTE] Exceção ao enviar e-mail:", error);
     }
+  } else {
+    resultadoEmail.cliente.erro =
+      "O pedido não possui um e-mail de cliente válido cadastrado.";
+    console.warn("⚠️ [RESEND][CLIENTE] Cliente sem e-mail.");
   }
+
+  return resultadoEmail;
 }
 
 function obterVariacoesTiny(produto: any): TinyVariacao[] {
@@ -651,22 +714,56 @@ export async function POST(req: Request) {
       (resultado) => !resultado.sucesso
     );
 
-    // Envia os e-mails somente na primeira confirmação efetiva do pedido.
-    // Recarregar a página de sucesso não dispara novos e-mails.
-    if (pedidoFoiConfirmadoAgora) {
-      await enviarEmailsPedidoPago(pedido, transactionId);
+    // O pedido já está PAGO neste ponto. Tentamos enviar os e-mails
+    // sempre que esta rota é executada para permitir reenvio em caso de
+    // falha anterior. O Resend usa idempotencyKey para evitar duplicidades.
+    let emails: any = {
+      loja: {
+        sucesso: false,
+        id: null,
+        erro: "Não processado.",
+      },
+      cliente: {
+        sucesso: false,
+        id: null,
+        erro: "Não processado.",
+      },
+    };
+
+    try {
+      emails = await enviarEmailsPedidoPago(pedido, transactionId);
+    } catch (emailError: any) {
+      const mensagemEmail =
+        emailError?.message ||
+        "Erro desconhecido ao inicializar o envio dos e-mails.";
+
+      console.error("❌ [RESEND] Falha geral no envio dos e-mails:", emailError);
+
+      emails = {
+        loja: {
+          sucesso: false,
+          id: null,
+          erro: mensagemEmail,
+        },
+        cliente: {
+          sucesso: false,
+          id: null,
+          erro: mensagemEmail,
+        },
+      };
     }
 
     return NextResponse.json({
       success: true,
       message:
         falhasTiny.length === 0
-          ? "Pedido confirmado, estoque baixado no site e enviado ao Tiny com sucesso!"
-          : "Pedido confirmado e estoque baixado no site. Algumas baixas no Tiny ficaram pendentes e serão tentadas novamente.",
+          ? "Pedido confirmado, estoque baixado no site e processamento de e-mails concluído."
+          : "Pedido confirmado e estoque baixado no site. Algumas baixas no Tiny ficaram pendentes e os e-mails foram processados separadamente.",
       tiny: {
         sucesso: falhasTiny.length === 0,
         itens: resultadosTiny,
       },
+      emails,
     });
   } catch (error: any) {
     console.error(
