@@ -4,10 +4,13 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback 
 
 export interface ItemCarrinho {
   id: string;
+  produtoId?: string;
+  slug?: string;
   nome: string;
   preco: number;
   imagemUrl: string;
   tamanho: string;
+  cor?: string | null;
   quantidade: number;
 }
 
@@ -20,8 +23,8 @@ interface CarrinhoContextType {
   fecharCarrinho: () => void;
   recarregarCarrinho: () => Promise<void>;
   adicionarAoCarrinho: (item: Omit<ItemCarrinho, "quantidade">, quantidade?: number) => void;
-  removerDoCarrinho: (id: string, tamanho: string) => Promise<void>;
-  atualizarQuantidade: (id: string, tamanho: string, quantidade: number) => Promise<void>;
+  removerDoCarrinho: (id: string, tamanho: string, cor?: string | null) => Promise<void>;
+  atualizarQuantidade: (id: string, tamanho: string, quantidade: number, cor?: string | null) => Promise<void>;
   limparCarrinho: () => Promise<void>;
   totalItens: number;
   valorTotal: number;
@@ -113,8 +116,13 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
 
   const adicionarAoCarrinho = (produto: Omit<ItemCarrinho, "quantidade">, qtdAdicionar = 1) => {
     setItens((itensAtuais) => {
+      const normalizar = (valor: unknown) => String(valor ?? "").trim().toUpperCase();
+
       const indiceExistente = itensAtuais.findIndex(
-        (item) => item.id === produto.id && item.tamanho === produto.tamanho
+        (item) =>
+          item.id === produto.id &&
+          item.tamanho === produto.tamanho &&
+          normalizar(item.cor) === normalizar(produto.cor)
       );
 
       if (indiceExistente > -1) {
@@ -128,16 +136,25 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
   };
 
   // Deleta do banco e da tela.
-  const removerDoCarrinho = async (id: string, tamanho: string) => {
+  const removerDoCarrinho = async (id: string, tamanho: string, cor?: string | null) => {
+    const normalizar = (valor: unknown) => String(valor ?? "").trim().toUpperCase();
+
     setItens((itensAtuais) =>
-      itensAtuais.filter((item) => !(item.id === id && item.tamanho === tamanho))
+      itensAtuais.filter(
+        (item) =>
+          !(
+            item.id === id &&
+            item.tamanho === tamanho &&
+            normalizar(item.cor) === normalizar(cor)
+          )
+      )
     );
 
     try {
       await fetch("/api/cliente/carrinho", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ produtoId: id, tamanho }),
+        body: JSON.stringify({ produtoId: id, tamanho, cor: cor || null }),
       });
     } catch (e) {
       console.error("Erro ao remover item do banco:", e);
@@ -145,15 +162,26 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
   };
 
   // Altera quantidade no banco e na tela.
-  const atualizarQuantidade = async (id: string, tamanho: string, quantidade: number) => {
+  const atualizarQuantidade = async (
+    id: string,
+    tamanho: string,
+    quantidade: number,
+    cor?: string | null
+  ) => {
     if (quantidade <= 0) {
-      await removerDoCarrinho(id, tamanho);
+      await removerDoCarrinho(id, tamanho, cor);
       return;
     }
 
+    const normalizar = (valor: unknown) => String(valor ?? "").trim().toUpperCase();
+
     setItens((itensAtuais) =>
       itensAtuais.map((item) => {
-        if (item.id === id && item.tamanho === tamanho) {
+        if (
+          item.id === id &&
+          item.tamanho === tamanho &&
+          normalizar(item.cor) === normalizar(cor)
+        ) {
           return { ...item, quantidade };
         }
         return item;
@@ -164,7 +192,7 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
       await fetch("/api/cliente/carrinho", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ produtoId: id, tamanho, quantidade }),
+        body: JSON.stringify({ produtoId: id, tamanho, cor: cor || null, quantidade }),
       });
     } catch (e) {
       console.error("Erro ao atualizar quantidade no banco:", e);
