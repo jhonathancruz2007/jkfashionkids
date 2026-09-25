@@ -195,7 +195,7 @@ function ConteudoSucesso() {
               <Home className="h-4 w-4" /> Voltar para a loja
             </Link>
             <Link
-              href="/perfil/"
+              href="/perfil"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
             >
               <User className="h-4 w-4" /> Minha conta
@@ -303,7 +303,7 @@ function ConteudoSucesso() {
             <Home className="h-4 w-4" /> Voltar para a loja
           </Link>
           <Link
-            href="/minha-conta"
+            href="/perfil"
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
           >
             <User className="h-4 w-4" /> Minha conta
