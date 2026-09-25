@@ -16,6 +16,7 @@ interface ItemCarrinho {
   precoOriginal?: number;
   quantidade: number;
   tamanho: string;
+  cor?: string;
   imagem?: string;
   imagemUrl?: string;
 }
@@ -279,6 +280,7 @@ export default function PaginaConfirmacao() {
             quantidade: item.quantidade,
             preco: item.preco,
             tamanho: item.tamanho,
+            cor: item.cor || null,
           })),
           customer: {
             nome: nomeUsuario,
