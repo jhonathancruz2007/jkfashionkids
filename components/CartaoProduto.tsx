@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
-import { Heart, ShoppingBag, Bell, Loader2, ArrowRight, X, CheckCircle2, Mail, Phone, AlertCircle } from "lucide-react"
+import { Heart, ShoppingBag, Bell, Loader2, ArrowRight, X, CheckCircle2, Mail, Phone, AlertCircle, Palette } from "lucide-react"
 import { useFavoritos } from "@/lib/favoritos-context"
 import { useCarrinho } from "@/lib/carrinho-context"
 
@@ -36,6 +36,9 @@ export interface Produto {
   fotos?: string[]
   localCard?: string
   ativo?: boolean
+  cores?: any
+  estoquePorCor?: any
+  coresDetalhes?: any
 }
 
 function extrairTexto(val: any): string {
@@ -98,6 +101,77 @@ function getEstoqueTamanhosObj(produto: Produto) {
     return obj
   }
   return {}
+}
+
+function normalizarCorTexto(valor: any): string {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+}
+
+function getCoresProduto(produto: Produto): string[] {
+  const bruto = produto.cores
+
+  if (!bruto) return []
+
+  if (Array.isArray(bruto)) {
+    return bruto.map((item) => extrairTexto(item)).filter(Boolean)
+  }
+
+  if (typeof bruto === "object") {
+    return Object.keys(bruto).map((item) => String(item).trim()).filter(Boolean)
+  }
+
+  const texto = extrairTexto(bruto)
+  return texto ? [texto] : []
+}
+
+function getEstoquePorCorObj(produto: Produto): Record<string, any> {
+  let bruto = produto.estoquePorCor
+
+  if (typeof bruto === "string") {
+    try {
+      bruto = JSON.parse(bruto)
+    } catch {
+      return {}
+    }
+  }
+
+  if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) return {}
+  return bruto as Record<string, any>
+}
+
+function obterEstoqueDaCorCard(produto: Produto, cor: string, tamanho: string): number {
+  const mapa = getEstoquePorCorObj(produto)
+  const chaveCor = Object.keys(mapa).find((chave) => normalizarCorTexto(chave) === normalizarCorTexto(cor))
+
+  if (!chaveCor) return 0
+
+  const valor = mapa[chaveCor]
+
+  if (typeof valor === "number") return Math.max(0, Number(valor) || 0)
+
+  if (valor && typeof valor === "object" && !Array.isArray(valor)) {
+    const chaveTamanho = Object.keys(valor).find((chave) => normalizarCorTexto(chave) === normalizarCorTexto(tamanho))
+    if (chaveTamanho) return Math.max(0, Number(valor[chaveTamanho]) || 0)
+
+    // Quando não houver tamanho informado, soma todas as quantidades da cor.
+    if (!tamanho) {
+      return Object.values(valor).reduce((total, quantidade) => total + (Number(quantidade) || 0), 0)
+    }
+
+    return 0
+  }
+
+  return 0
+}
+
+function isCorEsgotadaCard(produto: Produto, cor: string, tamanho: string) {
+  const mapa = getEstoquePorCorObj(produto)
+  if (Object.keys(mapa).length === 0) return false
+  return obterEstoqueDaCorCard(produto, cor, tamanho) <= 0
 }
 
 function isTamanhoEsgotadoCard(produto: Produto, tam: string) {
@@ -205,6 +279,9 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
   )
 
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState(tamanhosProduto[0] || "")
+  const coresProduto = useMemo(() => getCoresProduto(produto), [produto.cores])
+  const [corSelecionada, setCorSelecionada] = useState("")
+  const [modalCorAberto, setModalCorAberto] = useState(false)
   const [adicionando, setAdicionando] = useState(false)
   const [notificacao, setNotificacao] = useState<{ texto: string; tipo: "sucesso" | "alerta" | "erro" } | null>(null)
 
@@ -214,6 +291,9 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     } else {
       setTamanhoSelecionado("")
     }
+
+    setCorSelecionada("")
+    setModalCorAberto(false)
   }, [idProduto, tamanhosProduto])
 
   const [modalAvisoAberto, setModalAvisoAberto] = useState(false)
@@ -316,14 +396,24 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     setTamanhoSelecionado(tam)
   }
 
-  const handleAdicionarAoCarrinho = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+  const executarAdicionarAoCarrinho = async () => {
     if (adicionando || !idProduto) return
+
+    const tamanhoLimpo = extrairTexto(tamanhoSelecionado) || "Único"
+    const corLimpa = extrairTexto(corSelecionada) || ""
+
+    if (coresProduto.length > 0 && !corLimpa) {
+      setModalCorAberto(true)
+      return
+    }
+
+    if (corLimpa && isCorEsgotadaCard(produto, corLimpa, tamanhoLimpo)) {
+      exibirNotificacao(`A cor ${corLimpa} não possui estoque disponível para ${tamanhoLimpo}.`, "alerta")
+      return
+    }
 
     try {
       setAdicionando(true)
-      const tamanhoLimpo = extrairTexto(tamanhoSelecionado) || "Único"
 
       const res = await fetch("/api/cliente/carrinho", {
         method: "POST",
@@ -331,6 +421,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
         body: JSON.stringify({
           produtoId: idProduto,
           tamanho: tamanhoLimpo,
+          cor: corLimpa || null,
           quantidade: 1,
         }),
       })
@@ -343,12 +434,15 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
       const data = await res.json().catch(() => ({}))
 
       if (data.sucesso === false || data.ok === false || !res.ok) {
-        exibirNotificacao("Não há estoque disponível para adicionar este item.", "alerta")
+        exibirNotificacao(data.mensagem || data.message || "Não há estoque disponível para adicionar este item.", "alerta")
         return
       }
 
-      const msgSucesso = `Peça (Tam. ${tamanhoLimpo}) adicionada com sucesso ao seu carrinho!`
+      const detalhesCor = corLimpa ? ` • Cor: ${corLimpa}` : ""
+      const msgSucesso = `Peça (Tam. ${tamanhoLimpo}${detalhesCor}) adicionada com sucesso ao seu carrinho!`
       exibirNotificacao(msgSucesso, "sucesso")
+
+      setModalCorAberto(false)
 
       if (typeof recarregarCarrinho === "function") {
         await recarregarCarrinho()
@@ -362,6 +456,19 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
       setAdicionando(false)
     }
   }
+
+  const handleAdicionarAoCarrinho = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (coresProduto.length > 0 && !corSelecionada) {
+      setModalCorAberto(true)
+      return
+    }
+
+    void executarAdicionarAoCarrinho()
+  }
+
 
   const abrirModalAviso = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -414,6 +521,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
         body: JSON.stringify({
           produtoId: idProduto,
           tamanho: tamanhoSelecionado,
+          cor: corSelecionada || null,
           tipo: tipoContatoAviso,
           contato: contatoAviso,
         }),
@@ -517,6 +625,64 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             </div>
           )}
 
+          {modalCorAberto && (
+            <div
+              className="absolute inset-0 bg-white/97 backdrop-blur-md z-35 p-4 flex flex-col rounded-2xl shadow-2xl border border-violet-200 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-3">
+                <div className="flex items-center gap-1.5 text-xs font-black text-neutral-900">
+                  <Palette className="h-4 w-4 text-violet-600" /> Escolha a cor
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalCorAberto(false)}
+                  className="p-1 rounded-xl text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-[10px] text-neutral-500 mb-3">
+                Selecione a cor que deseja comprar{tamanhoSelecionado ? ` no tamanho ${tamanhoSelecionado}` : ""}.
+              </p>
+
+              <div className="flex flex-wrap gap-2">
+                {coresProduto.map((cor) => {
+                  const selecionada = normalizarCorTexto(corSelecionada) === normalizarCorTexto(cor)
+                  const esgotada = isCorEsgotadaCard(produto, cor, tamanhoSelecionado)
+
+                  return (
+                    <button
+                      key={cor}
+                      type="button"
+                      disabled={esgotada || adicionando}
+                      onClick={() => setCorSelecionada(cor)}
+                      className={`px-3 py-2 rounded-xl text-[11px] font-bold border transition-all ${
+                        selecionada
+                          ? "bg-violet-600 text-white border-violet-600 shadow-sm scale-[1.02]"
+                          : esgotada
+                          ? "bg-neutral-100 text-neutral-400 border-neutral-200 line-through cursor-not-allowed"
+                          : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
+                      }`}
+                    >
+                      {cor}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <button
+                type="button"
+                disabled={!corSelecionada || adicionando}
+                onClick={() => void executarAdicionarAoCarrinho()}
+                className="w-full mt-auto pt-2.5 pb-2.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {adicionando ? "Adicionando..." : "Continuar e adicionar ao carrinho"}
+              </button>
+            </div>
+          )}
+
           {modalAvisoAberto && (
             <div 
               className="absolute inset-0 bg-white/95 backdrop-blur-md z-30 p-3.5 flex flex-col justify-between rounded-2xl shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto max-h-full"
@@ -539,7 +705,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                 <div className="flex flex-col items-center justify-center text-center py-4 space-y-2">
                   <CheckCircle2 className="h-10 w-10 text-emerald-600 animate-bounce" />
                   <p className="text-[11px] font-bold text-neutral-800">
-                    Perfeito! Avisaremos você assim que o tamanho <span className="text-rose-600">{tamanhoSelecionado}</span> estiver disponível.
+                    Perfeito! Avisaremos você assim que o tamanho <span className="text-rose-600">{tamanhoSelecionado}</span>{corSelecionada ? <> na cor <span className="text-rose-600">{corSelecionada}</span></> : ""} estiver disponível.
                   </p>
                 </div>
               ) : (
@@ -616,7 +782,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             </div>
           )}
 
-          {tamanhosProduto.length > 0 && !modalAvisoAberto && (
+          {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && !modalCorAberto && (
             <div className="absolute inset-x-0 bottom-0 bg-white/95 backdrop-blur-md p-3 translate-y-full group-hover:translate-y-0 transition-all duration-300 ease-in-out flex flex-col gap-2 z-20 border-t border-neutral-200/60 shadow-xl">
               <div className="flex items-center justify-between text-[11px] font-bold text-neutral-500 px-0.5">
                 <span>Tamanho:</span>
@@ -642,6 +808,44 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                   )
                 })}
               </div>
+
+              {coresProduto.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-neutral-500 px-0.5">
+                    <span>Cor:</span>
+                    <span className="text-neutral-900 font-black">{corSelecionada || "Selecione"}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    {coresProduto.map((cor) => {
+                      const selecionada = normalizarCorTexto(corSelecionada) === normalizarCorTexto(cor)
+                      const esgotada = isCorEsgotadaCard(produto, cor, tamanhoSelecionado)
+
+                      return (
+                        <button
+                          key={cor}
+                          type="button"
+                          disabled={esgotada}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setCorSelecionada(cor)
+                          }}
+                          className={`h-8 px-2.5 rounded-xl text-[10px] font-bold transition-all border shrink-0 ${
+                            selecionada
+                              ? "bg-violet-600 text-white border-violet-600 scale-105 shadow-sm"
+                              : esgotada
+                              ? "bg-neutral-100 text-neutral-400 border-neutral-200 line-through cursor-not-allowed"
+                              : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
+                          }`}
+                        >
+                          {cor}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {emEstoque ? (
                 <button
