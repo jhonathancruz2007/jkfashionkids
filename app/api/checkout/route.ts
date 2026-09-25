@@ -171,7 +171,7 @@ export async function POST(req: Request) {
       order_nsu: String(pedidoCriado.id),
       items: itemsFormatados,
       redirect_url: `${
-        process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+        process.env.NEXT_PUBLIC_BASE_URL || "https://www.jkfashionkids.com.br/pedido/sucesso"
       }/pedido/sucesso?orderId=${pedidoCriado.id}`,
       customer: {
         name: customer?.nome || "Cliente",
