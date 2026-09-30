@@ -44,8 +44,8 @@ model Cliente {
 model Categoria {
   nome      String    @id
   produtos  Produto[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Tamanho {
@@ -77,12 +77,10 @@ model Produto {
   cores            String[]       @default([])
   estoquePorCor    Json?
   coresDetalhes    Json?
-
-  tinyId           String?
-  tinyVariacoes    Json?
-
+  variacoes        Json?
   genero           String?        @default("masculino")
   faixaEtaria      String?        @default("INFANTIL")
+  estacao          String?
   ativo            Boolean        @default(true)
   localCard        String?        @default("HOME_DESTAQUE")
   categoriaNome    String?
@@ -95,21 +93,17 @@ model Produto {
   updatedAt        DateTime       @updatedAt
 }
 
-
 model AvisoEstoque {
-  id        String  @id @default(uuid())
+  id        String   @id @default(uuid())
   produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
-  tamanho    String
-  cor        String?
-  email      String
-  telefone   String?
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  tamanho   String
+  cor       String?
+  email     String
+  telefone  String?
   notificado Boolean @default(false)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   @@unique([produtoId, tamanho, email])
 }
 
@@ -118,73 +112,55 @@ model Pedido {
   total           Float
   status          StatusPedido @default(PENDENTE)
   metodoPagamento String?
-
-  clienteId String
-  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-
-  itens ItemPedido[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  clienteId       String
+  cliente         Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  itens           ItemPedido[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 }
 
 model ItemPedido {
-  id            String  @id @default(uuid())
+  id            String   @id @default(uuid())
   quantidade    Int
   precoUnitario Float
   tamanho       String?
   cor           String?
-
-  pedidoId String
-  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Restrict)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  pedidoId      String
+  pedido        Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId     String
+  produto       Produto  @relation(fields: [produtoId], references: [id], onDelete: Restrict)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Carrinho {
-  id        String @id @default(uuid())
-  clienteId String @unique
-
-  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-
-  itens ItemCarrinho[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String         @id @default(uuid())
+  clienteId String         @unique
+  cliente   Cliente        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  itens     ItemCarrinho[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
 model ItemCarrinho {
-  id         String @id @default(uuid())
+  id         String   @id @default(uuid())
   carrinhoId String
-
-  carrinho Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
-
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
+  carrinho   Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
   tamanho    String
   cor        String?
-  quantidade Int     @default(1)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  quantidade Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Favorito {
-  id String @id @default(uuid())
-
+  id        String   @id @default(uuid())
   clienteId String
   produtoId String
-
-  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-
-  produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-
   @@unique([clienteId, produtoId])
 }
