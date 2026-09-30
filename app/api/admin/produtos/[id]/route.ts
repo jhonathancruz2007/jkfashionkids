@@ -13,6 +13,33 @@ function normalizar(texto: unknown = ""): string {
     .trim();
 }
 
+const produtoSelect = {
+  id: true,
+  nome: true,
+  descricao: true,
+  preco: true,
+  precoPromocional: true,
+  imagemUrl: true,
+  imagens: true,
+  estoque: true,
+  tamanhos: true,
+  estoquePorTamanho: true,
+  cores: true,
+  estoquePorCor: true,
+  coresDetalhes: true,
+  genero: true,
+  faixaEtaria: true,
+  estacao: true,
+  ativo: true,
+  localCard: true,
+  categoriaNome: true,
+  categoria: {
+    select: { nome: true },
+  },
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 // Formata o nome para salvar no banco com boa apresentação
 function formatarNomeCategoria(slugOuNome: string): string {
   const mapaNomes: Record<string, string> = {
@@ -58,9 +85,7 @@ export async function GET(
 
     const produto = await prisma.produto.findUnique({
       where: { id },
-      include: {
-        categoria: true,
-      },
+      select: produtoSelect,
     });
 
     if (!produto) {
@@ -368,11 +393,12 @@ export async function PUT(
 
           ...(estacao !== undefined && {
             estacao:
-              estacao === null || estacao === ""
+              estacao === null ||
+              estacao === ""
                 ? null
-                : (estacao === "inverno" || estacao === "verao"
-                    ? estacao
-                    : null),
+                : estacao === "inverno" || estacao === "verao"
+                  ? estacao
+                  : null,
           }),
 
           ...(ativo !== undefined && {
@@ -392,9 +418,7 @@ export async function PUT(
           }),
         },
 
-        include: {
-          categoria: true,
-        },
+        select: produtoSelect,
       });
 
     return NextResponse.json(
