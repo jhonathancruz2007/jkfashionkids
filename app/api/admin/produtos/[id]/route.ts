@@ -122,12 +122,27 @@ export async function PUT(
       coresDetalhes,
       genero,
       faixaEtaria,
+      estacao,
       ativo,
       localCard,
       categoriaId,
-      categoriaNome,
       categoria,
     } = body;
+
+    // ==========================================
+    // ESTAÇÃO
+    // ==========================================
+    const estacaoNormalizada =
+      estacao === undefined || estacao === null || String(estacao).trim() === ""
+        ? null
+        : String(estacao).trim().toLowerCase();
+
+    if (estacaoNormalizada !== null && !["inverno", "verao"].includes(estacaoNormalizada)) {
+      return NextResponse.json(
+        { erro: "A estação deve ser Inverno ou Verão." },
+        { status: 400 }
+      );
+    }
 
     // ==========================================
     // CATEGORIA
@@ -146,9 +161,7 @@ export async function PUT(
     // deve ser tratado como o nome/chave da categoria.
     let termoCategoria = "";
 
-    if (typeof categoriaNome === "string" || typeof categoriaNome === "number") {
-      termoCategoria = String(categoriaNome).trim();
-    } else if (typeof categoriaId === "string" || typeof categoriaId === "number") {
+    if (typeof categoriaId === "string" || typeof categoriaId === "number") {
       termoCategoria = String(categoriaId).trim();
     } else if (typeof categoria === "string" || typeof categoria === "number") {
       termoCategoria = String(categoria).trim();
@@ -354,6 +367,10 @@ export async function PUT(
             genero: genero
               ? String(genero)
               : null,
+          }),
+
+          ...(estacao !== undefined && {
+            estacao: estacaoNormalizada,
           }),
 
           // ======================================
