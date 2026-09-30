@@ -95,19 +95,6 @@ export async function POST(req: Request) {
     }
 
     // =========================================================
-    // ESTAÇÃO
-    // =========================================================
-    const estacaoNormalizada =
-      String(estacao ?? "").trim().toLowerCase();
-
-    if (estacaoNormalizada && !["inverno", "verao"].includes(estacaoNormalizada)) {
-      return NextResponse.json(
-        { error: "A estação deve ser Inverno ou Verão." },
-        { status: 400 }
-      );
-    }
-
-    // =========================================================
     // NORMALIZAÇÃO DOS DADOS DO PRODUTO
     // =========================================================
 
@@ -222,7 +209,10 @@ export async function POST(req: Request) {
           ? String(faixaEtaria)
           : "INFANTIL",
 
-        estacao: estacaoNormalizada || null,
+        estacao:
+          estacao === "inverno" || estacao === "verao"
+            ? estacao
+            : null,
 
         ativo:
           ativo !== undefined
