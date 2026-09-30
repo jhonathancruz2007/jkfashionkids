@@ -69,6 +69,7 @@ interface Produto {
   categoriaId?: string
   categoriaNome?: string
   faixaEtaria?: string
+  estacao?: "inverno" | "verao" | string | null
 }
 
 interface Cliente {
@@ -150,6 +151,17 @@ const OPCOES_FAIXA_ETARIA = [
 const TODAS_FAIXAS_ETARIAS = OPCOES_FAIXA_ETARIA.map(
   (opcao) => opcao.value
 )
+
+type EstacaoProduto = "inverno" | "verao" | ""
+
+const OPCOES_ESTACAO: Array<{
+  value: Exclude<EstacaoProduto, "">
+  label: string
+  emoji: string
+}> = [
+  { value: "inverno", label: "Inverno", emoji: "❄️" },
+  { value: "verao", label: "Verão", emoji: "☀️" },
+]
 
 function normalizarFaixasEtarias(valor: unknown): string[] {
   if (Array.isArray(valor)) {
@@ -413,6 +425,7 @@ export default function PaginaDashboardAdmin() {
   const [formGenero, setFormGenero] = useState<string>("masculino")
   const [formCategoria, setFormCategoria] = useState<string>("CONJUNTOS")
   const [formFaixaEtaria, setFormFaixaEtaria] = useState<string[]>(["0-1"]) 
+  const [formEstacao, setFormEstacao] = useState<EstacaoProduto>("")
   const [formLocalCard, setFormLocalCard] = useState<string>("HOME_DESTAQUE")
 
   // Refs para inputs de arquivo e câmera
@@ -1511,6 +1524,7 @@ export default function PaginaDashboardAdmin() {
     setFormGenero("masculino")
     setFormCategoria(categorias[0]?.value || "CONJUNTOS")
     setFormFaixaEtaria(["0-1"])
+    setFormEstacao("")
     setFormLocalCard("HOME_DESTAQUE")
     setModalProduto(true)
   }
@@ -1552,7 +1566,15 @@ export default function PaginaDashboardAdmin() {
     const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
     setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
 
-    setFormFaixaEtaria(normalizarFaixasEtarias(prod.faixaEtaria).length > 0 ? normalizarFaixasEtarias(prod.faixaEtaria) : ["0-1"]) 
+    setFormFaixaEtaria(normalizarFaixasEtarias(prod.faixaEtaria).length > 0 ? normalizarFaixasEtarias(prod.faixaEtaria) : ["0-1"])
+
+    const estacaoExistente = String(prod.estacao || "").trim().toLowerCase()
+    setFormEstacao(
+      estacaoExistente === "inverno" || estacaoExistente === "verao"
+        ? (estacaoExistente as EstacaoProduto)
+        : ""
+    )
+
     setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
 
     // Nunca distribua o estoque total artificialmente.
@@ -1621,6 +1643,12 @@ export default function PaginaDashboardAdmin() {
     if (salvandoProduto) return
 
     setSalvandoProduto(true)
+
+    if (!formEstacao) {
+      alert("Selecione a estação do produto: Inverno ou Verão.")
+      setSalvandoProduto(false)
+      return
+    }
 
     const url = produtoEditando
       ? `/api/admin/produtos/${produtoEditando.id}`
@@ -1694,6 +1722,7 @@ export default function PaginaDashboardAdmin() {
         categoriaNome: formCategoria,
         categoriaId: formCategoria,
         faixaEtaria: formFaixaEtaria.join(","),
+        estacao: formEstacao,
         localCard: formLocalCard,
       }
 
@@ -2171,7 +2200,7 @@ export default function PaginaDashboardAdmin() {
                         <th className="p-3">Imagens</th>
                         <th className="p-3">Nome</th>
                         <th className="p-3">Preço</th>
-                        <th className="p-3">Gênero / Categoria / Faixa Etária</th>
+                        <th className="p-3">Gênero / Categoria / Idade / Estação</th>
                         <th className="p-3">Local do Card</th>
                         <th className="p-3">Variações (Tamanhos & Cores)</th>
                         <th className="p-3">Estoque Total</th>
@@ -2226,6 +2255,18 @@ export default function PaginaDashboardAdmin() {
                                 </span>
                                 <span className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 text-[10px] font-semibold">
                                   {formatarFaixasEtarias(prod.faixaEtaria)}
+                                </span>
+                                <span className={`${String(prod.estacao || "").toLowerCase() === "inverno"
+                                  ? "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
+                                  : String(prod.estacao || "").toLowerCase() === "verao"
+                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                                    : "text-slate-500 bg-slate-950 border-slate-800"
+                                } px-2 py-0.5 rounded-md border text-[10px] font-semibold`}>
+                                  {String(prod.estacao || "").toLowerCase() === "inverno"
+                                    ? "❄️ Inverno"
+                                    : String(prod.estacao || "").toLowerCase() === "verao"
+                                      ? "☀️ Verão"
+                                      : "Sem estação"}
                                 </span>
                               </div>
                             </td>
@@ -2935,6 +2976,40 @@ export default function PaginaDashboardAdmin() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                  <span className="text-rose-500">◈</span> Estação do Produto
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {OPCOES_ESTACAO.map((opcao) => {
+                    const selecionada = formEstacao === opcao.value
+
+                    return (
+                      <button
+                        key={opcao.value}
+                        type="button"
+                        onClick={() => setFormEstacao(opcao.value)}
+                        className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-bold transition-all ${
+                          selecionada
+                            ? opcao.value === "inverno"
+                              ? "border-cyan-500 bg-cyan-500/15 text-cyan-300 shadow-lg shadow-cyan-500/10"
+                              : "border-amber-500 bg-amber-500/15 text-amber-300 shadow-lg shadow-amber-500/10"
+                            : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">{opcao.emoji}</span>
+                        <span>{opcao.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  Escolha a estação em que este produto aparecerá no catálogo.
+                </p>
               </div>
 
               <div>
