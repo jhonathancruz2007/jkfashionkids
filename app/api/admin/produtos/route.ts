@@ -11,14 +11,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(produtos, {
-      status: 200,
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        Pragma: "no-cache",
-        Expires: "0",
-      },
-    });
+    return NextResponse.json(produtos, { status: 200 });
   } catch (erro) {
     console.error("Erro ao carregar produtos do banco:", erro);
 
@@ -50,6 +43,7 @@ export async function POST(req: Request) {
       coresDetalhes,
       genero,
       faixaEtaria,
+      estacao,
       ativo,
       localCard,
       categoriaId,
@@ -98,6 +92,19 @@ export async function POST(req: Request) {
       if (categoriaEncontrada?.nome) {
         categoriaNome = categoriaEncontrada.nome;
       }
+    }
+
+    // =========================================================
+    // ESTAÇÃO
+    // =========================================================
+    const estacaoNormalizada =
+      String(estacao ?? "").trim().toLowerCase();
+
+    if (estacaoNormalizada && !["inverno", "verao"].includes(estacaoNormalizada)) {
+      return NextResponse.json(
+        { error: "A estação deve ser Inverno ou Verão." },
+        { status: 400 }
+      );
     }
 
     // =========================================================
@@ -214,6 +221,8 @@ export async function POST(req: Request) {
         faixaEtaria: faixaEtaria
           ? String(faixaEtaria)
           : "INFANTIL",
+
+        estacao: estacaoNormalizada || null,
 
         ativo:
           ativo !== undefined
