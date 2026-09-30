@@ -662,11 +662,19 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                         selecionada
                           ? "bg-violet-600 text-white border-violet-600 shadow-sm scale-[1.02]"
                           : esgotada
-                          ? "bg-neutral-100 text-neutral-400 border-neutral-200 line-through cursor-not-allowed"
+                          ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
                           : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
                       }`}
                     >
-                      {cor}
+                      <span
+                        className={
+                          esgotada
+                            ? "line-through decoration-red-500 decoration-2"
+                            : ""
+                        }
+                      >
+                        {cor}
+                      </span>
                     </button>
                   )
                 })}
@@ -800,10 +808,20 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                       className={`h-8 min-w-[32px] px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center shrink-0 ${
                         selecionado
                           ? "bg-neutral-900 text-white border-neutral-900 scale-105 shadow-sm"
+                          : isTamanhoEsgotadoCard(produto, tam)
+                          ? "bg-white text-neutral-500 border-neutral-200 cursor-not-allowed"
                           : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50"
                       }`}
                     >
-                      {tam}
+                      <span
+                        className={
+                          isTamanhoEsgotadoCard(produto, tam)
+                            ? "line-through decoration-red-500 decoration-2"
+                            : ""
+                        }
+                      >
+                        {tam}
+                      </span>
                     </button>
                   )
                 })}
@@ -835,11 +853,19 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                             selecionada
                               ? "bg-violet-600 text-white border-violet-600 scale-105 shadow-sm"
                               : esgotada
-                              ? "bg-neutral-100 text-neutral-400 border-neutral-200 line-through cursor-not-allowed"
+                              ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
                               : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
                           }`}
                         >
-                          {cor}
+                          <span
+                            className={
+                              esgotada
+                                ? "line-through decoration-red-500 decoration-2"
+                                : ""
+                            }
+                          >
+                            {cor}
+                          </span>
                         </button>
                       )
                     })}
