@@ -130,21 +130,6 @@ export async function PUT(
     } = body;
 
     // ==========================================
-    // ESTAÇÃO
-    // ==========================================
-    const estacaoNormalizada =
-      estacao === undefined || estacao === null || String(estacao).trim() === ""
-        ? null
-        : String(estacao).trim().toLowerCase();
-
-    if (estacaoNormalizada !== null && !["inverno", "verao"].includes(estacaoNormalizada)) {
-      return NextResponse.json(
-        { erro: "A estação deve ser Inverno ou Verão." },
-        { status: 400 }
-      );
-    }
-
-    // ==========================================
     // CATEGORIA
     // ==========================================
     //
@@ -369,10 +354,6 @@ export async function PUT(
               : null,
           }),
 
-          ...(estacao !== undefined && {
-            estacao: estacaoNormalizada,
-          }),
-
           // ======================================
           // FAIXA ETÁRIA
           // Aceita inclusive "todas"
@@ -383,6 +364,13 @@ export async function PUT(
               faixaEtaria === ""
                 ? null
                 : String(faixaEtaria),
+          }),
+
+          ...(estacao !== undefined && {
+            estacao:
+              estacao === "inverno" || estacao === "verao"
+                ? estacao
+                : null,
           }),
 
           ...(ativo !== undefined && {
