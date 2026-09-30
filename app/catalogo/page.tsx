@@ -545,6 +545,7 @@ function CatalogoConteudo() {
     tamanhoSelecionado,
     generoSelecionado,
     idadeSelecionada,
+    estacaoSelecionada,
     ordenacao,
     mapaIdParaNome,
   ])
@@ -637,6 +638,14 @@ function CatalogoConteudo() {
           },
         ]
       : []),
+    ...(estacaoSelecionada !== "todos"
+      ? [
+          {
+            tipo: "estacao" as const,
+            label: estacaoSelecionada === "inverno" ? "Inverno" : "Verão",
+          },
+        ]
+      : []),
   ]
 
   if (carregando) {
@@ -713,6 +722,52 @@ function CatalogoConteudo() {
               <option value="az">A-Z</option>
               <option value="za">Z-A</option>
             </select>
+          </div>
+        </div>
+
+        {/* ABAS DE ESTAÇÃO */}
+        <div className="mb-4 sm:mb-5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => alterarFiltroEstacao("todos")}
+              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
+                estacaoSelecionada === "todos"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+              aria-pressed={estacaoSelecionada === "todos"}
+            >
+              Todas
+            </button>
+
+            <button
+              type="button"
+              onClick={() => alterarFiltroEstacao("inverno")}
+              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
+                estacaoSelecionada === "inverno"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+              aria-pressed={estacaoSelecionada === "inverno"}
+            >
+              <span className="mr-1.5" aria-hidden="true">❄️</span>
+              Inverno
+            </button>
+
+            <button
+              type="button"
+              onClick={() => alterarFiltroEstacao("verao")}
+              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
+                estacaoSelecionada === "verao"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+              aria-pressed={estacaoSelecionada === "verao"}
+            >
+              <span className="mr-1.5" aria-hidden="true">☀️</span>
+              Verão
+            </button>
           </div>
         </div>
 
