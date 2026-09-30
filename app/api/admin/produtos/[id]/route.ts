@@ -368,9 +368,11 @@ export async function PUT(
 
           ...(estacao !== undefined && {
             estacao:
-              estacao === "inverno" || estacao === "verao"
-                ? estacao
-                : null,
+              estacao === null || estacao === ""
+                ? null
+                : (estacao === "inverno" || estacao === "verao"
+                    ? estacao
+                    : null),
           }),
 
           ...(ativo !== undefined && {
