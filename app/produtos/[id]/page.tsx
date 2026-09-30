@@ -976,8 +976,8 @@ export default function ProdutoDetalhePage() {
                       >
                         <span
                           className={
-                            esgotado && !selecionado
-                              ? "line-through opacity-50"
+                            esgotado
+                              ? "line-through text-red-500 opacity-100"
                               : ""
                           }
                         >
