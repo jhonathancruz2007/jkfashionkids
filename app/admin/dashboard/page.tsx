@@ -1555,15 +1555,13 @@ export default function PaginaDashboardAdmin() {
     const catExiste = categorias.find((c) => c.value === catValor || c.label === catValor)
     setFormCategoria(catExiste ? catExiste.value : catValor || categorias[0]?.value || "CONJUNTOS")
 
-    setFormFaixaEtaria(normalizarFaixasEtarias(prod.faixaEtaria).length > 0 ? normalizarFaixasEtarias(prod.faixaEtaria) : ["0-1"])
-
+    setFormFaixaEtaria(normalizarFaixasEtarias(prod.faixaEtaria).length > 0 ? normalizarFaixasEtarias(prod.faixaEtaria) : ["0-1"]) 
     const estacaoProduto = String(prod.estacao ?? "").trim().toLowerCase()
     setFormEstacao(
       estacaoProduto === "inverno" || estacaoProduto === "verao"
         ? estacaoProduto
         : ""
     )
-
     setFormLocalCard(prod.localCard || "HOME_DESTAQUE")
 
     // Nunca distribua o estoque total artificialmente.
@@ -2239,15 +2237,11 @@ export default function PaginaDashboardAdmin() {
                                 <span className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20 text-[10px] font-semibold">
                                   {formatarFaixasEtarias(prod.faixaEtaria)}
                                 </span>
-                                {prod.estacao ? (
-                                  <span className="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 text-[10px] font-semibold">
-                                    {prod.estacao === "inverno"
-                                      ? "Inverno"
-                                      : prod.estacao === "verao"
-                                        ? "Verão"
-                                        : prod.estacao}
+                                {prod.estacao && (
+                                  <span className="text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-md border border-violet-500/20 text-[10px] font-semibold">
+                                    {prod.estacao === "inverno" ? "Inverno" : prod.estacao === "verao" ? "Verão" : prod.estacao}
                                   </span>
-                                ) : null}
+                                )}
                               </div>
                             </td>
                             <td className="p-3">
@@ -3045,9 +3039,8 @@ export default function PaginaDashboardAdmin() {
 
               <div>
                 <label className="text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-                  <span className="text-rose-500 text-sm">◈</span> Estação do Produto
+                  <Tag className="h-3.5 w-3.5 text-rose-500" /> Estação do Produto
                 </label>
-
                 <select
                   value={formEstacao}
                   onChange={(e) =>
@@ -3061,10 +3054,6 @@ export default function PaginaDashboardAdmin() {
                   <option value="inverno">Inverno</option>
                   <option value="verao">Verão</option>
                 </select>
-
-                <p className="mt-1.5 text-[10px] text-slate-500">
-                  Classifique esta peça como Inverno ou Verão para usar a estação no catálogo.
-                </p>
               </div>
 
               <div>
