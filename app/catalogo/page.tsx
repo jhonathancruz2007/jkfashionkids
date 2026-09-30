@@ -184,79 +184,6 @@ function extrairCategoriasDoProduto(
   return Array.from(categorias)
 }
 
-function extrairEstacaoDoProduto(prod: any): "inverno" | "verao" | "" {
-  if (!prod || typeof prod !== "object") return ""
-
-  const valores = [
-    prod.estacao,
-    prod.estação,
-    prod.temporada,
-    prod.colecaoEstacao,
-    prod.colecao_estacao,
-  ]
-
-  // Aceita também estruturas comuns de atributos/metadados.
-  valores.push(
-    prod.atributos,
-    prod.atributosProduto,
-    prod.metadados,
-    prod.tags
-  )
-
-  const procurar = (valor: any): "inverno" | "verao" | "" => {
-    if (!valor) return ""
-
-    if (Array.isArray(valor)) {
-      for (const item of valor) {
-        const encontrado = procurar(item)
-        if (encontrado) return encontrado
-      }
-      return ""
-    }
-
-    if (typeof valor === "object") {
-      const texto = extrairTexto(valor)
-      if (texto) {
-        const encontrado = procurar(texto)
-        if (encontrado) return encontrado
-      }
-
-      for (const chave of Object.keys(valor)) {
-        const encontrado = procurar(valor[chave])
-        if (encontrado) return encontrado
-      }
-      return ""
-    }
-
-    const texto = normalizarTexto(String(valor))
-
-    if (
-      texto === "inverno" ||
-      texto.includes("inverno") ||
-      texto === "winter"
-    ) {
-      return "inverno"
-    }
-
-    if (
-      texto === "verao" ||
-      texto.includes("verao") ||
-      texto === "summer"
-    ) {
-      return "verao"
-    }
-
-    return ""
-  }
-
-  for (const valor of valores) {
-    const encontrado = procurar(valor)
-    if (encontrado) return encontrado
-  }
-
-  return ""
-}
-
 function gerarPaginas(total: number, atual: number): (number | "...")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
 
@@ -424,16 +351,6 @@ function CatalogoConteudo() {
     atualizarParametro("idade", novaIdade)
   }
 
-  const alterarFiltroEstacao = (novaEstacao: string) => {
-    const estacao =
-      novaEstacao === "inverno" || novaEstacao === "verao"
-        ? novaEstacao
-        : "todos"
-
-    setEstacaoSelecionada(estacao)
-    atualizarParametro("estacao", estacao)
-  }
-
   const alterarFiltroGenero = (novoGenero: string) => {
     setGeneroSelecionado(novoGenero)
 
@@ -503,6 +420,12 @@ function CatalogoConteudo() {
           TAMANHOS_VALIDOS.indexOf(a) - TAMANHOS_VALIDOS.indexOf(b)
       )
   }, [produtos])
+
+  const extrairEstacaoDoProduto = (produto: any): "inverno" | "verao" | "" => {
+    const valor = String(produto?.estacao ?? "").trim().toLowerCase()
+    if (valor === "inverno" || valor === "verao") return valor
+    return ""
+  }
 
   const produtosFiltrados = useMemo(() => {
     return produtos
@@ -622,7 +545,6 @@ function CatalogoConteudo() {
     tamanhoSelecionado,
     generoSelecionado,
     idadeSelecionada,
-    estacaoSelecionada,
     ordenacao,
     mapaIdParaNome,
   ])
@@ -640,6 +562,22 @@ function CatalogoConteudo() {
     const paginaSegura = Math.max(1, Math.min(novaPagina, totalPaginas))
     setPaginaAtual(paginaSegura)
     window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const alterarFiltroEstacao = (novaEstacao: string) => {
+    const estacao =
+      novaEstacao === "inverno" || novaEstacao === "verao"
+        ? novaEstacao
+        : "todos"
+
+    setEstacaoSelecionada(estacao)
+    const params = new URLSearchParams(searchParams.toString())
+
+    if (estacao === "todos") params.delete("estacao")
+    else params.set("estacao", estacao)
+
+    const query = params.toString()
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
   const limparFiltros = () => {
@@ -696,14 +634,6 @@ function CatalogoConteudo() {
             label:
               FAIXAS_IDADE.find((f) => f.query === idadeSelecionada)?.label ||
               idadeSelecionada,
-          },
-        ]
-      : []),
-    ...(estacaoSelecionada !== "todos"
-      ? [
-          {
-            tipo: "estacao" as const,
-            label: estacaoSelecionada === "inverno" ? "Inverno" : "Verão",
           },
         ]
       : []),
@@ -783,52 +713,6 @@ function CatalogoConteudo() {
               <option value="az">A-Z</option>
               <option value="za">Z-A</option>
             </select>
-          </div>
-        </div>
-
-        {/* ABAS DE ESTAÇÃO */}
-        <div className="mb-4 sm:mb-5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("todos")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "todos"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "todos"}
-            >
-              Todas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("inverno")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "inverno"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "inverno"}
-            >
-              <span className="mr-1.5" aria-hidden="true">❄️</span>
-              Inverno
-            </button>
-
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("verao")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "verao"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "verao"}
-            >
-              <span className="mr-1.5" aria-hidden="true">☀️</span>
-              Verão
-            </button>
           </div>
         </div>
 
@@ -1009,6 +893,34 @@ function CatalogoConteudo() {
                     </div>
                   </div>
 
+                  {/* Estação */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">Estação</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: "Todas", value: "todos" },
+                        { label: "Inverno", value: "inverno" },
+                        { label: "Verão", value: "verao" },
+                      ].map((estacao) => {
+                        const ativo = estacaoSelecionada === estacao.value
+                        return (
+                          <button
+                            key={estacao.value}
+                            type="button"
+                            onClick={() => alterarFiltroEstacao(estacao.value)}
+                            className={`flex items-center justify-center rounded-2xl border px-1.5 py-2 text-[11px] sm:text-xs font-bold transition-all ${
+                              ativo
+                                ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+                                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            }`}
+                          >
+                            {estacao.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
                   {/* Categorias */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700">Categorias</label>
@@ -1157,35 +1069,6 @@ function CatalogoConteudo() {
                       </div>
                     </div>
                   )}
-
-                  {/* Estação */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">Estação</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { label: "Todas", value: "todos" },
-                        { label: "Inverno", value: "inverno" },
-                        { label: "Verão", value: "verao" },
-                      ].map((estacao) => {
-                        const ativo = estacaoSelecionada === estacao.value
-
-                        return (
-                          <button
-                            key={estacao.value}
-                            type="button"
-                            onClick={() => alterarFiltroEstacao(ativo ? "todos" : estacao.value)}
-                            className={`rounded-xl border px-2 py-2 text-[11px] font-bold transition-all ${
-                              ativo
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                            }`}
-                          >
-                            {estacao.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
 
                   {/* Idade também disponível nos filtros */}
                   <div className="space-y-1.5">
