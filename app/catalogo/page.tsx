@@ -13,6 +13,9 @@ import {
   ChevronDown,
   Gift,
   Check,
+  Snowflake,
+  Sun,
+  LayoutGrid,
 } from "lucide-react"
 
 const ITENS_POR_PAGINA = 24
@@ -725,51 +728,145 @@ function CatalogoConteudo() {
           </div>
         </div>
 
-        {/* ABAS DE ESTAÇÃO */}
-        <div className="mb-4 sm:mb-5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("todos")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "todos"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "todos"}
-            >
-              Todas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("inverno")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "inverno"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "inverno"}
-            >
-              <span className="mr-1.5" aria-hidden="true">❄️</span>
-              Inverno
-            </button>
-
-            <button
-              type="button"
-              onClick={() => alterarFiltroEstacao("verao")}
-              className={`rounded-xl px-3 py-3 text-xs sm:text-sm font-extrabold transition-all ${
-                estacaoSelecionada === "verao"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-pressed={estacaoSelecionada === "verao"}
-            >
-              <span className="mr-1.5" aria-hidden="true">☀️</span>
-              Verão
-            </button>
+        {/* DESTAQUE DE ESTAÇÕES */}
+        <section className="mb-6 sm:mb-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[10px] sm:text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">
+                  Coleções
+                </p>
+                <h2 className="mt-1 text-lg sm:text-xl font-black tracking-tight text-slate-900">
+                  Escolha a estação
+                </h2>
+                <p className="mt-1 text-xs sm:text-sm font-medium text-slate-500">
+                  Encontre rapidamente as peças de inverno ou verão.
+                </p>
+              </div>
+              {estacaoSelecionada !== "todos" && (
+                <button
+                  type="button"
+                  onClick={() => alterarFiltroEstacao("todos")}
+                  className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900"
+                >
+                  <X className="h-3 w-3" />
+                  Ver todas
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+
+          <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3 sm:p-4">
+            {[
+              {
+                value: "todos",
+                title: "Todas as peças",
+                description: "Ver o catálogo completo",
+                icon: LayoutGrid,
+                count: produtos.length,
+              },
+              {
+                value: "inverno",
+                title: "Inverno",
+                description: "Peças para os dias frios",
+                icon: Snowflake,
+                count: produtos.filter((p: any) => extrairEstacaoDoProduto(p) === "inverno").length,
+              },
+              {
+                value: "verao",
+                title: "Verão",
+                description: "Peças leves e frescas",
+                icon: Sun,
+                count: produtos.filter((p: any) => extrairEstacaoDoProduto(p) === "verao").length,
+              },
+            ].map((estacao) => {
+              const Icone = estacao.icon
+              const ativo = estacaoSelecionada === estacao.value
+
+              const destaque =
+                estacao.value === "inverno"
+                  ? {
+                      active: "border-sky-500 bg-sky-50 text-sky-950 shadow-lg shadow-sky-100 ring-2 ring-sky-500/10",
+                      icon: "bg-sky-100 text-sky-700 ring-1 ring-sky-200",
+                      badge: "bg-sky-600 text-white",
+                      muted: "text-sky-700/70",
+                    }
+                  : estacao.value === "verao"
+                    ? {
+                        active: "border-amber-500 bg-amber-50 text-amber-950 shadow-lg shadow-amber-100 ring-2 ring-amber-500/10",
+                        icon: "bg-amber-100 text-amber-700 ring-1 ring-amber-200",
+                        badge: "bg-amber-500 text-white",
+                        muted: "text-amber-700/70",
+                      }
+                    : {
+                        active: "border-slate-900 bg-slate-900 text-white shadow-lg shadow-slate-200 ring-2 ring-slate-900/10",
+                        icon: "bg-white/10 text-white ring-1 ring-white/10",
+                        badge: "bg-white/10 text-white",
+                        muted: "text-slate-300",
+                      }
+
+              return (
+                <button
+                  key={estacao.value}
+                  type="button"
+                  onClick={() => alterarFiltroEstacao(estacao.value)}
+                  aria-pressed={ativo}
+                  className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200 sm:p-5 ${
+                    ativo
+                      ? destaque.active
+                      : "border-slate-200 bg-slate-50/70 text-slate-800 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-md"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-colors ${
+                        ativo
+                          ? destaque.icon
+                          : estacao.value === "inverno"
+                            ? "bg-sky-50 text-sky-700 ring-1 ring-sky-100"
+                            : estacao.value === "verao"
+                              ? "bg-amber-50 text-amber-700 ring-1 ring-amber-100"
+                              : "bg-white text-slate-700 shadow-sm ring-1 ring-slate-200"
+                      }`}
+                    >
+                      <Icone className="h-5 w-5" strokeWidth={2.2} />
+                    </span>
+
+                    {ativo && (
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${destaque.badge}`}>
+                        <Check className="h-3 w-3" />
+                        Selecionado
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black">{estacao.title}</h3>
+                        <p className={`mt-1 text-[11px] sm:text-xs font-medium ${
+                          ativo ? destaque.muted : "text-slate-500"
+                        }`}>
+                          {estacao.description}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 text-lg font-black ${
+                        ativo ? "text-current" : "text-slate-900"
+                      }`}>
+                        {estacao.count}
+                      </span>
+                    </div>
+                    <p className={`mt-0.5 text-[10px] font-semibold ${
+                      ativo ? "text-slate-400" : "text-slate-400"
+                    }`}>
+                      {estacao.count === 1 ? "produto" : "produtos"}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
 
         {/* ENCONTRE POR IDADE */}
         <div className="mb-6 sm:mb-7 rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-sm">
