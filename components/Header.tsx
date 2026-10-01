@@ -8,13 +8,10 @@ import { useCarrinho } from "@/lib/carrinho-context"
 export default function Header() {
   const { totalItens, abrirCarrinho } = useCarrinho()
   const [nomeExibicao, setNomeExibicao] = useState<string | null>(null)
-  const [montado, setMontado] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
 
   useEffect(() => {
-    setMontado(true)
-
     const handleScroll = () => {
       if (window.scrollY > 20) {
         setScrolled(true)
@@ -27,7 +24,7 @@ export default function Header() {
 
     async function buscarUsuarioLogado() {
       try {
-        const res = await fetch("/api/cliente/perfil")
+        const res = await fetch("/api/cliente/resumo")
 
         if (res.ok) {
           const data = await res.json()
@@ -184,7 +181,7 @@ export default function Header() {
 
         {/* Ações e Atalhos */}
         <div className="flex items-center gap-1.5 sm:gap-3 2xl:gap-4 font-body text-sm font-bold">
-          {montado ? (
+          {
             <Link
               href={nomeExibicao ? "/perfil" : "/login"}
               className={`group flex h-9 sm:h-10 2xl:h-11 items-center gap-1.5 sm:gap-2 rounded-full border px-2.5 sm:px-4 2xl:px-5 text-[11px] sm:text-xs 2xl:text-sm font-extrabold uppercase tracking-wider transition-all duration-300 hover:border-[#b39ddb] hover:bg-[#b39ddb]/10 hover:text-[#f48fb1] hover:scale-105 active:scale-95 shadow-2xs ${
@@ -198,9 +195,7 @@ export default function Header() {
                 {nomeExibicao ? `Olá, ${nomeExibicao}` : "Entrar"}
               </span>
             </Link>
-          ) : (
-            <div className="h-9 w-20 sm:h-10 sm:w-28 rounded-full bg-stone-100 animate-pulse" />
-          )}
+          }
 
           {/* Carrinho */}
           <button

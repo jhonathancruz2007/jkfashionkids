@@ -79,7 +79,18 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    recarregarFavoritos();
+    // Mantém a resposta visual instantânea com o último estado conhecido.
+    try {
+      const local = localStorage.getItem("jk_favoritos");
+      if (local) {
+        const favoritosLocais = JSON.parse(local);
+        if (Array.isArray(favoritosLocais)) setFavoritos(favoritosLocais);
+      }
+    } catch {
+      // O servidor continua sendo a fonte de sincronização.
+    }
+
+    void recarregarFavoritos();
   }, []);
 
   const isFavorito = (id: string | number) => {
@@ -131,6 +142,15 @@ export function FavoritosProvider({ children }: { children: ReactNode }) {
         limparFavoritos();
         const pathAtual = window.location.pathname;
         window.location.href = `/login?redirectTo=${encodeURIComponent(pathAtual)}`;
+        return;
+      }
+
+      // Mantém a atualização otimista, mas desfaz apenas quando o servidor
+      // rejeitar a operação. Isso preserva a experiência rápida sem deixar
+      // o estado visual diferente do estado persistido.
+      if (!res.ok) {
+        setFavoritos(favoritos);
+        localStorage.setItem("jk_favoritos", JSON.stringify(favoritos));
       }
     } catch (e) {
       console.log("Sincronizado apenas no LocalStorage do navegador.");

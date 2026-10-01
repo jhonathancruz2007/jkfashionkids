@@ -19,6 +19,7 @@ import {
   PackageOpen,
 } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { CardProduto, Produto } from "@/components/CartaoProduto"
 
 // Faixas etárias para o bloco "Presente por idade"
@@ -243,10 +244,14 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
   return (
     <section className="relative w-full h-[540px] sm:h-[600px] lg:h-[650px] xl:h-[700px] 2xl:h-[750px] 3xl:h-[850px] overflow-hidden bg-stone-100 border-b border-[#b39ddb]/20" aria-label="Destaques principais">
       {imagens.map((img, index) => (
-        <img
+        <Image
           key={img + index}
           src={img}
           alt={`Foto da Loja JK Fashion Kids ${index + 1} de ${imagens.length}`}
+          fill
+          sizes="100vw"
+          priority={index === 0}
+          loading={index === 0 ? undefined : "lazy"}
           aria-hidden={index !== indexAtual}
           className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-out transform ${
             index === indexAtual
@@ -261,9 +266,6 @@ function HeroFullWidth({ imagens }: { imagens: string[] }) {
 
       <div className="relative z-20 w-full max-w-[1920px] 3xl:max-w-[2200px] mx-auto h-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 flex items-center">
         <motion.div
-          initial={{ opacity: 0, x: -40 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
           className="max-w-xl lg:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl bg-white/85 backdrop-blur-md p-6 sm:p-10 lg:p-12 2xl:p-16 rounded-3xl border border-white/60 shadow-2xl text-left space-y-6"
         >
           <span className="inline-flex items-center gap-2 bg-[#b39ddb]/15 backdrop-blur-md border border-[#b39ddb]/30 text-[#673ab7] text-xs sm:text-sm 2xl:text-base font-black px-4 py-2 rounded-full tracking-wide shadow-2xs">
@@ -417,36 +419,66 @@ export default function HomePage() {
   const [ehAdmin, setEhAdmin] = useState(false)
 
   const fotosLoja = [
-    "/Principal.jpg",
+    "/Principal.webp",
     "/loja-2.jpg",
     "/loja-3.jpg",
   ]
 
   useEffect(() => {
+    let ativo = true
+
+    // Usa a última lista conhecida imediatamente e atualiza em segundo plano.
+    try {
+      const cache = sessionStorage.getItem("jkfashion_products")
+      if (cache) {
+        const lista = JSON.parse(cache)
+        if (Array.isArray(lista) && lista.length > 0) {
+          setProdutos(lista)
+          setCarregando(false)
+        }
+      }
+    } catch {
+      // Cache inválido: segue normalmente para a atualização da API.
+    }
+
     async function carregarDados() {
       try {
-        const resProdutos = await fetch("/api/produtos")
+        const [resProdutos, resPerfil] = await Promise.all([
+          fetch("/api/produtos"),
+          fetch("/api/cliente/resumo"),
+        ])
+
         if (resProdutos.ok) {
           const data = await resProdutos.json()
-          setProdutos(data.produtos || data)
+          const lista = data.produtos || data
+          if (Array.isArray(lista)) {
+            if (ativo) setProdutos(lista)
+            try {
+              sessionStorage.setItem("jkfashion_products", JSON.stringify(lista))
+            } catch {
+              // Sem espaço/privacidade: o cache é apenas um acelerador.
+            }
+          }
         }
 
-        const resPerfil = await fetch("/api/cliente/perfil")
         if (resPerfil.ok) {
           const perfil = await resPerfil.json()
           const usuario = perfil.cliente || perfil.user || perfil
-          if (usuario?.role === "ADMIN" || usuario?.role === "admin" || usuario?.ehAdmin) {
+          if (ativo && (usuario?.role === "ADMIN" || usuario?.role === "admin" || usuario?.ehAdmin)) {
             setEhAdmin(true)
           }
         }
       } catch (e) {
         console.error("Erro ao carregar dados da Home:", e)
       } finally {
-        setCarregando(false)
+        if (ativo) setCarregando(false)
       }
     }
 
-    carregarDados()
+    void carregarDados()
+    return () => {
+      ativo = false
+    }
   }, [])
 
   const handleAlterarExibicaoAdmin = async (id: string | number, localOuVisivel: string | boolean) => {

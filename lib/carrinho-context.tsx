@@ -34,7 +34,7 @@ const CarrinhoContext = createContext<CarrinhoContextType | undefined>(undefined
 
 export function CarrinhoProvider({ children }: { children: ReactNode }) {
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
-  const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
+  const [carregandoCarrinho, setCarregandoCarrinho] = useState(false);
   const [carrinhoAberto, setCarrinhoAberto] = useState(false);
 
   // Busca os itens do banco de dados.
@@ -79,20 +79,24 @@ export function CarrinhoProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let ativo = true;
 
-    async function inicializarCarrinho() {
-      try {
-        await recarregarCarrinho();
-      } finally {
-        if (ativo) {
-          setCarregandoCarrinho(false);
-        }
+    // Mostra imediatamente o carrinho salvo no dispositivo. A API sincroniza
+    // depois, sem bloquear a primeira renderização da loja.
+    try {
+      const carrinhoSalvo = localStorage.getItem("carrinho_jkfashion");
+      if (carrinhoSalvo) {
+        const itensSalvos = JSON.parse(carrinhoSalvo);
+        if (Array.isArray(itensSalvos)) setItens(itensSalvos);
       }
+    } catch (e) {
+      console.error("Erro ao recuperar carrinho local:", e);
     }
 
-    inicializarCarrinho();
+    void recarregarCarrinho().finally(() => {
+      if (ativo) setCarregandoCarrinho(false);
+    });
 
     const handleAtualizar = () => {
-      recarregarCarrinho();
+      void recarregarCarrinho();
     };
 
     window.addEventListener("atualizarCarrinhoGlobal", handleAtualizar);

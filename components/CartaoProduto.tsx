@@ -353,24 +353,6 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     setFavoritoLocal(proximoEstado)
 
     try {
-      const res = await fetch("/api/cliente/favoritos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ produtoId: idProduto, id: idProduto }),
-      })
-
-      // 🔴 Não logado: envia direto para a tela de login
-      if (res.status === 401) {
-        window.location.href = "/login"
-        return
-      }
-
-      if (!res.ok) {
-        setFavoritoLocal(!proximoEstado)
-        exibirNotificacao("Não foi possível favoritar o produto.", "erro")
-        return
-      }
-
       const produtoFormatado = {
         ...produto,
         id: idProduto,
@@ -480,7 +462,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     setCarregandoPerfil(true)
 
     try {
-      const res = await fetch("/api/cliente/perfil")
+      const res = await fetch("/api/cliente/resumo")
       if (res.status === 401) {
         window.location.href = "/login"
         return
@@ -561,6 +543,8 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                 <img
                   src={imagemPrincipal}
                   alt={nomeProduto}
+                  loading="lazy"
+                  decoding="async"
                   className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${
                     imagemSecundaria ? "group-hover:opacity-0" : ""
                   }`}
@@ -569,6 +553,8 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                   <img
                     src={imagemSecundaria}
                     alt={`${nomeProduto} - Imagem 2`}
+                    loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 w-full h-full object-cover opacity-0 transition-all duration-500 group-hover:opacity-100 group-hover:scale-105"
                   />
                 )}

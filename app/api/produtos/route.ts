@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const revalidate = 5;
 
 type ProdutoCatalogo = {
   id: string;
@@ -17,7 +17,6 @@ type ProdutoCatalogo = {
   estoquePorTamanho: unknown;
   cores: string[];
   estoquePorCor: unknown;
-  coresDetalhes: unknown;
   genero: string | null;
   faixaEtaria: string | null;
   estacao: string | null;
@@ -25,7 +24,6 @@ type ProdutoCatalogo = {
   localCard: string | null;
   categoriaNome: string | null;
   createdAt: Date;
-  updatedAt: Date;
 };
 
 // A listagem pública usa SQL direto para não depender de campos
@@ -46,15 +44,13 @@ export async function GET() {
         "estoquePorTamanho",
         "cores",
         "estoquePorCor",
-        "coresDetalhes",
         "genero",
         "faixaEtaria",
         "estacao",
         "ativo",
         "localCard",
         "categoriaNome",
-        "createdAt",
-        "updatedAt"
+        "createdAt"
       FROM "Produto"
       WHERE "ativo" = true
       ORDER BY "createdAt" DESC
@@ -71,7 +67,7 @@ export async function GET() {
       {
         status: 200,
         headers: {
-          "Cache-Control": "no-store, max-age=0",
+          "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
         },
       }
     );

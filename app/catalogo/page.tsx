@@ -276,52 +276,50 @@ function CatalogoConteudo() {
   }, [searchParams])
 
   useEffect(() => {
+    let ativo = true
+
+    // Renderiza imediatamente a última lista conhecida e atualiza em segundo plano.
+    try {
+      const cache = sessionStorage.getItem("jkfashion_products")
+      if (cache) {
+        const lista = JSON.parse(cache)
+        if (Array.isArray(lista) && lista.length > 0) {
+          setProdutos(lista)
+          setCarregando(false)
+        }
+      }
+    } catch {
+      // Cache inválido: faz a busca normal.
+    }
+
     async function carregarDados() {
       try {
-        const mapaTemp: Record<string, string> = {}
-        const nomesDaApi: string[] = []
-
-        const resCat =
-          (await fetch("/api/categorias").catch(() => null)) ||
-          (await fetch("/api/admin/categorias").catch(() => null))
-
-        if (resCat && resCat.ok) {
-          const dataCat = await resCat.json()
-          const lista = Array.isArray(dataCat)
-            ? dataCat
-            : dataCat.categorias || dataCat.data || []
-
-          lista.forEach((c: any) => {
-            const id = String(c.id || c._id || "").trim()
-            const nome = extrairTexto(c)
-
-            if (nome && !ehUUID(nome)) {
-              const nomePadrao = padronizarNomeCategoria(nome)
-              nomesDaApi.push(nomePadrao)
-              if (id) mapaTemp[id] = nomePadrao
-            }
-          })
-        }
-
-        setMapaIdParaNome(mapaTemp)
-        setListaCategoriasApi(nomesDaApi)
-
-        const resProd = await fetch("/api/produtos").catch(() => null)
-        if (resProd && resProd.ok) {
+        const resProd = await fetch("/api/produtos")
+        if (resProd.ok) {
           const dataProd = await resProd.json()
           const listaProd = Array.isArray(dataProd)
             ? dataProd
             : dataProd.produtos || dataProd.data || []
-          setProdutos(listaProd)
+          if (Array.isArray(listaProd)) {
+            if (ativo) setProdutos(listaProd)
+            try {
+              sessionStorage.setItem("jkfashion_products", JSON.stringify(listaProd))
+            } catch {
+              // Cache é opcional.
+            }
+          }
         }
       } catch (e) {
         console.error("Erro ao carregar dados do catálogo:", e)
       } finally {
-        setCarregando(false)
+        if (ativo) setCarregando(false)
       }
     }
 
-    carregarDados()
+    void carregarDados()
+    return () => {
+      ativo = false
+    }
   }, [])
 
   useEffect(() => {
