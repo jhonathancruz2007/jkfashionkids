@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import Rodape from "@/components/Rodape";
 import CarrinhoLateral from "@/components/CarrinhoLateral";
 import VoltarAoTopo from "@/components/VoltarAoTopo";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Rodape />
           </FavoritosProvider>
         </CarrinhoProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
