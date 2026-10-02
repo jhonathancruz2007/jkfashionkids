@@ -877,13 +877,13 @@ function CatalogoConteudo() {
         </div>
 
         {/* LAYOUT */}
-        <div className="grid grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-6 sm:gap-8 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]">
           {/* SIDEBAR / DRAWER */}
           <aside
             className={
               filtroMobileAberto
                 ? "fixed inset-0 z-50 flex flex-col overflow-y-auto bg-white p-5"
-                : "hidden lg:block lg:col-span-1"
+                : "hidden lg:block"
             }
           >
             <div className="flex h-full flex-col">
@@ -901,7 +901,7 @@ function CatalogoConteudo() {
                 </button>
               </div>
 
-              <div className="rounded-3xl bg-white pt-5 lg:border lg:border-slate-200 lg:p-6 lg:shadow-sm lg:pt-6">
+              <div className="rounded-3xl bg-white pt-5 lg:border lg:border-slate-200 lg:p-6 lg:shadow-sm lg:pt-6 lg:min-w-0">
                 <div className="hidden items-center justify-between lg:flex">
                   <h3 className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-700">
                     <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500" />
@@ -923,7 +923,7 @@ function CatalogoConteudo() {
                   {/* Gênero */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700">Gênero</label>
-                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2">
                       {[
                         { label: "Todos", value: "todos" },
                         { label: "Feminino", value: "feminino" },
@@ -936,14 +936,14 @@ function CatalogoConteudo() {
                             key={gen.value}
                             type="button"
                             onClick={() => alterarFiltroGenero(gen.value)}
-                            className={`flex items-center justify-center gap-1 rounded-2xl border px-1.5 py-2 text-[11px] sm:text-xs font-bold transition-all ${
+                            className={`flex min-w-0 items-center justify-center gap-1 rounded-2xl border px-3 py-2 text-[11px] sm:text-xs font-bold transition-all ${
                               ativo
                                 ? "border-slate-900 bg-slate-900 text-white shadow-sm"
                                 : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                             }`}
                           >
                             {ativo && <Check className="h-3 w-3 shrink-0 text-pink-400" />}
-                            <span className="truncate">{gen.label}</span>
+                            <span className="whitespace-nowrap">{gen.label}</span>
                           </button>
                         )
                       })}
@@ -1175,7 +1175,7 @@ function CatalogoConteudo() {
           </aside>
 
           {/* PRODUTOS */}
-          <main className="lg:col-span-3 xl:col-span-4 2xl:col-span-5">
+          <main className="min-w-0">
             {produtosFiltrados.length === 0 ? (
               <div className="rounded-3xl border border-slate-200 bg-white p-8 sm:p-12 text-center shadow-sm">
                 <ShoppingBag className="mx-auto h-10 w-10 text-slate-300" />
