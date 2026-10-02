@@ -239,7 +239,11 @@ function CatalogoConteudo() {
     // links antigos que usavam categoria=feminino/masculino.
     if (categoriaParam) {
       const valorCategoria = categoriaParam.toLowerCase()
-      if (valorCategoria === "feminino" || valorCategoria === "masculino") {
+      if (
+        valorCategoria === "feminino" ||
+        valorCategoria === "masculino" ||
+        valorCategoria === "unissex"
+      ) {
         setCategoriaSelecionada("todos")
       } else {
         setCategoriaSelecionada(padronizarNomeCategoria(categoriaParam))
@@ -251,14 +255,18 @@ function CatalogoConteudo() {
     if (generoParam) {
       const valorGenero = generoParam.toLowerCase()
       setGeneroSelecionado(
-        valorGenero === "feminino" || valorGenero === "masculino"
+        valorGenero === "feminino" ||
+        valorGenero === "masculino" ||
+        valorGenero === "unissex"
           ? valorGenero
           : "todos"
       )
     } else if (categoriaParam) {
       const valorCategoria = categoriaParam.toLowerCase()
       setGeneroSelecionado(
-        valorCategoria === "feminino" || valorCategoria === "masculino"
+        valorCategoria === "feminino" ||
+        valorCategoria === "masculino" ||
+        valorCategoria === "unissex"
           ? valorCategoria
           : "todos"
       )
@@ -482,6 +490,8 @@ function CatalogoConteudo() {
             matchGenero =
               textoCompleto.includes("feminino") ||
               textoCompleto.includes("menina")
+          } else if (generoSelecionado === "unissex") {
+            matchGenero = textoCompleto.includes("unissex")
           }
         }
 
@@ -624,7 +634,17 @@ function CatalogoConteudo() {
       ? [{ tipo: "tamanho" as const, label: `Tam: ${tamanhoSelecionado}` }]
       : []),
     ...(generoSelecionado !== "todos"
-      ? [{ tipo: "genero" as const, label: generoSelecionado === "feminino" ? "Feminino" : "Masculino" }]
+      ? [
+          {
+            tipo: "genero" as const,
+            label:
+              generoSelecionado === "feminino"
+                ? "Feminino"
+                : generoSelecionado === "unissex"
+                  ? "Unissex"
+                  : "Masculino",
+          },
+        ]
       : []),
     ...(idadeSelecionada !== "todos"
       ? [
@@ -903,11 +923,12 @@ function CatalogoConteudo() {
                   {/* Gênero */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700">Gênero</label>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                       {[
                         { label: "Todos", value: "todos" },
                         { label: "Feminino", value: "feminino" },
                         { label: "Masculino", value: "masculino" },
+                        { label: "Unissex", value: "unissex" },
                       ].map((gen) => {
                         const ativo = generoSelecionado === gen.value
                         return (

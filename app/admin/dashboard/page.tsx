@@ -2900,7 +2900,7 @@ export default function PaginaDashboardAdmin() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Gênero</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setFormGenero("masculino")}
@@ -2922,6 +2922,17 @@ export default function PaginaDashboardAdmin() {
                     }`}
                   >
                     Feminino
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormGenero("unissex")}
+                    className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition-all ${
+                      formGenero === "unissex"
+                        ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/20"
+                        : "bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    Unissex
                   </button>
                 </div>
               </div>
