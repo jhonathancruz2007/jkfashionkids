@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -12,6 +13,17 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
+
+const DEBUG_PRISMA_PRODUTO_FIELDS = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === "Produto")
+  ?.fields.map((field) => field.name);
+
+console.log(
+  "=== DEBUG PRISMA PRODUTO ===",
+  DEBUG_PRISMA_PRODUTO_FIELDS,
+  "tinyVariacoes reconhecido:",
+  DEBUG_PRISMA_PRODUTO_FIELDS?.includes("tinyVariacoes") ?? false,
+);
 
 const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 
