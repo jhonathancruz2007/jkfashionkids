@@ -48,7 +48,7 @@ export default function CatalogoCliente({ produtos }: { produtos: Produto[] }) {
 
   return (
     <div className="flex flex-col gap-8 lg:flex-row">
-      <aside className="lg:w-64 lg:shrink-0">
+      <aside className="lg:w-72 lg:shrink-0">
         <div className="rounded-3xl border-2 border-ink/10 bg-white p-6 lg:sticky lg:top-24">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-bold text-ink">Filtros</h2>
@@ -68,7 +68,7 @@ export default function CatalogoCliente({ produtos }: { produtos: Produto[] }) {
             <legend className="font-body text-xs font-bold uppercase tracking-[0.15em] text-sky">
               Categoria de gênero
             </legend>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               {generosLabel.map((g) => {
                 const ativo = genero === g.valor
                 return (
@@ -77,7 +77,7 @@ export default function CatalogoCliente({ produtos }: { produtos: Produto[] }) {
                     type="button"
                     onClick={() => setGenero(g.valor)}
                     aria-pressed={ativo}
-                    className={`rounded-full border-2 px-4 py-1.5 font-body text-sm font-semibold transition-colors ${
+                    className={`flex w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border-2 px-3 py-2 font-body text-sm font-semibold transition-colors ${
                       ativo ? "border-berry bg-berry text-cream" : "border-ink/15 text-ink hover:border-berry"
                     }`}
                   >
