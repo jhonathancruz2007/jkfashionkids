@@ -2405,45 +2405,15 @@ async function updateExistingProduct(
       aggregate.estoquePorCor;
   }
 
-  try {
-    await prisma.produto.update(
-      {
-        where: {
-          id,
-        },
-
-        data,
-      }
-    );
-  } catch (error) {
-    console.error(
-      "=== PRISMA UPDATE PRODUTO FALHOU ===",
-      {
-        produtoId: id,
-        dataKeys: Object.keys(data),
-        tinyVariacoesEstaNoData: Object.prototype.hasOwnProperty.call(
-          data,
-          "tinyVariacoes"
-        ),
-        tinyVariacoesEhArray: Array.isArray(
-          data.tinyVariacoes
-        ),
-        tinyVariacoesCount: Array.isArray(
-          data.tinyVariacoes
-        )
-          ? data.tinyVariacoes.length
-          : null,
-        prismaClientVersion:
-          (prisma as any)?._clientVersion ?? "desconhecida",
-        runtimeProdutoFields: getPrismaRuntimeProdutoFields(),
+  await prisma.produto.update(
+    {
+      where: {
+        id,
       },
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
 
-    throw error;
-  }
+      data,
+    }
+  );
 
   return {
     updated:
@@ -4185,57 +4155,6 @@ export async function GET() {
   }
 }
 
-function getPrismaRuntimeProdutoFields(): string[] {
-  const runtimeModel =
-    (prisma as any)?._runtimeDataModel?.models?.Produto;
-
-  return Array.isArray(runtimeModel?.fields)
-    ? runtimeModel.fields.map(
-        (field: any) => field.name
-      )
-    : [];
-}
-
-async function debugPrismaRuntime() {
-  // Diagnóstico temporário: verifica o Prisma Client que está realmente
-  // sendo executado dentro da função serverless da Vercel, e não apenas
-  // o Prisma usado durante o build. Não altera nenhum dado.
-  const runtimeFields =
-    getPrismaRuntimeProdutoFields();
-
-  console.log(
-    "=== DEBUG PRISMA RUNTIME ===",
-    {
-      tinyVariacoesReconhecidoNoRuntime:
-        runtimeFields.includes("tinyVariacoes"),
-      runtimeFields,
-      prismaClientVersion:
-        (prisma as any)?._clientVersion ?? "desconhecida",
-    }
-  );
-
-  try {
-    await prisma.produto.findFirst({
-      select: {
-        id: true,
-        tinyVariacoes: true,
-      },
-    });
-
-    console.log(
-      "=== DEBUG PRISMA DB PROBE ===",
-      "select de tinyVariacoes executado com sucesso no runtime"
-    );
-  } catch (error) {
-    console.error(
-      "=== DEBUG PRISMA DB PROBE FALHOU ===",
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
-  }
-}
-
 export async function POST(
   request: Request
 ) {
@@ -4279,8 +4198,6 @@ export async function POST(
       mode ===
         "sync"
     ) {
-      await debugPrismaRuntime();
-
       const entries:
         SiteSyncEntry[] =
         Array.isArray(

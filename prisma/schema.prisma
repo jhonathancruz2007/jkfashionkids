@@ -77,8 +77,6 @@ model Produto {
   cores            String[]       @default([])
   estoquePorCor    Json?
   coresDetalhes    Json?
-  variacoes        Json?
-  tinyVariacoes    Json?
   genero           String?        @default("masculino")
   faixaEtaria      String?        @default("INFANTIL")
   estacao          String?
