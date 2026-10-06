@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { SignJWT } from "jose"
 import { loginSchema, registerSchema } from "@/lib/validations"
+import { enviarEmailBoasVindas } from "@/lib/email"
 
 export async function POST(request: Request) {
   try {
@@ -58,6 +59,18 @@ export async function POST(request: Request) {
           senha: senhaHash,
         },
       })
+
+      // O cadastro já foi salvo. O envio do e-mail não pode derrubar
+      // o cadastro caso o provedor de e-mail esteja indisponível.
+      try {
+        await enviarEmailBoasVindas(cliente.email, cliente.nome)
+        console.log(`✅ [E-MAIL DE BOAS-VINDAS ENVIADO] Para: ${cliente.email}`)
+      } catch (emailError: any) {
+        console.error(
+          `❌ [ERRO NO E-MAIL DE BOAS-VINDAS] Para: ${cliente.email}`,
+          emailError
+        )
+      }
     } else {
       if (!cliente || !(await bcrypt.compare(senha, cliente.senha))) {
         return NextResponse.json(
