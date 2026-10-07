@@ -313,17 +313,19 @@ async function sincronizarItemComTiny(item: any): Promise<ResultadoTiny> {
       item.cor ? String(item.cor) : null
     );
 
-    if (!variacao?.id) {
-      return {
-        sucesso: false,
-        mensagem:
-          `Não foi encontrada a variação Tiny para "${produto.nome}"` +
+    if (variacao?.id) {
+      // Quando a combinação existe no Tiny, baixa diretamente na variação.
+      tinyId = String(variacao.id);
+    } else {
+      // A variação pode existir apenas no site. Nesse caso, usamos o produto
+      // principal no Tiny para manter o estoque geral sincronizado.
+      console.warn(
+        `[Tiny] Variação não encontrada para "${produto.nome}"` +
           `${item.tamanho ? ` | tamanho: ${item.tamanho}` : ""}` +
-          `${item.cor ? ` | cor: ${item.cor}` : ""}.`,
-      };
+          `${item.cor ? ` | cor: ${item.cor}` : ""}. ` +
+          `Usando o estoque geral do produto Tiny ${tinyId}.`
+      );
     }
-
-    tinyId = String(variacao.id);
   }
 
   if (!tinyId) {
