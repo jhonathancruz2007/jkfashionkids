@@ -740,7 +740,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
           {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && (
             <div
-              className="mt-2 max-h-[240px] overflow-hidden rounded-2xl border border-transparent pt-0 opacity-100 sm:mt-0 sm:max-h-0 sm:opacity-0 sm:-translate-y-3 sm:scale-[0.98] sm:blur-[2px] sm:pointer-events-none sm:transition-[max-height,margin,opacity,transform,filter] sm:duration-500 sm:ease-[cubic-bezier(0.22,1,0.36,1)] sm:group-hover:mt-2 sm:group-hover:max-h-[280px] sm:group-hover:opacity-100 sm:group-hover:translate-y-0 sm:group-hover:scale-100 sm:group-hover:blur-0 sm:group-hover:pointer-events-auto sm:group-hover:border-neutral-100 sm:group-hover:bg-neutral-50/70 sm:group-hover:shadow-sm"
+              className="mt-0 max-h-0 overflow-hidden rounded-2xl border border-transparent pt-0 opacity-0 pointer-events-none origin-top sm:transition-[max-height,margin,opacity,transform,background-color,border-color,box-shadow] sm:duration-350 sm:ease-out sm:group-hover:mt-2 sm:group-hover:max-h-[280px] sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto sm:group-hover:border-neutral-100 sm:group-hover:bg-neutral-50/80 sm:group-hover:shadow-sm"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-1.5 flex items-center justify-between">
