@@ -1,14 +1,8 @@
-import nodemailer from "nodemailer"
+import { resend } from "@/lib/resend"
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-})
+const EMAIL_FROM =
+  process.env.RESEND_FROM_EMAIL?.trim() ||
+  "JK Fashion Kids <contato@jkfashionkids.com.br>"
 
 function escaparHtml(valor: string) {
   return valor
@@ -88,11 +82,27 @@ export async function enviarEmailBoasVindas(emailCliente: string, nomeCliente: s
     "Este é um e-mail automático de confirmação de cadastro.",
   ].join("\n")
 
-  await transporter.sendMail({
-    from: `"JKfashion Kids" <${process.env.SMTP_USER}>`,
-    to: emailCliente,
-    subject: "Cadastro confirmado na JKfashion Kids 🎉",
+  if (!process.env.RESEND_API_KEY?.trim()) {
+    throw new Error("RESEND_API_KEY não configurada nas variáveis de ambiente.")
+  }
+
+  const { data, error } = await resend.emails.send({
+    from: EMAIL_FROM,
+    to: [emailCliente.trim().toLowerCase()],
+    subject: "Cadastro confirmado na JK Fashion Kids 🎉",
     text: textContent,
     html: htmlContent,
   })
+
+  if (error) {
+    throw new Error(`Resend: ${error.message || "Erro ao enviar o e-mail."}`)
+  }
+
+  console.info("=== RESEND: E-MAIL DE BOAS-VINDAS ENVIADO ===", {
+    email: emailCliente.trim().toLowerCase(),
+    id: data?.id || null,
+  })
+
+  return data
+
 }
