@@ -5,8 +5,6 @@ import { SignJWT } from "jose"
 import { loginSchema, registerSchema } from "@/lib/validations"
 import { enviarEmailBoasVindas } from "@/lib/email"
 
-export const runtime = "nodejs"
-
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}))
@@ -62,21 +60,12 @@ export async function POST(request: Request) {
         },
       })
 
-      // O e-mail é enviado somente para um cadastro realmente novo.
-      // Uma falha no serviço de e-mail não impede a criação da conta.
       try {
-        const emailEnviado = await enviarEmailBoasVindas(cliente.email, cliente.nome)
-        console.log("=== E-MAIL DE CADASTRO ENVIADO ===", {
-          clienteId: cliente.id,
-          destinatario: cliente.email,
-          emailId: emailEnviado?.id || null,
-        })
-      } catch (emailError: any) {
-        console.error("=== ERRO AO ENVIAR E-MAIL DE CADASTRO ===", {
-          clienteId: cliente.id,
-          destinatario: cliente.email,
-          erro: emailError?.message || emailError,
-        })
+        await enviarEmailBoasVindas(cliente.email, cliente.nome)
+        console.info("=== E-MAIL DE BOAS-VINDAS ENVIADO ===", cliente.email)
+      } catch (emailError) {
+        // O cadastro não deve falhar caso o serviço de e-mail esteja indisponível.
+        console.error("=== ERRO AO ENVIAR E-MAIL DE BOAS-VINDAS ===", emailError)
       }
     } else {
       if (!cliente || !(await bcrypt.compare(senha, cliente.senha))) {
