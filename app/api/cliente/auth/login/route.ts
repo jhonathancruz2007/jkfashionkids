@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { SignJWT } from "jose"
 import { loginSchema, registerSchema } from "@/lib/validations"
+import { enviarEmailBoasVindas } from "@/lib/email"
+
+export const runtime = "nodejs"
 
 export async function POST(request: Request) {
   try {
@@ -58,6 +61,23 @@ export async function POST(request: Request) {
           senha: senhaHash,
         },
       })
+
+      // O e-mail é enviado somente para um cadastro realmente novo.
+      // Uma falha no serviço de e-mail não impede a criação da conta.
+      try {
+        const emailEnviado = await enviarEmailBoasVindas(cliente.email, cliente.nome)
+        console.log("=== E-MAIL DE CADASTRO ENVIADO ===", {
+          clienteId: cliente.id,
+          destinatario: cliente.email,
+          emailId: emailEnviado?.id || null,
+        })
+      } catch (emailError: any) {
+        console.error("=== ERRO AO ENVIAR E-MAIL DE CADASTRO ===", {
+          clienteId: cliente.id,
+          destinatario: cliente.email,
+          erro: emailError?.message || emailError,
+        })
+      }
     } else {
       if (!cliente || !(await bcrypt.compare(senha, cliente.senha))) {
         return NextResponse.json(

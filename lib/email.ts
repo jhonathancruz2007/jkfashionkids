@@ -1,52 +1,87 @@
-import nodemailer from "nodemailer"
+import { resend } from "@/lib/resend";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-})
+const EMAIL_FROM =
+  process.env.RESEND_FROM_EMAIL?.trim() ||
+  "JK Fashion Kids <contato@jkfashionkids.com.br>";
 
-export async function enviarEmailBoasVindas(emailCliente: string, nomeCliente: string) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://etrash.site"
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+  "https://jkfashionkids.com.br";
+
+function escaparHtml(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function primeiroNome(nome: string): string {
+  return nome.trim().split(/\s+/)[0] || "Cliente";
+}
+
+export async function enviarEmailBoasVindas(
+  emailCliente: string,
+  nomeCliente: string
+) {
+  const email = emailCliente.trim().toLowerCase();
+  const nome = primeiroNome(nomeCliente);
+  const nomeSeguro = escaparHtml(nome);
+  const linkConta = `${APP_URL.replace(/\/$/, "")}/login`;
 
   const htmlContent = `
-    <div style="font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #090c15; color: #ffffff; padding: 32px; border-radius: 20px; max-width: 580px; margin: 0 auto; border: 1px solid #1e2638;">
-      <div style="text-align: center; margin-bottom: 24px;">
-        <h1 style="color: #ff2575; font-size: 26px; font-weight: 900; margin: 0; letter-spacing: -0.5px;">
-          JKfashion <span style="color: #00d2ff;">Kids</span>
+    <div style="margin:0;padding:24px;background:#f8fafc;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;">
+        <h1 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#111827;">
+          JK Fashion Kids
         </h1>
-      </div>
 
-      <h2 style="color: #ffffff; font-size: 20px; font-weight: 700; margin-bottom: 12px;">
-        Seja muito bem-vindo(a), ${nomeCliente}! 🎉
-      </h2>
+        <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#111827;">
+          Olá, ${nomeSeguro}.
+        </p>
 
-      <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
-        Seu cadastro foi realizado com sucesso. Agora você tem acesso exclusivo ao nosso catálogo de roupas infantis com as melhores condições e entregas rápidas!
-      </p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#374151;">
+          Seu cadastro na JK Fashion Kids foi realizado com sucesso.
+        </p>
 
-      <div style="text-align: center; margin: 28px 0;">
-        <a href="${appUrl}/catalogo" 
-           style="background-color: #ff2575; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: bold; font-size: 13px; border-radius: 9999px; display: inline-block; box-shadow: 0 4px 15px rgba(255, 37, 117, 0.4);">
-          Conhecer o Catálogo
-        </a>
-      </div>
+        <p style="margin:0 0 22px;font-size:14px;line-height:1.7;color:#374151;">
+          Sua conta já está ativa e você pode acessá-la usando o e-mail e a senha cadastrados.
+        </p>
 
-      <div style="border-top: 1px solid #1e2638; padding-top: 20px; margin-top: 28px; text-align: center; color: #64748b; font-size: 11px;">
-        <p style="margin: 0;">Este é um e-mail automático de confirmação de cadastro.</p>
-        <p style="margin: 4px 0 0 0;">Se você não realizou este cadastro, por favor ignore este e-mail.</p>
+        <p style="margin:0 0 24px;">
+          <a href="${linkConta}"
+             style="display:inline-block;padding:11px 18px;border:1px solid #d1d5db;border-radius:8px;background:#ffffff;color:#111827;text-decoration:none;font-size:14px;font-weight:600;">
+            Acessar minha conta
+          </a>
+        </p>
+
+        <div style="border-top:1px solid #e5e7eb;padding-top:18px;margin-top:8px;">
+          <p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#6b7280;">
+            Este é um e-mail automático de confirmação de cadastro.
+          </p>
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#6b7280;">
+            Se você não realizou este cadastro, pode ignorar esta mensagem.
+          </p>
+        </div>
       </div>
     </div>
-  `
+  `;
 
-  await transporter.sendMail({
-    from: `"JKfashion Kids" <${process.env.SMTP_USER}>`,
-    to: emailCliente,
-    subject: "Boas-vindas à JKfashion Kids! ✨",
+  const textContent = `JK Fashion Kids\n\nOlá, ${nome}.\n\nSeu cadastro na JK Fashion Kids foi realizado com sucesso.\n\nSua conta já está ativa e você pode acessá-la usando o e-mail e a senha cadastrados.\n\nAcessar minha conta: ${linkConta}\n\nEste é um e-mail automático de confirmação de cadastro.\nSe você não realizou este cadastro, pode ignorar esta mensagem.`;
+
+  const { data, error } = await resend.emails.send({
+    from: EMAIL_FROM,
+    to: [email],
+    subject: "Confirmação de cadastro - JK Fashion Kids",
     html: htmlContent,
-  })
+    text: textContent,
+  });
+
+  if (error) {
+    throw new Error(error.message || "Erro retornado pelo Resend ao enviar o e-mail de cadastro.");
+  }
+
+  return data;
 }
