@@ -14,8 +14,9 @@ function escaparHtml(valor: string) {
 }
 
 export async function enviarEmailBoasVindas(emailCliente: string, nomeCliente: string) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://jkfashionkids.com.br"
-  const catalogoUrl = `${appUrl.replace(/\/$/, "")}/catalogo`
+  // URL absoluta e fixa para evitar que variáveis de ambiente mal configuradas
+  // gerem um link inválido dentro de clientes de e-mail.
+  const catalogoUrl = "https://jkfashionkids.com.br/catalogo"
   const nomeSeguro = escaparHtml(nomeCliente || "Cliente")
 
   const htmlContent = `
@@ -46,12 +47,17 @@ export async function enviarEmailBoasVindas(emailCliente: string, nomeCliente: s
               Agora é só dar uma olhadinha no nosso catálogo e descobrir as peças preparadas para deixar os pequenos ainda mais estilosos. 🥰
             </p>
 
-            <div style="text-align:center; margin:30px 0 18px;">
-              <a href="${catalogoUrl}" target="_blank" rel="noopener noreferrer"
-                 style="display:inline-block; background:#ff4f96; color:#ffffff; padding:15px 34px; border-radius:999px; text-decoration:none; font-size:15px; font-weight:900; box-shadow:0 7px 18px rgba(255,79,150,.24);">
-                Acessar catálogo
-              </a>
-            </div>
+            <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center" style="margin:30px auto 18px; border-collapse:separate;">
+              <tr>
+                <td align="center" bgcolor="#ff4f96" style="background:#ff4f96; border-radius:999px;">
+                  <a href="${catalogoUrl}" target="_blank" rel="noopener noreferrer"
+                     role="button" aria-label="Acessar catálogo da JK Fashion Kids"
+                     style="display:inline-block; min-width:190px; box-sizing:border-box; padding:15px 30px; border-radius:999px; background:#ff4f96; color:#ffffff !important; text-decoration:none !important; font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:20px; font-weight:900; text-align:center;">
+                    Acessar catálogo
+                  </a>
+                </td>
+              </tr>
+            </table>
 
             <div style="text-align:center; margin-top:22px; font-size:22px;">🦄 ⭐ 🧸 🎈</div>
           </td>
