@@ -281,7 +281,6 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
   const [tamanhoSelecionado, setTamanhoSelecionado] = useState(tamanhosProduto[0] || "")
   const coresProduto = useMemo(() => getCoresProduto(produto), [produto.cores])
   const [corSelecionada, setCorSelecionada] = useState("")
-  const [modalCorAberto, setModalCorAberto] = useState(false)
   const [adicionando, setAdicionando] = useState(false)
   const [notificacao, setNotificacao] = useState<{ texto: string; tipo: "sucesso" | "alerta" | "erro" } | null>(null)
 
@@ -293,7 +292,6 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     }
 
     setCorSelecionada("")
-    setModalCorAberto(false)
   }, [idProduto, tamanhosProduto])
 
   const [modalAvisoAberto, setModalAvisoAberto] = useState(false)
@@ -385,7 +383,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     const corLimpa = extrairTexto(corSelecionada) || ""
 
     if (coresProduto.length > 0 && !corLimpa) {
-      setModalCorAberto(true)
+      exibirNotificacao("Selecione uma cor antes de adicionar ao carrinho.", "alerta")
       return
     }
 
@@ -424,8 +422,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
       const msgSucesso = `Peça (Tam. ${tamanhoLimpo}${detalhesCor}) adicionada com sucesso ao seu carrinho!`
       exibirNotificacao(msgSucesso, "sucesso")
 
-      setModalCorAberto(false)
-
+  
       if (typeof recarregarCarrinho === "function") {
         await recarregarCarrinho()
       } else {
@@ -444,13 +441,24 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     e.stopPropagation()
 
     if (coresProduto.length > 0 && !corSelecionada) {
-      setModalCorAberto(true)
+      exibirNotificacao("Selecione uma cor antes de adicionar ao carrinho.", "alerta")
       return
     }
 
     void executarAdicionarAoCarrinho()
   }
 
+
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const alvo = e.target as HTMLElement | null
+
+    // Elementos interativos mantêm o próprio comportamento.
+    if (alvo?.closest("button, a, input, select, textarea, label")) return
+
+    if (idProduto) {
+      window.location.href = `/produtos/${idProduto}`
+    }
+  }
 
   const abrirModalAviso = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -488,17 +496,6 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
       console.error("Erro ao buscar perfil do usuário:", err)
     } finally {
       setCarregandoPerfil(false)
-    }
-  }
-
-  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const alvo = e.target as HTMLElement | null
-
-    // Botões, links e campos continuam com seu próprio comportamento.
-    if (alvo?.closest("button, a, input, select, textarea, label")) return
-
-    if (idProduto) {
-      window.location.href = `/produtos/${idProduto}`
     }
   }
 
@@ -623,76 +620,10 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             </div>
           )}
 
-          {modalCorAberto && (
-            <div
-              className="absolute inset-x-2 bottom-2 max-h-[58%] bg-white/95 backdrop-blur-md z-40 p-3 flex flex-col rounded-2xl shadow-2xl border border-violet-200 animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-2">
-                <div className="flex items-center gap-1.5 text-xs font-black text-neutral-900">
-                  <Palette className="h-4 w-4 text-violet-600" /> Escolha a cor
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setModalCorAberto(false)}
-                  className="p-1 rounded-xl text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <p className="text-[10px] text-neutral-500 mb-3">
-                Selecione a cor que deseja comprar{tamanhoSelecionado ? ` no tamanho ${tamanhoSelecionado}` : ""}.
-              </p>
-
-              <div className="flex flex-wrap gap-2">
-                {coresProduto.map((cor) => {
-                  const selecionada = normalizarCorTexto(corSelecionada) === normalizarCorTexto(cor)
-                  const esgotada = isCorEsgotadaCard(produto, cor, tamanhoSelecionado)
-
-                  return (
-                    <button
-                      key={cor}
-                      type="button"
-                      disabled={esgotada || adicionando}
-                      onClick={() => setCorSelecionada(cor)}
-                      className={`px-3 py-2 rounded-xl text-[11px] font-bold border transition-all ${
-                        selecionada
-                          ? "bg-violet-600 text-white border-violet-600 shadow-sm scale-[1.02]"
-                          : esgotada
-                          ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
-                          : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
-                      }`}
-                    >
-                      <span
-                        className={
-                          esgotada
-                            ? "line-through decoration-red-500 decoration-2"
-                            : ""
-                        }
-                      >
-                        {cor}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              <button
-                type="button"
-                disabled={!corSelecionada || adicionando}
-                onClick={() => void executarAdicionarAoCarrinho()}
-                className="w-full mt-3 pt-2.5 pb-2.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {adicionando ? "Adicionando..." : "Continuar e adicionar ao carrinho"}
-              </button>
-            </div>
-          )}
-
+          {/* Seletor de opções fora da imagem para não cobrir o produto nem bloquear o clique do card. */}
           {modalAvisoAberto && (
             <div 
               className="absolute inset-0 bg-white/95 backdrop-blur-md z-30 p-3.5 flex flex-col justify-between rounded-2xl shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto max-h-full"
-              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
                 <div className="flex items-center gap-1.5 text-xs font-black text-neutral-900">
@@ -788,116 +719,6 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             </div>
           )}
 
-          {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && !modalCorAberto && (
-            <div className="absolute inset-x-0 bottom-0 bg-white/95 backdrop-blur-md p-3 translate-y-full group-hover:translate-y-0 transition-all duration-300 ease-in-out flex flex-col gap-2 z-20 border-t border-neutral-200/60 shadow-xl">
-              <div className="flex items-center justify-between text-[11px] font-bold text-neutral-500 px-0.5">
-                <span>Tamanho:</span>
-                <span className="text-neutral-900 font-black">{tamanhoSelecionado}</span>
-              </div>
-
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                {tamanhosProduto.map((tam) => {
-                  const selecionado = tamanhoSelecionado === tam
-                  return (
-                    <button
-                      key={tam}
-                      type="button"
-                      onClick={(e) => selecionarTamanho(tam, e)}
-                      className={`h-8 min-w-[32px] px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center shrink-0 ${
-                        selecionado
-                          ? "bg-neutral-900 text-white border-neutral-900 scale-105 shadow-sm"
-                          : isTamanhoEsgotadoCard(produto, tam)
-                          ? "bg-white text-neutral-500 border-neutral-200 cursor-not-allowed"
-                          : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50"
-                      }`}
-                    >
-                      <span
-                        className={
-                          isTamanhoEsgotadoCard(produto, tam)
-                            ? "line-through decoration-red-500 decoration-2"
-                            : ""
-                        }
-                      >
-                        {tam}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              {coresProduto.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-neutral-500 px-0.5">
-                    <span>Cor:</span>
-                    <span className="text-neutral-900 font-black">{corSelecionada || "Selecione"}</span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                    {coresProduto.map((cor) => {
-                      const selecionada = normalizarCorTexto(corSelecionada) === normalizarCorTexto(cor)
-                      const esgotada = isCorEsgotadaCard(produto, cor, tamanhoSelecionado)
-
-                      return (
-                        <button
-                          key={cor}
-                          type="button"
-                          disabled={esgotada}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setCorSelecionada(cor)
-                          }}
-                          className={`h-8 px-2.5 rounded-xl text-[10px] font-bold transition-all border shrink-0 ${
-                            selecionada
-                              ? "bg-violet-600 text-white border-violet-600 scale-105 shadow-sm"
-                              : esgotada
-                              ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
-                              : "bg-white text-neutral-700 border-neutral-200 hover:border-violet-400 hover:bg-violet-50"
-                          }`}
-                        >
-                          <span
-                            className={
-                              esgotada
-                                ? "line-through decoration-red-500 decoration-2"
-                                : ""
-                            }
-                          >
-                            {cor}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {emEstoque ? (
-                <button
-                  type="button"
-                  disabled={adicionando}
-                  onClick={handleAdicionarAoCarrinho}
-                  className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 ${tema.btnBg} disabled:opacity-70`}
-                >
-                  {adicionando ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ShoppingBag className="h-3.5 w-3.5" />
-                  )}
-                  {adicionando ? "Adicionando..." : "Adicionar ao carrinho"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={abrirModalAviso}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-neutral-900 text-white transition-all shadow-sm active:scale-95"
-                >
-                  <Bell className="h-3.5 w-3.5" />
-                  Avise-me quando chegar
-                </button>
-              )}
-            </div>
-          )}
-
           <button
             type="button"
             onClick={handleFavoritar}
@@ -916,6 +737,116 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             )}
           </button>
         </div>
+
+          {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && (
+            <div
+              className="mt-3 rounded-2xl border border-neutral-200 bg-neutral-50/90 p-2.5 shadow-sm"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {tamanhosProduto.length > 0 && (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-bold text-neutral-500">
+                    <span>Tamanho</span>
+                    <span className="font-black text-neutral-900">{tamanhoSelecionado || "Selecione"}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    {tamanhosProduto.map((tam) => {
+                      const selecionado = tamanhoSelecionado === tam
+                      const esgotado = isTamanhoEsgotadoCard(produto, tam)
+
+                      return (
+                        <button
+                          key={tam}
+                          type="button"
+                          disabled={esgotado}
+                          onClick={(e) => selecionarTamanho(tam, e)}
+                          className={`h-7 min-w-[30px] shrink-0 rounded-lg border px-2 text-[10px] font-bold transition-all ${
+                            selecionado
+                              ? "border-neutral-900 bg-neutral-900 text-white shadow-sm"
+                              : esgotado
+                              ? "cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400"
+                              : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100"
+                          }`}
+                        >
+                          <span className={esgotado ? "line-through decoration-red-500 decoration-2" : ""}>
+                            {tam}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {coresProduto.length > 0 && (
+                <div className={tamanhosProduto.length > 0 ? "mt-2.5" : ""}>
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-bold text-neutral-500">
+                    <span>Cor</span>
+                    <span className="max-w-[65%] truncate font-black text-neutral-900">
+                      {corSelecionada || "Selecione"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    {coresProduto.map((cor) => {
+                      const selecionada = normalizarCorTexto(corSelecionada) === normalizarCorTexto(cor)
+                      const esgotada = isCorEsgotadaCard(produto, cor, tamanhoSelecionado)
+
+                      return (
+                        <button
+                          key={cor}
+                          type="button"
+                          disabled={esgotada}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setCorSelecionada(cor)
+                          }}
+                          className={`h-7 shrink-0 rounded-lg border px-2.5 text-[10px] font-bold transition-all ${
+                            selecionada
+                              ? "border-violet-600 bg-violet-600 text-white shadow-sm"
+                              : esgotada
+                              ? "cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400"
+                              : "border-neutral-200 bg-white text-neutral-700 hover:border-violet-400 hover:bg-violet-50"
+                          }`}
+                        >
+                          <span className={esgotada ? "line-through decoration-red-500 decoration-2" : ""}>
+                            {cor}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {emEstoque ? (
+                <button
+                  type="button"
+                  disabled={adicionando}
+                  onClick={handleAdicionarAoCarrinho}
+                  className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-[11px] font-bold transition-all shadow-sm active:scale-[0.98] ${tema.btnBg} disabled:opacity-70`}
+                >
+                  {adicionando ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShoppingBag className="h-3.5 w-3.5" />
+                  )}
+                  {adicionando ? "Adicionando..." : "Adicionar ao carrinho"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={abrirModalAviso}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-800 py-2 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-neutral-900 active:scale-[0.98]"
+                >
+                  <Bell className="h-3.5 w-3.5" />
+                  Avise-me quando chegar
+                </button>
+              )}
+            </div>
+          )}
 
         <div className="pt-3 px-1 flex-1 flex flex-col justify-between">
           <div>
