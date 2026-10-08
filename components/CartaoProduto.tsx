@@ -740,9 +740,18 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
           {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && (
             <div
-              className="mt-3 border-t border-neutral-100 pt-3"
+              className="mt-2 max-h-[240px] overflow-hidden rounded-2xl border border-transparent pt-0 opacity-100 transition-all duration-300 ease-out sm:max-h-0 sm:opacity-0 sm:-translate-y-1 sm:pointer-events-none sm:group-hover:max-h-[240px] sm:group-hover:opacity-100 sm:group-hover:translate-y-0 sm:group-hover:pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             >
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-[8px] font-extrabold uppercase tracking-[0.14em] text-neutral-400">
+                  Escolha sua opção
+                </span>
+                <span className="text-[8px] font-semibold text-neutral-400">
+                  {tamanhosProduto.length > 0 && coresProduto.length > 0 ? "Tamanho e cor" : tamanhosProduto.length > 0 ? "Tamanho" : "Cor"}
+                </span>
+              </div>
+
               {tamanhosProduto.length > 0 && (
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-2 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
@@ -826,7 +835,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                   type="button"
                   disabled={adicionando}
                   onClick={handleAdicionarAoCarrinho}
-                  className={`mt-3 flex w-full items-center justify-center gap-2 rounded-full py-2.5 text-[11px] font-bold transition-all shadow-sm active:scale-[0.98] ${tema.btnBg} disabled:opacity-70`}
+                  className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-full py-2 text-[10px] font-bold transition-all shadow-sm active:scale-[0.98] ${tema.btnBg} disabled:opacity-70`}
                 >
                   {adicionando ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -839,7 +848,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                 <button
                   type="button"
                   onClick={abrirModalAviso}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-neutral-800 py-2.5 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-neutral-900 active:scale-[0.98]"
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-full bg-neutral-800 py-2 text-[10px] font-bold text-white shadow-sm transition-all hover:bg-neutral-900 active:scale-[0.98]"
                 >
                   <Bell className="h-3.5 w-3.5" />
                   Avise-me quando chegar
