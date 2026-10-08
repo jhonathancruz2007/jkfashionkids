@@ -491,6 +491,17 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
     }
   }
 
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const alvo = e.target as HTMLElement | null
+
+    // Botões, links e campos continuam com seu próprio comportamento.
+    if (alvo?.closest("button, a, input, select, textarea, label")) return
+
+    if (idProduto) {
+      window.location.href = `/produtos/${idProduto}`
+    }
+  }
+
   const enviarAvisoEstoque = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!contatoAviso.trim() || !idProduto) return
@@ -525,7 +536,8 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-3xl bg-white border-2 p-4 shadow-sm flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 ${tema.border} ${tema.hoverShadow}`}
+      onClick={handleCardClick}
+      className={`group relative overflow-hidden rounded-3xl bg-white border-2 p-4 shadow-sm flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 cursor-pointer ${tema.border} ${tema.hoverShadow}`}
     >
       <div className={`absolute top-0 left-0 right-0 h-1.5 w-full ${tema.topBar}`} />
 
@@ -613,10 +625,10 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
           {modalCorAberto && (
             <div
-              className="absolute inset-0 bg-white/97 backdrop-blur-md z-35 p-4 flex flex-col rounded-2xl shadow-2xl border border-violet-200 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto"
+              className="absolute inset-x-2 bottom-2 max-h-[58%] bg-white/95 backdrop-blur-md z-40 p-3 flex flex-col rounded-2xl shadow-2xl border border-violet-200 animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-3">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-2">
                 <div className="flex items-center gap-1.5 text-xs font-black text-neutral-900">
                   <Palette className="h-4 w-4 text-violet-600" /> Escolha a cor
                 </div>
@@ -670,7 +682,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                 type="button"
                 disabled={!corSelecionada || adicionando}
                 onClick={() => void executarAdicionarAoCarrinho()}
-                className="w-full mt-auto pt-2.5 pb-2.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full mt-3 pt-2.5 pb-2.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {adicionando ? "Adicionando..." : "Continuar e adicionar ao carrinho"}
               </button>
