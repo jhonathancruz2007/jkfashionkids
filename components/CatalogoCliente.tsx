@@ -145,7 +145,7 @@ export default function CatalogoCliente({ produtos }: { produtos: Produto[] }) {
           {filtrados.length} {filtrados.length === 1 ? "peça encontrada" : "peças encontradas"}
         </p>
         {filtrados.length > 0 ? (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 items-start gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {filtrados.map((produto) => (
               <CartaoProduto key={produto.slug} produto={produto} />
             ))}

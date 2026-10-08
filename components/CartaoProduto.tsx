@@ -534,12 +534,12 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
   return (
     <div
       onClick={handleCardClick}
-      className={`group relative overflow-hidden rounded-3xl bg-white border-2 p-4 shadow-sm flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 cursor-pointer ${tema.border} ${tema.hoverShadow}`}
+      className={`group relative self-start h-fit w-full overflow-hidden rounded-3xl bg-white border-2 p-4 shadow-sm flex flex-col transition-all duration-300 hover:-translate-y-1 cursor-pointer ${tema.border} ${tema.hoverShadow}`}
     >
       <div className={`absolute top-0 left-0 right-0 h-1.5 w-full ${tema.topBar}`} />
 
-      <div className="flex flex-col h-full pt-1">
-        <div className="relative block overflow-hidden rounded-2xl bg-neutral-100 aspect-square min-h-[200px]">
+      <div className="flex flex-col pt-1">
+        <div className="relative block overflow-hidden rounded-2xl bg-neutral-100 aspect-square">
           {temDesconto && percentualDesconto > 0 && (
             <div className="absolute top-3 left-3 z-10 bg-red-600 text-white text-[10px] sm:text-xs font-black px-2.5 py-0.5 rounded-full shadow-md animate-pulse">
               -{percentualDesconto}%
@@ -740,12 +740,12 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
           {(tamanhosProduto.length > 0 || coresProduto.length > 0) && !modalAvisoAberto && (
             <div
-              className="mt-3 rounded-2xl border border-neutral-200 bg-neutral-50/90 p-2.5 shadow-sm"
+              className="mt-3 border-t border-neutral-100 pt-3"
               onClick={(e) => e.stopPropagation()}
             >
               {tamanhosProduto.length > 0 && (
                 <div>
-                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-bold text-neutral-500">
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
                     <span>Tamanho</span>
                     <span className="font-black text-neutral-900">{tamanhoSelecionado || "Selecione"}</span>
                   </div>
@@ -761,7 +761,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                           type="button"
                           disabled={esgotado}
                           onClick={(e) => selecionarTamanho(tam, e)}
-                          className={`h-7 min-w-[30px] shrink-0 rounded-lg border px-2 text-[10px] font-bold transition-all ${
+                          className={`h-7 min-w-[30px] shrink-0 rounded-full border px-2 text-[10px] font-bold transition-all ${
                             selecionado
                               ? "border-neutral-900 bg-neutral-900 text-white shadow-sm"
                               : esgotado
@@ -781,9 +781,9 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
 
               {coresProduto.length > 0 && (
                 <div className={tamanhosProduto.length > 0 ? "mt-2.5" : ""}>
-                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-bold text-neutral-500">
+                  <div className="mb-1.5 flex items-center justify-between gap-2 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
                     <span>Cor</span>
-                    <span className="max-w-[65%] truncate font-black text-neutral-900">
+                    <span className="max-w-[60%] truncate font-black text-neutral-800 normal-case tracking-normal">
                       {corSelecionada || "Selecione"}
                     </span>
                   </div>
@@ -803,7 +803,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                             e.stopPropagation()
                             setCorSelecionada(cor)
                           }}
-                          className={`h-7 shrink-0 rounded-lg border px-2.5 text-[10px] font-bold transition-all ${
+                          className={`h-7 shrink-0 rounded-full border px-2.5 text-[10px] font-bold transition-all ${
                             selecionada
                               ? "border-violet-600 bg-violet-600 text-white shadow-sm"
                               : esgotada
@@ -826,7 +826,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                   type="button"
                   disabled={adicionando}
                   onClick={handleAdicionarAoCarrinho}
-                  className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-[11px] font-bold transition-all shadow-sm active:scale-[0.98] ${tema.btnBg} disabled:opacity-70`}
+                  className={`mt-3 flex w-full items-center justify-center gap-2 rounded-full py-2.5 text-[11px] font-bold transition-all shadow-sm active:scale-[0.98] ${tema.btnBg} disabled:opacity-70`}
                 >
                   {adicionando ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -839,7 +839,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
                 <button
                   type="button"
                   onClick={abrirModalAviso}
-                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-800 py-2 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-neutral-900 active:scale-[0.98]"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-neutral-800 py-2.5 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-neutral-900 active:scale-[0.98]"
                 >
                   <Bell className="h-3.5 w-3.5" />
                   Avise-me quando chegar
@@ -848,7 +848,7 @@ export function CardProduto({ produto, isAdmin, onAlterarExibicaoAdmin }: CardPr
             </div>
           )}
 
-        <div className="pt-3 px-1 flex-1 flex flex-col justify-between">
+        <div className="pt-3 px-1">
           <div>
             <Link href={`/produtos/${idProduto}`}>
               <h3 className="text-xs sm:text-sm font-bold text-neutral-800 line-clamp-2 transition-colors hover:text-rose-600 group-hover:text-rose-600 cursor-pointer">
