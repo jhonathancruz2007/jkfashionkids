@@ -1,128 +1,96 @@
-                    entry.nomeTiny
-                      ? str(
-                          entry.nomeTiny
-                        )
-                      : undefined,
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import {
+  OlistOAuthError,
+  getOlistV3,
+  redisDelete,
+  redisGetJson,
+  redisSetJson,
+  redisSetNx,
+} from "@/lib/olist-v3";
 
-                  isNew:
-                    Boolean(
-                      entry.isNew
-                    ),
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 45;
 
-                  matchMethod:
-                    entry.matchMethod ===
-                        "redis" ||
-                    entry.matchMethod ===
-                        "id" ||
-                    entry.matchMethod ===
-                        "nome" ||
-                    entry.matchMethod ===
-                        "similaridade" ||
-                    entry.matchMethod ===
-                        "novo"
-                      ? entry.matchMethod
-                      : undefined,
-                })
-              )
-              .filter(
-                (entry) =>
-                  Boolean(
-                    entry.tinyId
-                  )
-              )
-          : [];
+const SYNC_LOCK_KEY = "jkfashion:olist:v3:sync:lock";
 
-      if (
-        entries.length ===
-        0
-      ) {
-        return NextResponse.json(
-          {
-            success:
-              false,
+// v22:
+// - nova interpretação das grades
+// - qualquer grade diferente de tamanho => cor
+// - nome do próprio produto não entra como cor
+// - grava também os IDs reais das variações em tinyVariacoes
+const TINY_CATALOG_CACHE_KEY =
+  "jkfashion:olist:v3:catalog:canonical:v22";
 
-            error:
-              "Nenhuma associação de produto foi enviada para a reconciliação completa.",
-          },
+const TINY_CATALOG_CACHE_TTL =
+  6 * 60 * 60;
 
-          {
-            status:
-              400,
-          }
-        );
-      }
+const SITE_TINY_MAP_PREFIX =
+  "jkfashion:olist:v3:site-tiny:";
 
-      return NextResponse.json(
-        await fullBatch(
-          entries
-        )
-      );
-    }
+// Janela usada apenas para descobrir produtos novos no modo rápido.
+// Não controla a atualização de estoque dos produtos já cadastrados.
+const QUICK_NEW_LOOKBACK_MS =
+  30 * 24 * 60 * 60 * 1000;
 
-    // =========================================================
-    // MODO INVÁLIDO
-    // =========================================================
-    return NextResponse.json(
-      {
-        success:
-          false,
+const API_READ_BATCH_SIZE = 4;
+const DETAIL_CONCURRENCY = 2;
+const STOCK_CONFIRM_MAX_RETRIES = 1;
+const FULL_BATCH_SIZE = 28;
+const PLACEHOLDER_IMAGE = "";
 
-        error:
-          `Modo de sincronização inválido: ${mode}`,
-      },
+type AnyRecord =
+  Record<string, any>;
 
-      {
-        status:
-          400,
-      }
-    );
-  } catch (
-    error
-  ) {
-    console.error(
-      "=== ERRO NA SINCRONIZAÇÃO OLIST/TINY V3 ===",
-      error
-    );
+type TinyListItem = {
+  id?: number | string;
 
-    if (
-      error instanceof
-      OlistOAuthError
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
+  sku?: string | null;
 
-          error:
-            error.message,
+  codigo?: string | null;
 
-          code:
-            error.code,
-        },
+  descricao?: string | null;
 
-        {
-          status:
-            error.code ===
-            "NOT_CONNECTED"
-              ? 401
-              : 500,
-        }
-      );
-    }
+  tipo?: string | null;
 
-    return NextResponse.json(
-      {
-        success:
-          false,
+  situacao?: string | null;
 
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro interno na sincronização.",
-      },
+  dataCriacao?: string | null;
 
-      {
-        status:
-          500,
-      }
-    );
+  dataAlteracao?: string | null;
+
+  tipoVariacao?: string | null;
+
+  produtoPai?: {
+    id?: number | string | null;
+  } | null;
+
+  grade?: TinyGrade;
+};
+
+type TinyGrade =
+  | Array<{
+      chave?: string | null;
+      valor?: string | null;
+    }>
+  | Record<string, unknown>
+  | null
+  | undefined;
+
+type TinyVariation = {
+  id?: number | string;
+
+  descricao?: string | null;
+
+  sku?: string | null;
+
+  gtin?: string | null;
+
+  nome?: string | null;
+
+  titulo?: string | null;
+
+  estoque?: {
+    quantidade?: number | null;
+  } | null;
