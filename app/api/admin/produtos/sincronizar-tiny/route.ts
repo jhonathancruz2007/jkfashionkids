@@ -2189,6 +2189,130 @@ async function mapWithConcurrency<
   return results;
 }
 
+/**
+ * Mescla nomes de variações sem perder as opções exclusivas do site.
+ * O Tiny atualiza os nomes que reconhece; os nomes criados apenas no
+ * site continuam no cadastro.
+ */
+function mergeVariationNames(
+  siteNames: string[] = [],
+  tinyNames: string[] = []
+): string[] {
+  const result = [...siteNames];
+  const known = new Set(
+    result.map((name) => normalize(String(name ?? "")))
+  );
+
+  for (const rawName of tinyNames) {
+    const name = String(rawName ?? "").trim();
+    const key = normalize(name);
+    if (!name || known.has(key)) continue;
+    result.push(name);
+    known.add(key);
+  }
+
+  return result;
+}
+
+function asJsonRecord(value: unknown): Record<string, any> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return JSON.parse(JSON.stringify(value)) as Record<string, any>;
+}
+
+function findEquivalentKey(
+  record: Record<string, any>,
+  key: string
+): string | undefined {
+  const normalized = normalize(key);
+  return Object.keys(record).find(
+    (candidate) => normalize(candidate) === normalized
+  );
+}
+
+/**
+ * Atualiza os tamanhos que vieram do Tiny e mantém qualquer tamanho
+ * que exista apenas no site.
+ */
+function mergeStockBySize(
+  siteStock: unknown,
+  tinyStock: Record<string, number>
+): Record<string, number> {
+  const result = asJsonRecord(siteStock) as Record<string, number>;
+
+  for (const [tinySize, quantity] of Object.entries(tinyStock)) {
+    const existingKey = findEquivalentKey(result, tinySize);
+    result[existingKey ?? tinySize] = Math.max(0, Number(quantity) || 0);
+  }
+
+  return result;
+}
+
+/**
+ * Mescla a matriz Cor x Tamanho. Cores e tamanhos que não aparecem
+ * no retorno do Tiny não são apagados. Quando o Tiny retorna apenas
+ * um total por cor (sem grade por tamanho), mantemos a matriz detalhada
+ * já mantida no site em vez de substituí-la por um total genérico.
+ */
+function mergeStockByColor(
+  siteStock: unknown,
+  tinyStock: Record<string, any>
+): Record<string, any> {
+  const result = asJsonRecord(siteStock);
+
+  for (const [tinyColor, tinyValue] of Object.entries(tinyStock)) {
+    const colorKey = findEquivalentKey(result, tinyColor) ?? tinyColor;
+    const siteValue = result[colorKey];
+    const tinyIsRecord =
+      !!tinyValue && typeof tinyValue === "object" && !Array.isArray(tinyValue);
+    const siteIsRecord =
+      !!siteValue && typeof siteValue === "object" && !Array.isArray(siteValue);
+
+    if (siteIsRecord && !tinyIsRecord) {
+      // O Tiny trouxe apenas um saldo geral para a cor. Não apague os
+      // saldos por tamanho mantidos manualmente no site.
+      continue;
+    }
+
+    if (siteIsRecord && tinyIsRecord) {
+      const tinyRow = tinyValue as Record<string, any>;
+      const siteRow = siteValue as Record<string, any>;
+      const tinyKeys = Object.keys(tinyRow);
+      const hasOnlyTotal =
+        tinyKeys.length === 1 && normalize(tinyKeys[0]) === "total";
+      const hasSiteSizes = Object.keys(siteRow).some(
+        (key) => normalize(key) !== "total"
+      );
+
+      if (hasOnlyTotal && hasSiteSizes) {
+        // `total` não informa quanto existe em cada tamanho. Preservamos
+        // a matriz do site, sem inventar uma distribuição por tamanho.
+        continue;
+      }
+
+      const mergedRow = { ...siteRow };
+      const tinyHasDetailedSizes = Object.keys(tinyRow).some(
+        (key) => normalize(key) !== "total"
+      );
+      if (tinyHasDetailedSizes) {
+        const oldTotalKey = findEquivalentKey(mergedRow, "total");
+        if (oldTotalKey) delete mergedRow[oldTotalKey];
+      }
+      for (const [tinySize, quantity] of Object.entries(tinyRow)) {
+        const sizeKey = findEquivalentKey(mergedRow, tinySize) ?? tinySize;
+        mergedRow[sizeKey] = Math.max(0, Number(quantity) || 0);
+      }
+      result[colorKey] = mergedRow;
+      continue;
+    }
+
+    result[colorKey] = tinyValue;
+  }
+
+  return result;
+}
+
 async function updateExistingProduct(
   id: string,
 
@@ -2354,30 +2478,31 @@ async function updateExistingProduct(
   };
 
   // ==========================================================
-  // TAMANHOS
+  // TAMANHOS E CORES: preservar variações exclusivas do site
   // ==========================================================
-  if (
-    variationAttributes &&
-    variationAttributes
-      .tamanhos
-      .length > 0
-  ) {
-    data.tamanhos =
-      variationAttributes.tamanhos;
-  }
+  // Não substituímos as listas inteiras pelas opções encontradas no Tiny.
+  // A sincronização complementa as listas existentes e mantém as opções
+  // cadastradas manualmente na loja.
+  const tamanhosTiny =
+    variationAttributes?.tamanhos?.length
+      ? variationAttributes.tamanhos
+      : aggregate.tamanhos;
+  const coresTiny =
+    variationAttributes?.cores?.length
+      ? variationAttributes.cores
+      : aggregate.cores;
 
-  // ==========================================================
-  // CORES / MODELOS / ESTAMPAS
-  // ==========================================================
-  if (
-    variationAttributes &&
-    variationAttributes
-      .cores
-      .length > 0
-  ) {
-    data.cores =
-      variationAttributes.cores;
-  }
+  const tamanhosFinais = mergeVariationNames(
+    existing.tamanhos || [],
+    tamanhosTiny || []
+  );
+  const coresFinais = mergeVariationNames(
+    existing.cores || [],
+    coresTiny || []
+  );
+
+  data.tamanhos = tamanhosFinais;
+  data.cores = coresFinais;
 
   // ==========================================================
   // tinyVariacoes
@@ -2393,16 +2518,18 @@ async function updateExistingProduct(
     tinyVariacoes;
 
   // ==========================================================
-  // MATRIZES DE ESTOQUE
+  // MATRIZES DE ESTOQUE: mesclar, nunca zerar variação local
   // ==========================================================
-  if (
-    aggregate.matrixComplete
-  ) {
-    data.estoquePorTamanho =
-      aggregate.estoquePorTamanho;
+  if (aggregate.matrixComplete) {
+    data.estoquePorTamanho = mergeStockBySize(
+      existing.estoquePorTamanho,
+      aggregate.estoquePorTamanho
+    );
 
-    data.estoquePorCor =
-      aggregate.estoquePorCor;
+    data.estoquePorCor = mergeStockByColor(
+      existing.estoquePorCor,
+      aggregate.estoquePorCor
+    );
   }
 
   await prisma.produto.update(

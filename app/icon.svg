@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="27" fill="#fffafc"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="none" stroke="#f48fb1" stroke-width="3"/>
+  <g font-family="Arial, Helvetica, sans-serif" font-weight="900" text-anchor="middle" paint-order="stroke">
+    <text x="43" y="70" font-size="51" fill="#81d4fa" stroke="#292524" stroke-width="2.5">J</text>
+    <text x="72" y="70" font-size="51" fill="#f48fb1" stroke="#292524" stroke-width="2.5">K</text>
+    <text x="64" y="94" font-size="15" letter-spacing="2" fill="#d81b60">KIDS</text>
+  </g>
+  <circle cx="99" cy="28" r="5" fill="#ffd54f"/>
+  <path d="M99 17v-4M99 43v-4M88 28h-4M114 28h-4M91 20l-3-3M107 36l3 3M107 20l3-3M91 36l-3 3" stroke="#ff8a65" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

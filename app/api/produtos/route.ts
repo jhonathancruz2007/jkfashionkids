@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
-export const revalidate = 5;
+// Evita gerar esta API como uma página ISR durante o build. O catálogo
+// contém imagens que historicamente foram armazenadas como data URLs/Base64.
+export const dynamic = "force-dynamic";
 
 type ProdutoCatalogo = {
   id: string;
@@ -26,8 +28,21 @@ type ProdutoCatalogo = {
   createdAt: Date;
 };
 
-// A listagem pública usa SQL direto para não depender de campos
-// divergentes do schema/migration history local.
+function imagemPublica(id: string, imagem: string | null | undefined, indice: number): string {
+  const valor = typeof imagem === "string" ? imagem.trim() : "";
+  if (!valor) return "";
+
+  // URLs normais continuam diretas. Base64 fica fora do JSON do catálogo
+  // e é entregue sob demanda pela rota /api/produtos/[id]/imagem.
+  if (/^data:image\//i.test(valor)) {
+    return `/api/produtos/${encodeURIComponent(id)}/imagem?index=${indice}`;
+  }
+
+  return valor;
+}
+
+// Lista pública otimizada: as galerias completas ficam no endpoint de um
+// único produto. Aqui enviamos somente as 2 imagens necessárias para os cards.
 export async function GET() {
   try {
     const produtos = await prisma.$queryRaw<ProdutoCatalogo[]>`
@@ -56,21 +71,33 @@ export async function GET() {
       ORDER BY "createdAt" DESC
     `;
 
-    return NextResponse.json(
-      produtos.map((produto) => ({
+    const resultado = produtos.map((produto) => {
+      const galeria = Array.isArray(produto.imagens) ? produto.imagens : [];
+      const principalOriginal = galeria[0] || produto.imagemUrl || "";
+      const segundaOriginal = galeria[1] || "";
+      const principal = imagemPublica(produto.id, principalOriginal, 0);
+      const segunda = imagemPublica(produto.id, segundaOriginal, 1);
+
+      return {
         ...produto,
-        imagem: produto.imagemUrl,
+        // Não serializar as imagens Base64 completas nem duplicar a imagem
+        // principal em `imagem`. Isso reduz drasticamente o corpo da resposta.
+        imagemUrl: principal || imagemPublica(produto.id, produto.imagemUrl, 0),
+        imagem: principal || imagemPublica(produto.id, produto.imagemUrl, 0),
+        imagens: segunda ? [principal, segunda].filter(Boolean) : principal ? [principal] : [],
         categoria: produto.categoriaNome
           ? { nome: produto.categoriaNome }
           : null,
-      })),
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
-        },
-      }
-    );
+      };
+    });
+
+    return NextResponse.json(resultado, {
+      status: 200,
+      headers: {
+        // Cache curto no edge sem transformar a rota em ISR durante o build.
+        "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
+      },
+    });
   } catch (error: any) {
     console.error("🔥 ERRO AO CARREGAR CATÁLOGO:", error);
 
